@@ -10,12 +10,13 @@ from app.airspace.geometry import geodesic_circle, to_geojson
 from app.airspace.models import AirspaceZone, Circle, DraCategory, RestrictionType, SourceType
 from app.airspace.providers import AirspaceDataset
 from app.airspace.repository import AirspaceRepository
+from app.geo.coverage import bbox_coverage
 from app.main import app
 from app.routing.grid import build_grid
 from app.routing.planner import RoutePlanner
-from app.schemas.layers import BuildingProperties, CorridorProperties, StationProperties
+from app.schemas.layers import BuildingProperties, CorridorProperties
 from app.schemas.planning import DroneProfile
-from app.services.data_loader import DemoData, Layer
+from app.services.data_loader import Layer
 from app.services.weather import demo_weather
 
 # ~680 m x 670 m test area inside central Warsaw (27 x 27 cells of 25 m).
@@ -28,7 +29,8 @@ PROFILE = DroneProfile(
     id="TEST", name="Test drone", description="", cruise_speed_mps=10, max_wind_kmh=40,
     vertical_clearance_m=10, max_range_km=50, max_payload_kg=1, source="DEMO",
 )
-CALM = demo_weather().model_copy(update={"wind_speed_kmh": 0.0, "wind_gust_kmh": None})
+# No per-location samples: the planner then uses the top-level wind values.
+CALM = demo_weather().model_copy(update={"wind_speed_kmh": 0.0, "wind_gust_kmh": None, "samples": []})
 
 _DEFAULT_RESTRICTION = {
     DraCategory.P: RestrictionType.PROHIBITED,
@@ -96,14 +98,9 @@ def make_planner(zones=(), buildings=(), river=None, margin_m=20.0) -> RoutePlan
     c_props, c_geoms = [], []
     if river is not None:
         c_props, c_geoms = [CorridorProperties(id="river", corridor_type="RIVER")], [river]
-    data = DemoData(
-        corridors=Layer(c_props, c_geoms, {}),
-        buildings=Layer(b_props, [g for g, _ in buildings], {}),
-        stations=Layer[StationProperties]([], [], {}),
-        layers_json=b"",
-    )
-    grid = build_grid(data, TEST_BBOX)
-    return RoutePlanner(grid, AirspaceRepository(StaticProvider(zones), grid, margin_m), TEST_BBOX)
+    area = box(TEST_BBOX["minLon"], TEST_BBOX["minLat"], TEST_BBOX["maxLon"], TEST_BBOX["maxLat"])
+    grid = build_grid(Layer(c_props, c_geoms, {}), Layer(b_props, [g for g, _ in buildings], {}), area)
+    return RoutePlanner(grid, AirspaceRepository(StaticProvider(zones), grid, margin_m), bbox_coverage(TEST_BBOX))
 
 
 @pytest.fixture(scope="session")

@@ -1,7 +1,7 @@
 import { Injectable, computed } from '@angular/core';
 import { httpResource } from '@angular/common/http';
 import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from 'geojson';
-import { API_BASE_URL, DemoBbox, safeValue } from './api';
+import { API_BASE_URL, safeValue } from './api';
 
 export type CorridorType = 'RIVER' | 'PARK';
 export type HeightSource = 'osm_height' | 'levels_x3' | 'default_15m';
@@ -30,11 +30,20 @@ export interface StationProps {
 
 type Area = Polygon | MultiPolygon;
 
+export interface BuildingStats {
+  buildings: number;
+  tallBuildings: number;
+  estimatedHeights: number;
+  parks: number;
+  tiles: number;
+}
+
+/** Citywide display layers. All building footprints come as tiles (MapComponent). */
 export interface Layers {
-  bbox: DemoBbox;
   corridors: FeatureCollection<Area, CorridorProps>;
-  buildings: FeatureCollection<Area, BuildingProps>;
+  tallBuildings: FeatureCollection<Area, BuildingProps>;
   stations: FeatureCollection<Point, StationProps>;
+  buildingStats: Partial<BuildingStats>;
 }
 
 export type StationFeature = Feature<Point, StationProps>;
@@ -52,14 +61,12 @@ export class LayersService {
   readonly summary = computed(() => {
     const l = this.data();
     if (!l) return undefined;
-    const count = <T>(items: T[], pred: (t: T) => boolean) => items.filter(pred).length;
-    const corridors = l.corridors.features.map((f) => f.properties);
-    const buildings = l.buildings.features.map((f) => f.properties);
+    const s = l.buildingStats ?? {};
     return {
-      parks: count(corridors, (c) => c.corridor_type === 'PARK'),
-      buildings: buildings.length,
-      tallBuildings: count(buildings, (b) => b.height_m >= TALL_BUILDING_M),
-      estimatedHeights: count(buildings, (b) => b.height_source === 'default_15m'),
+      parks: l.corridors.features.filter((f) => f.properties.corridor_type === 'PARK').length,
+      buildings: s.buildings ?? 0,
+      tallBuildings: s.tallBuildings ?? l.tallBuildings.features.length,
+      estimatedHeights: s.estimatedHeights ?? 0,
       stations: l.stations.features.length,
     };
   });

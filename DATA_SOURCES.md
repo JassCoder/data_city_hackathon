@@ -6,13 +6,25 @@ SkyRoute Warsaw is a planning and simulation prototype. **No data in this reposi
 
 | Data | Source | Type | Where |
 |---|---|---|---|
-| Buildings (height), river, parks | © OpenStreetMap contributors (ODbL), via Overpass API | Real snapshot (2026-10-17) | `data/buildings.geojson`, `data/corridors.geojson` (`scripts/fetch_osm.py`) |
+| **City boundary + 18 districts** | **GUGiK – Państwowy Rejestr Granic (PRG)**, OGC API Features | Official, cached snapshot (2026-10-17) | `data/boundaries/warsaw_city.geojson`, `warsaw_districts.geojson` (`scripts/fetch_boundaries.py`) |
+| Buildings (height), river, parks | © OpenStreetMap contributors (ODbL), via Overpass API | Real citywide snapshot (2026-10-17): 189,276 buildings | `data/osm/grid_warsaw_25m.npz` (routing raster), `data/osm/tiles/14/…` (display), `data/corridors.geojson`, `data/tall_buildings.geojson` (`scripts/fetch_osm.py`) |
 | **UAS geographical zones** | **SkyRoute DEMO dataset** | **Synthetic, non-authoritative** | `data/airspace/demo_zones.geojson` (`scripts/build_demo_data.py`) |
 | Landing stations | SkyRoute DEMO | Synthetic | `data/landing_stations.geojson` |
 | Drone profiles | SkyRoute DEMO | Illustrative assumptions | `data/drone_profiles.json` |
 | Address search | Nominatim (© OpenStreetMap contributors) | Live, server-side, at most 1 request/s, cached 24 h | `backend/app/services/geocoding.py` |
 | Wind (LIVE mode) | Open-Meteo | Live, with an explicit DEMO fallback | `backend/app/services/weather.py` |
 | Map tiles | © OpenStreetMap contributors | Live tiles | frontend |
+
+## Warsaw administrative boundary
+
+- **Source:** GUGiK's national register of boundaries (PRG), through its documented public OGC API Features service: `https://ogcapi.geoportal.gov.pl/res/ims/maps/PRG/apiFeatures/collections`.
+- **How features are selected:** by **TERYT code**, not by name.
+  - The city: collection `GranicaPowiatu`, `kod == "1465"` ("powiat Warszawa", a city with county rights, 516.7 km²).
+  - The 18 districts: collection `GranicaJednostkiEwidencyjnej`, `kod` `146502_8` … `146519_8`.
+  - This cannot be confused with neighbouring counties (warszawski zachodni, 1432) or the metropolitan area.
+- **Checks:** the script refuses to write unless it finds exactly 1 city and 18 districts whose union matches the city area within 1%.
+- **Use:** the city polygon is the routing coverage. Every point is validated against it with a point-in-polygon test, on both the backend and the frontend.
+- **Metadata kept:** the PRG version id, the "valid from" date and the retrieval time.
 
 ## Polish UAS geographical zones: what official data is available
 
@@ -80,7 +92,7 @@ ED-269 mapping (`Ed269FileProvider`):
 
 ## DEMO airspace dataset
 
-`data/airspace/demo_zones.geojson` is invented for the prototype.
+`data/airspace/demo_zones.geojson` is invented for the prototype. It declares an **extent** (central Warsaw) in its metadata. Routes that leave that extent are reported with the length "not checked against any zones", because there are no DEMO zones for the rest of the city, and none are invented around airports or other sites.
 - Every zone has `sourceType: "DEMO"`, `verificationStatus: "SYNTHETIC_DEMO"`, an id starting `DEMO-` and "DEMO" in its name.
 - The map shows a "DEMO airspace: synthetic zones, not official PAŻP boundaries" banner, a DEMO badge in every zone popup, and the source in the legend and route results.
 

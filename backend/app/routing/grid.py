@@ -1,5 +1,10 @@
-"""Rasterises terrain corridors and buildings onto a metric grid (EPSG:2180)
-once at startup. Airspace zones are evaluated per flight (app/airspace).
+"""Metric routing grid (EPSG:2180) for the whole City of Warsaw.
+
+Production loads a raster precomputed by scripts/fetch_osm.py (25 m cells,
+~1.4 M cells covering the city): max building height, river and park masks.
+The coverage mask (cell centre inside the official city polygon) is computed
+at startup from the boundary. Airspace zones are evaluated per flight
+(app/airspace). Routing searches a window of this grid (see planner.py).
 
 Arrays are indexed [row, col], where row 0 is the southern edge (y grows north)
 and col 0 the western edge.
@@ -7,17 +12,17 @@ and col 0 the western edge.
 
 from __future__ import annotations
 
+import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import shapely
 from pyproj import Transformer
-from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
 
 from app.routing.costs import CELL_SIZE_M
-from app.services.data_loader import DemoData
 
 _to_m = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform
 _to_deg = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True).transform
@@ -35,6 +40,10 @@ def xy_to_lonlat(xs, ys):
     return _to_deg(xs, ys)
 
 
+class GridLoadError(RuntimeError):
+    pass
+
+
 @dataclass
 class Grid:
     min_x: float
@@ -42,10 +51,11 @@ class Grid:
     cell: float
     rows: int
     cols: int
-    coverage: np.ndarray  # bool: cell centre inside the demo bbox
+    coverage: np.ndarray  # bool: cell centre inside the routing coverage polygon
     river: np.ndarray  # bool
     park: np.ndarray  # bool
     building_height: np.ndarray  # float metres, 0 = no building
+    meta: dict = field(default_factory=dict)
 
     # --- coordinates -----------------------------------------------------------
     def cell_of(self, x: float, y: float) -> tuple[int, int] | None:
@@ -55,13 +65,8 @@ class Grid:
             return row, col
         return None
 
-    def centre(self, row: int, col: int) -> tuple[float, float]:
+    def centre(self, row: float, col: float) -> tuple[float, float]:
         return self.min_x + (col + 0.5) * self.cell, self.min_y + (row + 0.5) * self.cell
-
-    def centres(self) -> tuple[np.ndarray, np.ndarray]:
-        xs = self.min_x + (np.arange(self.cols) + 0.5) * self.cell
-        ys = self.min_y + (np.arange(self.rows) + 0.5) * self.cell
-        return np.meshgrid(xs, ys)  # each [rows, cols]
 
     def window(self, bounds: tuple[float, float, float, float]) -> tuple[slice, slice]:
         minx, miny, maxx, maxy = bounds
@@ -71,15 +76,16 @@ class Grid:
         r1 = min(self.rows, math.ceil((maxy - self.min_y) / self.cell))
         return slice(r0, r1), slice(c0, c1)
 
+    def centres_in(self, win: tuple[slice, slice]) -> tuple[np.ndarray, np.ndarray]:
+        rs, cs = win
+        xs = self.min_x + (np.arange(cs.start, cs.stop) + 0.5) * self.cell
+        ys = self.min_y + (np.arange(rs.start, rs.stop) + 0.5) * self.cell
+        return np.meshgrid(xs, ys)
+
 
 def empty_grid(min_x: float, min_y: float, rows: int, cols: int, cell: float = CELL_SIZE_M) -> Grid:
-    """All-open grid; used by tests and as the base for rasterisation."""
     return Grid(
-        min_x=min_x,
-        min_y=min_y,
-        cell=cell,
-        rows=rows,
-        cols=cols,
+        min_x=min_x, min_y=min_y, cell=cell, rows=rows, cols=cols,
         coverage=np.ones((rows, cols), bool),
         river=np.zeros((rows, cols), bool),
         park=np.zeros((rows, cols), bool),
@@ -89,17 +95,15 @@ def empty_grid(min_x: float, min_y: float, rows: int, cols: int, cell: float = C
 
 def _centres_inside(grid: Grid, geom_m: BaseGeometry) -> tuple[tuple[slice, slice], np.ndarray]:
     win = grid.window(geom_m.bounds)
-    xs, ys = grid.centres()
-    return win, shapely.contains_xy(geom_m, xs[win], ys[win])
+    xs, ys = grid.centres_in(win)
+    return win, shapely.contains_xy(geom_m, xs, ys)
 
 
 def cells_intersecting(grid: Grid, geom_m: BaseGeometry) -> tuple[tuple[slice, slice], np.ndarray]:
     """Conservative: any cell touching the polygon (used for airspace zones)."""
     win = grid.window(geom_m.bounds)
     rs, cs = win
-    rows = np.arange(rs.start, rs.stop)
-    cols = np.arange(cs.start, cs.stop)
-    cc, rr = np.meshgrid(cols, rows)
+    cc, rr = np.meshgrid(np.arange(cs.start, cs.stop), np.arange(rs.start, rs.stop))
     x0 = grid.min_x + cc * grid.cell
     y0 = grid.min_y + rr * grid.cell
     boxes = shapely.box(x0, y0, x0 + grid.cell, y0 + grid.cell)
@@ -107,24 +111,48 @@ def cells_intersecting(grid: Grid, geom_m: BaseGeometry) -> tuple[tuple[slice, s
     return win, shapely.intersects(geom_m, boxes)
 
 
-def build_grid(data: DemoData, bbox: dict[str, float], cell: float = CELL_SIZE_M) -> Grid:
-    bbox_m = to_metres(box(bbox["minLon"], bbox["minLat"], bbox["maxLon"], bbox["maxLat"]))
-    minx, miny, maxx, maxy = bbox_m.bounds
+def coverage_mask(grid: Grid, area_wgs84: BaseGeometry) -> np.ndarray:
+    area_m = to_metres(area_wgs84)
+    shapely.prepare(area_m)
+    mask = np.zeros((grid.rows, grid.cols), bool)
+    win = grid.window(area_m.bounds)
+    xs, ys = grid.centres_in(win)
+    mask[win] = shapely.contains_xy(area_m, xs, ys)
+    return mask
+
+
+def load_city_grid(path: Path, area_wgs84: BaseGeometry | None) -> Grid:
+    """Loads the precomputed citywide raster; coverage from the official polygon."""
+    if not path.is_file():
+        raise GridLoadError(f"Missing routing raster {path}. Run `python scripts/fetch_osm.py` from the repo root.")
+    with np.load(path) as z:
+        meta = json.loads(str(z["meta"]))
+        grid = Grid(
+            min_x=meta["min_x"], min_y=meta["min_y"], cell=meta["cell"], rows=meta["rows"], cols=meta["cols"],
+            coverage=np.zeros((meta["rows"], meta["cols"]), bool),
+            river=z["river"], park=z["park"], building_height=z["building_height"].astype(np.float32),
+            meta=meta,
+        )
+    if area_wgs84 is not None:
+        grid.coverage = coverage_mask(grid, area_wgs84)
+    return grid
+
+
+def build_grid(corridors, buildings, area_wgs84: BaseGeometry, cell: float = CELL_SIZE_M) -> Grid:
+    """Rasterises small synthetic worlds (tests): `corridors` / `buildings` are
+    Layers with `properties` and WGS84 `geometries`."""
+    area_m = to_metres(area_wgs84)
+    minx, miny, maxx, maxy = area_m.bounds
     grid = empty_grid(minx, miny, math.ceil((maxy - miny) / cell), math.ceil((maxx - minx) / cell), cell)
-
-    xs, ys = grid.centres()
-    grid.coverage = shapely.contains_xy(bbox_m, xs, ys)
-
-    for props, geom in zip(data.corridors.properties, data.corridors.geometries):
+    grid.coverage = coverage_mask(grid, area_wgs84)
+    for props, geom in zip(corridors.properties, corridors.geometries):
         win, inside = _centres_inside(grid, to_metres(geom))
         layer = grid.river if props.corridor_type == "RIVER" else grid.park
         layer[win] |= inside
-
-    # Buildings: a cell takes the tallest building covering its centre. Small
-    # footprints that cover no centre still mark the cell holding their
-    # representative point, so no tall tower slips through the grid.
+    # A cell takes the tallest building covering its centre; small footprints
+    # still mark the cell holding their representative point.
     heights = grid.building_height
-    for props, geom in zip(data.buildings.properties, data.buildings.geometries):
+    for props, geom in zip(buildings.properties, buildings.geometries):
         geom_m = to_metres(geom)
         win, inside = _centres_inside(grid, geom_m)
         if inside.any():
@@ -135,3 +163,18 @@ def build_grid(data: DemoData, bbox: dict[str, float], cell: float = CELL_SIZE_M
             if rc:
                 heights[rc] = max(heights[rc], props.height_m)
     return grid
+
+
+def pool_blocked(cost: np.ndarray, factor: int) -> np.ndarray:
+    """Coarsens a cost window by `factor`: a coarse cell is blocked if ANY of its
+    fine cells is blocked (conservative), otherwise it takes their mean cost."""
+    if factor == 1:
+        return cost
+    r, c = cost.shape
+    pr, pc = (-r) % factor, (-c) % factor
+    padded = np.pad(cost, ((0, pr), (0, pc)), constant_values=np.inf)
+    blocks = padded.reshape(padded.shape[0] // factor, factor, padded.shape[1] // factor, factor).swapaxes(1, 2)
+    blocked = ~np.isfinite(blocks).all(axis=(2, 3))
+    with np.errstate(invalid="ignore"):
+        mean = np.where(blocked, np.inf, blocks.mean(axis=(2, 3)))
+    return mean

@@ -18,7 +18,6 @@ from typing import Protocol
 
 import httpx
 
-from app.config import DEMO_BBOX
 from app.schemas.planning import GeocodeResult
 
 
@@ -38,8 +37,11 @@ class GeocodingProvider(Protocol):
     async def search(self, query: str, limit: int) -> list[GeocodeResult]: ...
 
 
-def in_coverage(lat: float, lon: float, bbox: dict[str, float] = DEMO_BBOX) -> bool:
-    return bbox["minLat"] <= lat <= bbox["maxLat"] and bbox["minLon"] <= lon <= bbox["maxLon"]
+ContainsFn = Callable[[float, float], bool]  # (lon, lat) -> inside routing coverage
+
+
+def _never(lon: float, lat: float) -> bool:
+    return False
 
 
 class NominatimProvider:
@@ -54,11 +56,13 @@ class NominatimProvider:
         user_agent: str,
         viewbox: str,
         timeout_s: float = 8.0,
+        contains: ContainsFn = _never,
     ):
         self._client = client
         self._base_url = base_url
         self._user_agent = user_agent
         self._viewbox = viewbox
+        self._contains = contains
         self._timeout = timeout_s
 
     async def search(self, query: str, limit: int) -> list[GeocodeResult]:
@@ -70,7 +74,7 @@ class NominatimProvider:
                     "format": "jsonv2",
                     "limit": limit,
                     "countrycodes": "pl",
-                    "viewbox": self._viewbox,  # Warsaw city
+                    "viewbox": self._viewbox,  # official city bounds (+ margin)
                     "bounded": 1,
                     "accept-language": "pl,en",
                 },
@@ -81,10 +85,10 @@ class NominatimProvider:
             payload = res.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise GeocodingError(f"Nominatim request failed: {type(exc).__name__}") from exc
-        return self.parse(payload)
+        return self.parse(payload, self._contains)
 
     @staticmethod
-    def parse(payload: object) -> list[GeocodeResult]:
+    def parse(payload: object, contains: ContainsFn = _never) -> list[GeocodeResult]:
         if not isinstance(payload, list):
             raise GeocodingError("Nominatim returned an unexpected payload")
         results = []
@@ -102,7 +106,7 @@ class NominatimProvider:
                 place_id=f"nominatim:{item['place_id']}" if item.get("place_id") is not None else None,
                 category=category,
                 source="nominatim",
-                in_coverage=in_coverage(lat, lon),
+                in_coverage=contains(lon, lat),  # point-in-polygon on the official Warsaw boundary
             ))
         return results
 

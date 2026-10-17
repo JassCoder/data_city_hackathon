@@ -3,6 +3,7 @@ import {
   ElementRef,
   OnDestroy,
   ViewEncapsulation,
+  inject,
   afterNextRender,
   effect,
   input,
@@ -10,13 +11,32 @@ import {
   viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
-import { DemoBbox } from '../core/api';
+import { HttpClient } from '@angular/common/http';
+import type { FeatureCollection } from 'geojson';
+import { API_BASE_URL } from '../core/api';
+import { BoundaryResponse, FALLBACK_VIEW } from '../core/map-data';
 import { AirspaceSource, AirspaceZone, DisplayClass, SOURCE_LABEL, STATUS_LABEL } from '../core/airspace';
 import { BuildingProps, CorridorProps, Layers, StationProps, StationType, TALL_BUILDING_M } from '../core/layers';
 import { Coordinate, SelectedLocation } from '../core/models';
 import { RouteState } from '../core/planner.store';
 
-const WARSAW_CENTER: L.LatLngTuple = [52.2297, 21.0122];
+/** All footprints are loaded as z14 tiles once the map is zoomed in this far. */
+export const BUILDING_TILE_ZOOM = 14;
+export const BUILDING_MIN_ZOOM = 15;
+const MAX_TILES_IN_VIEW = 30;
+
+/** z14 web-mercator tiles covering a lon/lat box. */
+export function tilesFor(west: number, south: number, east: number, north: number, z = BUILDING_TILE_ZOOM): [number, number][] {
+  const n = 2 ** z;
+  const tx = (lon: number) => Math.floor(((lon + 180) / 360) * n);
+  const ty = (lat: number) => {
+    const r = (lat * Math.PI) / 180;
+    return Math.floor(((1 - Math.asinh(Math.tan(r)) / Math.PI) / 2) * n);
+  };
+  const out: [number, number][] = [];
+  for (let x = tx(west); x <= tx(east); x++) for (let y = ty(north); y <= ty(south); y++) out.push([x, y]);
+  return out;
+}
 
 export const COLORS = {
   river: '#1e88e5',
@@ -24,6 +44,8 @@ export const COLORS = {
   building: '#9e9e9e',
   tallBuilding: '#37474f',
   bbox: '#455a64',
+  city: '#263238',
+  district: '#5c6bc0',
   routeNormal: '#1565c0',
   routeEmergency: '#2e7d32',
   routeStale: '#757575',
@@ -96,8 +118,7 @@ const STATION_LABEL: Record<StationType, string> = {
 @Component({
   selector: 'app-map',
   template: `<div #mapEl class="map"></div>`,
-  styleUrl: './map.scss',
-  // Leaflet builds its own DOM (legend, icons, popups), so styles must be global.
+  // Leaflet builds its own DOM (legend, icons, popups): its styles are global (src/styles/map.scss).
   encapsulation: ViewEncapsulation.None,
 })
 export class MapComponent implements OnDestroy {
@@ -112,6 +133,10 @@ export class MapComponent implements OnDestroy {
   readonly airspaceSource = input<AirspaceSource | undefined>();
   readonly highlightZoneIds = input<string[]>([]);
   readonly focusZoneId = input<string | null>(null);
+  /** Official Warsaw boundary + districts (undefined while loading). */
+  readonly boundary = input<BoundaryResponse | undefined>();
+  /** The boundary could not be loaded: show a labelled fallback view. */
+  readonly boundaryMissing = input(false);
   readonly mapClick = output<Coordinate>();
   readonly focusDone = output<void>();
 
@@ -119,7 +144,6 @@ export class MapComponent implements OnDestroy {
   private map?: L.Map;
   private layerControl?: L.Control.Layers;
   private dataLayers: L.Layer[] = [];
-  private buildingsLayer?: L.GeoJSON;
   private corridorLayers: L.GeoJSON[] = [];
   private zoneLayer?: L.GeoJSON;
   private canvas?: L.Renderer;
@@ -129,10 +153,24 @@ export class MapComponent implements OnDestroy {
   private routeLayer?: L.LayerGroup;
   private routeRenderer?: L.Renderer;
   private lastFitted?: unknown;
+  private readonly http = inject(HttpClient, { optional: true });
+  private cityLayer?: L.GeoJSON;
+  private districtLayer?: L.GeoJSON;
+  private cityBounds?: L.LatLngBounds;
+  private fittedCity = false;
+  private coverageBanner?: HTMLElement;
+  private extentLayer?: L.GeoJSON;
+  private tallLayer?: L.GeoJSON;
+  /** Building footprint tiles (z14): loaded once, shown only at street zoom. */
+  private tileGroup?: L.LayerGroup;
+  private readonly tiles = new Map<string, L.GeoJSON>();
+  private readonly pendingTiles = new Set<string>();
+  private resizeObserver?: ResizeObserver;
 
   constructor() {
     afterNextRender(() => {
-      this.map = L.map(this.mapEl().nativeElement).setView(WARSAW_CENTER, 14);
+      // Starts on an approximate view; fits the official boundary once it loads.
+      this.map = L.map(this.mapEl().nativeElement).setView(FALLBACK_VIEW.center, FALLBACK_VIEW.zoom);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors',
@@ -140,6 +178,8 @@ export class MapComponent implements OnDestroy {
       this.layerControl = L.control.layers(undefined, undefined, { collapsed: false }).addTo(this.map);
       this.legend().addTo(this.map);
       this.airspaceBanner().addTo(this.map);
+      this.showWarsawControl().addTo(this.map);
+      this.coverageBannerControl().addTo(this.map);
       // One canvas for corridors, zones and buildings (thousands of polygons).
       this.canvas = guardedCanvas();
       this.zoneLayer = L.geoJSON(undefined, {
@@ -160,6 +200,17 @@ export class MapComponent implements OnDestroy {
         },
       }).addTo(this.map);
       this.layerControl.addOverlay(this.zoneLayer, this.swatch(ZONE_COLORS.RED, 'Airspace zones'));
+      this.tileGroup = L.layerGroup().addTo(this.map);
+      this.layerControl.addOverlay(this.tileGroup, this.swatch(COLORS.building, `All buildings (zoom ≥ ${BUILDING_MIN_ZOOM})`));
+      this.map.on('moveend', () => this.syncBuildingTiles());
+      if (typeof ResizeObserver !== 'undefined') {
+        this.resizeObserver = new ResizeObserver(() => {
+          this.map?.invalidateSize();
+          // First real layout after a zero-size start: fit the city now.
+          if (this.cityBounds && this.map && this.map.getZoom() === FALLBACK_VIEW.zoom && this.fittedCity) this.showEntireWarsaw();
+        });
+        this.resizeObserver.observe(this.mapEl().nativeElement);
+      }
       // Re-enabled overlays are drawn last on the shared canvas: restore the order.
       this.map.on('overlayadd', () => this.enforceOrder());
       this.map.on('click', (e: L.LeafletMouseEvent) =>
@@ -175,6 +226,7 @@ export class MapComponent implements OnDestroy {
       this.syncRoute(this.route());
       this.syncZones(this.zones(), this.highlightZoneIds());
       this.syncSource(this.airspaceSource());
+      this.syncBoundary(this.boundary(), this.boundaryMissing());
     });
 
     effect(() => this.render(this.layers()));
@@ -185,6 +237,129 @@ export class MapComponent implements OnDestroy {
     effect(() => this.syncZones(this.zones(), this.highlightZoneIds()));
     effect(() => this.syncSource(this.airspaceSource()));
     effect(() => this.focus(this.focusZoneId()));
+    effect(() => this.syncBoundary(this.boundary(), this.boundaryMissing()));
+  }
+
+  // --- city boundary ------------------------------------------------------------
+
+  private syncBoundary(boundary: BoundaryResponse | undefined, missing: boolean): void {
+    const map = this.map;
+    const control = this.layerControl;
+    if (!map || !control) return;
+    if (this.coverageBanner) {
+      this.coverageBanner.hidden = !missing;
+      this.coverageBanner.innerHTML = missing
+        ? '<b>Warsaw boundary data unavailable.</b> Showing an approximate view; routing coverage cannot be validated.'
+        : '';
+    }
+    if (!boundary || this.cityLayer) return;
+    this.districtLayer = L.geoJSON(boundary.districts, {
+      style: { color: COLORS.district, weight: 1.2, opacity: 0.8, fill: false },
+      interactive: false,
+      onEachFeature: (f, l) =>
+        l.bindTooltip(String(f.properties.name), { permanent: true, direction: 'center', className: 'district-label' }),
+    }).addTo(map);
+    this.cityLayer = L.geoJSON(boundary.city, {
+      style: { color: COLORS.city, weight: 3, opacity: 0.9, fill: false },
+      interactive: false,
+    }).addTo(map);
+    control.addOverlay(this.cityLayer, this.swatch(COLORS.city, 'Warsaw boundary (GUGiK PRG)', true));
+    control.addOverlay(this.districtLayer, this.swatch(COLORS.district, '18 districts', true));
+    this.cityBounds = this.cityLayer.getBounds();
+    if (!this.fittedCity) {
+      this.fittedCity = true;
+      this.showEntireWarsaw();
+    }
+  }
+
+  /** Fits the whole official city boundary in the map (with padding). */
+  showEntireWarsaw(): void {
+    if (!this.map) return;
+    // A zero-size container (hidden tab, not laid out yet) would make fitBounds
+    // jump to maximum zoom; keep the city view and refit on the next resize.
+    const sized = this.map.getSize().x > 0 && this.map.getSize().y > 0;
+    if (this.cityBounds?.isValid() && sized) this.map.fitBounds(this.cityBounds, { padding: [24, 24] });
+    else this.map.setView(FALLBACK_VIEW.center, FALLBACK_VIEW.zoom);
+  }
+
+  private showWarsawControl(): L.Control {
+    const c = new L.Control({ position: 'topleft' });
+    c.onAdd = () => {
+      const btn = L.DomUtil.create('button', 'show-warsaw-btn') as HTMLButtonElement;
+      btn.type = 'button';
+      btn.title = 'Show Entire Warsaw';
+      btn.setAttribute('data-testid', 'show-warsaw');
+      btn.innerHTML = '<span class="material-icons">zoom_out_map</span><span>Show Entire Warsaw</span>';
+      L.DomEvent.disableClickPropagation(btn);
+      L.DomEvent.on(btn, 'click', () => this.showEntireWarsaw());
+      return btn;
+    };
+    return c;
+  }
+
+  private coverageBannerControl(): L.Control {
+    const c = new L.Control({ position: 'topleft' });
+    c.onAdd = () => {
+      this.coverageBanner = L.DomUtil.create('div', 'coverage-banner');
+      this.coverageBanner.setAttribute('data-testid', 'coverage-banner');
+      this.coverageBanner.hidden = true;
+      return this.coverageBanner;
+    };
+    return c;
+  }
+
+  // --- building tiles ------------------------------------------------------------
+
+  private buildingStyle = (f?: GeoJSON.Feature): L.PathOptions => {
+    const tall = (f?.properties as BuildingProps).height_m >= TALL_BUILDING_M;
+    const color = tall ? COLORS.tallBuilding : COLORS.building;
+    return { color, weight: tall ? 1 : 0.5, fillColor: color, fillOpacity: tall ? 0.85 : 0.45 };
+  };
+
+  private buildingTooltip = (f: GeoJSON.Feature, l: L.Layer): void => {
+    const p = f.properties as BuildingProps;
+    l.bindTooltip(`<b>${p.height_m} m</b><br>${HEIGHT_SOURCE_LABEL[p.height_source]}`, { sticky: true });
+  };
+
+  /** Loads/shows z14 footprint tiles in view at street zoom; hides them when zoomed out. */
+  private syncBuildingTiles(): void {
+    const map = this.map;
+    const group = this.tileGroup;
+    if (!map || !group) return;
+    if (map.getZoom() < BUILDING_MIN_ZOOM || map.getSize().x === 0) {
+      group.clearLayers();
+      return;
+    }
+    const b = map.getBounds();
+    const wanted = tilesFor(b.getWest(), b.getSouth(), b.getEast(), b.getNorth()).slice(0, MAX_TILES_IN_VIEW);
+    const keys = new Set(wanted.map(([x, y]) => `${x}/${y}`));
+    for (const layer of group.getLayers()) {
+      if (!keys.has((layer as L.GeoJSON & { tileKey?: string }).tileKey ?? '')) group.removeLayer(layer);
+    }
+    for (const key of keys) {
+      const cached = this.tiles.get(key);
+      if (cached) {
+        if (!group.hasLayer(cached)) group.addLayer(cached);
+      } else if (!this.pendingTiles.has(key) && this.http) {
+        this.pendingTiles.add(key);
+        this.http.get<FeatureCollection>(`${API_BASE_URL}/map/buildings/${BUILDING_TILE_ZOOM}/${key}`).subscribe({
+          next: (fc) => {
+            this.pendingTiles.delete(key);
+            const layer = L.geoJSON(fc, {
+              ...({ renderer: this.canvas } as L.PathOptions),
+              style: this.buildingStyle,
+              onEachFeature: this.buildingTooltip,
+            }) as L.GeoJSON & { tileKey?: string };
+            layer.tileKey = key;
+            this.tiles.set(key, layer);
+            if (map.getZoom() >= BUILDING_MIN_ZOOM) group.addLayer(layer);
+            this.enforceOrder();
+          },
+          error: () => this.pendingTiles.delete(key),
+        });
+      }
+    }
+    this.enforceOrder();
   }
 
   // --- airspace -------------------------------------------------------------
@@ -208,7 +383,8 @@ export class MapComponent implements OnDestroy {
   private enforceOrder(): void {
     this.zoneLayer?.bringToBack();
     for (const c of this.corridorLayers) c.bringToBack();
-    this.buildingsLayer?.bringToFront();
+    this.tallLayer?.bringToFront();
+    this.tileGroup?.eachLayer((l) => (l as L.GeoJSON).bringToFront());
   }
 
   private focus(id: string | null): void {
@@ -237,6 +413,15 @@ export class MapComponent implements OnDestroy {
         ? '<b>DEMO airspace</b>: synthetic zones, <u>not</u> official PAŻP boundaries'
         : `<b>${esc(SOURCE_LABEL[src.sourceType])}</b>: ${esc(src.label)}. Not a legality check.`;
     this.legendSource.textContent = `Airspace data: ${SOURCE_LABEL[src.sourceType]} (v${src.datasetVersion})`;
+    // Where the zone dataset ends: outside it zones are unknown, not "clear".
+    if (this.map && this.layerControl && !this.extentLayer && src.extent) {
+      this.extentLayer = L.geoJSON(src.extent as GeoJSON.Geometry, {
+        style: { color: COLORS.bbox, weight: 2, dashArray: '6 6', fill: false },
+        interactive: false,
+      }).addTo(this.map);
+      this.extentLayer.bindTooltip(src.extentLabel ?? 'Airspace data extent');
+      this.layerControl.addOverlay(this.extentLayer, this.swatch(COLORS.bbox, 'Airspace data extent', true));
+    }
   }
 
   private zonePopup(z: AirspaceZone): string {
@@ -372,6 +557,7 @@ export class MapComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.resizeObserver?.disconnect();
     this.map?.remove();
   }
 
@@ -401,20 +587,8 @@ export class MapComponent implements OnDestroy {
         },
       });
 
-    const buildings = L.geoJSON(layers.buildings, {
-      ...onCanvas,
-      style: (f) => {
-        const tall = (f?.properties as BuildingProps).height_m >= TALL_BUILDING_M;
-        const color = tall ? COLORS.tallBuilding : COLORS.building;
-        return { color, weight: tall ? 1 : 0.5, fillColor: color, fillOpacity: tall ? 0.85 : 0.45 };
-      },
-      onEachFeature: (f, l) => {
-        const p = f.properties as BuildingProps;
-        l.bindTooltip(`<b>${p.height_m} m</b><br>${HEIGHT_SOURCE_LABEL[p.height_source]}`, {
-          sticky: true,
-        });
-      },
-    });
+    // Citywide overview: buildings >= 50 m are always shown; all footprints come as tiles.
+    const tall = L.geoJSON(layers.tallBuildings, { ...onCanvas, style: this.buildingStyle, onEachFeature: this.buildingTooltip });
 
     const stations = L.geoJSON(layers.stations, {
       pointToLayer: (f, latlng) =>
@@ -426,10 +600,9 @@ export class MapComponent implements OnDestroy {
     const parks = corridors('PARK', COLORS.park, 0.3);
     this.corridorLayers = [parks, river];
     const overlays: [string, L.Layer][] = [
-      [this.swatch(COLORS.bbox, 'Demo area', true), this.bboxLayer(layers.bbox)],
       [this.swatch(COLORS.river, 'River'), river],
       [this.swatch(COLORS.park, 'Parks / green'), parks],
-      [this.swatch(COLORS.tallBuilding, 'Buildings'), buildings],
+      [this.swatch(COLORS.tallBuilding, `Buildings ≥ ${TALL_BUILDING_M} m`), tall],
       [this.swatch('#1565c0', 'Landing stations'), stations],
     ];
     this.dataLayers = overlays.map(([name, layer]) => {
@@ -437,18 +610,8 @@ export class MapComponent implements OnDestroy {
       control.addOverlay(layer, name);
       return layer;
     });
-    this.buildingsLayer = buildings;
+    this.tallLayer = tall;
     this.enforceOrder();
-  }
-
-  private bboxLayer(bbox: DemoBbox): L.Layer {
-    return L.rectangle(
-      [
-        [bbox.minLat, bbox.minLon],
-        [bbox.maxLat, bbox.maxLon],
-      ],
-      { color: COLORS.bbox, weight: 2, dashArray: '6 6', fill: false, interactive: false },
-    );
   }
 
   private stationIcon(type: StationType): L.DivIcon {
@@ -496,7 +659,8 @@ export class MapComponent implements OnDestroy {
         ${this.swatch(COLORS.park, 'Park / green corridor')}<br>
         ${this.swatch(COLORS.building, 'Building')}<br>
         ${this.swatch(COLORS.tallBuilding, `Building ≥ ${TALL_BUILDING_M} m`)}<br>
-        ${this.swatch(COLORS.bbox, 'Demo area', true)}<br>
+        ${this.swatch(COLORS.city, 'Warsaw boundary', true)} ${this.swatch(COLORS.district, 'districts', true)}<br>
+        ${this.swatch(COLORS.bbox, 'Airspace data extent', true)}<br>
         <span class="legend-icon station-icon station-hospital"><span class="material-icons">local_hospital</span></span>Landing station
         <div class="legend-note">Avoiding the loaded zones does not confirm real-world flight legality.</div>`;
       this.legendSource = el.querySelector<HTMLElement>('.legend-source')!;

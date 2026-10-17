@@ -1,14 +1,17 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Subscription } from 'rxjs';
-import { coverageMessage, describeHttpError, inBbox } from './api';
+import { describeHttpError } from './api';
+import { MapDataService, OUTSIDE_WARSAW } from './map-data';
 import { LayersService, StationFeature } from './layers';
 import {
   ALTITUDE,
   Coordinate,
   FlightMode,
   PointRole,
+  RouteObjective,
   RouteRequest,
   RouteResponse,
+  ScenarioId,
   SelectedLocation,
   WeatherMode,
   isValidAltitude,
@@ -21,53 +24,54 @@ export const PLANNER_DEFAULTS = {
   mode: 'NORMAL' as FlightMode,
   droneProfileId: 'DEMO_DRONE_01',
   weatherMode: 'DEMO' as WeatherMode,
+  routeObjective: 'CORRIDORS' as RouteObjective,
+  scenario: 'NORMAL' as ScenarioId,
 };
 
-interface DemoSettings {
-  altitude: number;
-  mode: FlightMode;
-  droneProfileId: string;
-  weatherMode: WeatherMode;
-}
+type FixturePoint = { stationId: string } | { label: string; coordinate: Coordinate };
 
-type DemoPoint = { stationId: string } | { label: string; coordinate: Coordinate };
-
-export interface DemoScenario {
-  id: 'blood' | 'avoid' | 'noroute';
+/**
+ * Explicit demo fixtures. They are the ONLY place with predefined points and
+ * run only when the user presses a "Load demo fixture" button. They replace
+ * Point A/B (and set an altitude where the fixture needs one) and never change
+ * the selected scenario, mode, drone profile or weather.
+ */
+export interface DemoFixture {
+  id: 'depot-hospital' | 'sejm' | 'courtyard';
   title: string;
   description: string;
-  start: DemoPoint;
-  destination: DemoPoint;
-  settings: DemoSettings;
+  start: FixturePoint;
+  destination: FixturePoint;
+  altitude?: number;
 }
 
-/** Optional example data for the demo buttons only; normal routing uses the user's points. */
-export const DEMO_SCENARIOS: DemoScenario[] = [
+export const DEMO_FIXTURES: DemoFixture[] = [
   {
-    id: 'blood',
-    title: 'Blood delivery (DEMO DATA)',
-    description: 'Vistula depot → Śródmieście hospital pad (synthetic stations).',
+    id: 'depot-hospital',
+    title: 'Depot → hospital pad',
+    description: 'Synthetic Vistula depot to the synthetic Śródmieście hospital pad.',
     start: { stationId: 'st-depot' },
     destination: { stationId: 'st-hospital' },
-    settings: { altitude: 80, mode: 'NORMAL', droneProfileId: 'DEMO_DRONE_02', weatherMode: 'DEMO' },
   },
   {
-    id: 'avoid',
-    title: 'Avoid a prohibited zone (DEMO)',
-    description: 'The straight line crosses the synthetic DRA-P zone at Sejm; A* must route around it.',
-    start: { label: 'DEMO point west of the Sejm zone', coordinate: { latitude: 52.2255, longitude: 21.0205 } },
-    destination: { label: 'DEMO point east of the Sejm zone', coordinate: { latitude: 52.225, longitude: 21.037 } },
-    settings: { altitude: 80, mode: 'NORMAL', droneProfileId: 'DEMO_DRONE_01', weatherMode: 'DEMO' },
+    id: 'sejm',
+    title: 'Across the Sejm zone',
+    description: 'Points on both sides of the synthetic DRA-P zone at Sejm: the straight line would cross it.',
+    start: { label: 'DEMO fixture west of the Sejm zone', coordinate: { latitude: 52.2255, longitude: 21.0205 } },
+    destination: { label: 'DEMO fixture east of the Sejm zone', coordinate: { latitude: 52.225, longitude: 21.037 } },
   },
   {
-    id: 'noroute',
-    title: 'No route available (DEMO)',
-    description: 'A courtyard enclosed by buildings ≥ 10 m, at 20 m altitude: no valid path exists.',
-    start: { label: 'DEMO enclosed courtyard (Śródmieście Południowe)', coordinate: { latitude: 52.22344, longitude: 21.01109 } },
+    id: 'courtyard',
+    title: 'Enclosed courtyard (no route at 20 m)',
+    description: 'A courtyard enclosed by buildings ≥ 10 m in Praga-Północ; sets 20 m altitude.',
+    start: { label: 'DEMO fixture: enclosed courtyard (Praga-Północ)', coordinate: { latitude: 52.25549, longitude: 21.04532 } },
     destination: { stationId: 'st-hospital' },
-    settings: { altitude: 20, mode: 'NORMAL', droneProfileId: 'DEMO_DRONE_01', weatherMode: 'DEMO' },
+    altitude: 20,
   },
 ];
+
+export const MISSING_POINTS_MESSAGE =
+  'Please select both the starting point and destination before calculating a route.';
 
 export type RouteState =
   | { phase: 'idle' }
@@ -80,6 +84,7 @@ export type RouteState =
 export class PlannerStore {
   private readonly api = inject(PlannerApi);
   private readonly layers = inject(LayersService);
+  private readonly mapData = inject(MapDataService);
 
   readonly start = signal<SelectedLocation | null>(null);
   readonly destination = signal<SelectedLocation | null>(null);
@@ -87,12 +92,18 @@ export class PlannerStore {
   readonly mode = signal<FlightMode>(PLANNER_DEFAULTS.mode);
   readonly droneProfileId = signal<string | null>(PLANNER_DEFAULTS.droneProfileId);
   readonly weatherMode = signal<WeatherMode>(PLANNER_DEFAULTS.weatherMode);
+  readonly routeObjective = signal<RouteObjective>(PLANNER_DEFAULTS.routeObjective);
   /** Which point the next map click sets (null = fill the first empty point). */
   readonly pickTarget = signal<PointRole | null>(null);
   /** Per-point validation messages (e.g. outside coverage). */
   readonly notices = signal<Partial<Record<PointRole, string>>>({});
   readonly route = signal<RouteState>({ phase: 'idle' });
-  readonly scenarioLabel = signal<string | null>(null);
+  /** Active routing scenario (null = custom mode/objective). Never affects Point A/B. */
+  readonly selectedScenario = signal<ScenarioId | null>(PLANNER_DEFAULTS.scenario);
+  /** Message shown when a scenario is chosen before both points are set. */
+  readonly scenarioNotice = signal<string | null>(null);
+  /** Title of the demo fixture that set the current points (cleared when a point changes). */
+  readonly fixtureLabel = signal<string | null>(null);
   /** Incremented by reset(); inputs clear their local query/results on change. */
   readonly resetCount = signal(0);
 
@@ -118,7 +129,14 @@ export class PlannerStore {
       flightAltitudeMeters: this.altitude(),
       droneProfileId,
       weatherMode: this.weatherMode(),
+      routeObjective: this.routeObjective(),
+      ...(this.selectedScenario() ? { scenario: this.selectedScenario() } : {}),
     };
+  });
+
+  readonly selectedScenarioConfig = computed(() => {
+    const id = this.selectedScenario();
+    return id ? (this.api.scenarioList()?.find((c) => c.id === id) ?? null) : null;
   });
 
   readonly canCalculate = computed(() => this.request() !== null && this.route().phase !== 'loading');
@@ -136,15 +154,16 @@ export class PlannerStore {
         this.setNotice(role, 'Invalid coordinates: latitude must be −90…90 and longitude −180…180.');
         return false;
       }
-      const bbox = this.layers.data()?.bbox;
-      if (bbox && !inBbox(location.coordinate, bbox)) {
-        this.setNotice(role, coverageMessage(bbox));
+      // Point-in-polygon on the official Warsaw boundary (the backend checks again).
+      if (this.mapData.contains(location.coordinate) === false) {
+        this.setNotice(role, OUTSIDE_WARSAW);
         return false;
       }
     }
     this.setNotice(role, undefined);
     (role === 'start' ? this.start : this.destination).set(location);
-    this.scenarioLabel.set(null);
+    this.fixtureLabel.set(null);
+    this.scenarioNotice.set(null);
     this.invalidate();
     return true;
   }
@@ -170,6 +189,7 @@ export class PlannerStore {
 
   setMode(mode: FlightMode): void {
     this.mode.set(mode);
+    this.leaveScenarioIfChanged();
     this.invalidate();
   }
 
@@ -181,6 +201,47 @@ export class PlannerStore {
   setWeatherMode(mode: WeatherMode): void {
     this.weatherMode.set(mode);
     this.invalidate();
+  }
+
+  setRouteObjective(objective: RouteObjective): void {
+    this.routeObjective.set(objective);
+    this.leaveScenarioIfChanged();
+    this.invalidate();
+  }
+
+  /** Manual mode/objective changes that no longer match the scenario make it "custom". */
+  private leaveScenarioIfChanged(): void {
+    const cfg = this.selectedScenarioConfig();
+    if (cfg && (cfg.mode !== this.mode() || cfg.routeObjective !== this.routeObjective())) {
+      this.selectedScenario.set(null);
+    }
+  }
+
+  // --- scenarios ------------------------------------------------------------
+
+  /**
+   * Switches the routing configuration. Point A, Point B, their labels, altitude,
+   * drone profile and weather are left untouched; only mode/objective follow the
+   * scenario's configuration. Recalculates with the same points when both are set.
+   * Returns false (with a notice) when a point is missing.
+   */
+  selectScenario(id: ScenarioId): boolean {
+    const cfg = this.api.scenarioList()?.find((c) => c.id === id);
+    if (!cfg) {
+      this.scenarioNotice.set('Scenarios are not loaded yet. Check the backend connection.');
+      return false;
+    }
+    this.selectedScenario.set(id);
+    this.mode.set(cfg.mode);
+    this.routeObjective.set(cfg.routeObjective);
+    this.invalidate();
+    if (!this.start() || !this.destination()) {
+      this.scenarioNotice.set(MISSING_POINTS_MESSAGE);
+      return false;
+    }
+    this.scenarioNotice.set(null);
+    this.calculate();
+    return true;
   }
 
   // --- routing --------------------------------------------------------------
@@ -231,9 +292,12 @@ export class PlannerStore {
     this.mode.set(PLANNER_DEFAULTS.mode);
     this.droneProfileId.set(PLANNER_DEFAULTS.droneProfileId);
     this.weatherMode.set(PLANNER_DEFAULTS.weatherMode);
+    this.routeObjective.set(PLANNER_DEFAULTS.routeObjective);
+    this.selectedScenario.set(PLANNER_DEFAULTS.scenario);
+    this.scenarioNotice.set(null);
     this.pickTarget.set(null);
     this.notices.set({});
-    this.scenarioLabel.set(null);
+    this.fixtureLabel.set(null);
     this.resetCount.update((n) => n + 1);
   }
 
@@ -245,35 +309,36 @@ export class PlannerStore {
     }
   }
 
-  /** Loads a demo scenario's points + settings and calculates through the normal API. */
-  loadDemoScenario(id: DemoScenario['id'] = 'blood'): string | null {
-    const scenario = DEMO_SCENARIOS.find((d) => d.id === id)!;
+  /**
+   * Explicit "Load demo fixture" action: replaces Point A/B with a fixture's
+   * points (plus its altitude, if any) and calculates with the CURRENT scenario,
+   * mode, profile and weather. Never called by scenario selection.
+   */
+  loadDemoFixture(id: DemoFixture['id']): string | null {
+    const fixture = DEMO_FIXTURES.find((d) => d.id === id)!;
     const stations = this.layers.data()?.stations.features ?? [];
-    const resolve = (p: DemoPoint): SelectedLocation | null => {
+    const resolve = (p: FixturePoint): SelectedLocation | null => {
       if ('coordinate' in p) return { coordinate: p.coordinate, label: p.label, source: 'DEMO' };
-      const s: StationFeature | undefined = stations.find((st) => st.properties.id === p.stationId);
-      return s
+      const st: StationFeature | undefined = stations.find((x) => x.properties.id === p.stationId);
+      return st
         ? {
-            coordinate: { latitude: s.geometry.coordinates[1], longitude: s.geometry.coordinates[0] },
-            label: `${s.properties.name} (DEMO station)`,
+            coordinate: { latitude: st.geometry.coordinates[1], longitude: st.geometry.coordinates[0] },
+            label: `${st.properties.name} (DEMO station)`,
             source: 'DEMO',
           }
         : null;
     };
-    const from = resolve(scenario.start);
-    const to = resolve(scenario.destination);
+    const from = resolve(fixture.start);
+    const to = resolve(fixture.destination);
     if (!from || !to) return 'Demo stations are not loaded yet. Wait for the map layers and try again.';
     this.clearRoute();
     this.start.set(from);
     this.destination.set(to);
-    const s = scenario.settings;
-    this.altitude.set(s.altitude);
-    this.mode.set(s.mode);
-    this.droneProfileId.set(s.droneProfileId);
-    this.weatherMode.set(s.weatherMode);
+    if (fixture.altitude !== undefined) this.altitude.set(fixture.altitude);
     this.notices.set({});
+    this.scenarioNotice.set(null);
     this.pickTarget.set(null);
-    this.scenarioLabel.set(scenario.title);
+    this.fixtureLabel.set(fixture.title);
     this.calculate();
     return null;
   }

@@ -5,4 +5,4 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     mapCenter: list[float]  # [lat, lon]
-    demoBbox: dict[str, float]
+    coverageAvailable: bool  # official Warsaw boundary loaded

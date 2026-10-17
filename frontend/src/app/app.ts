@@ -9,6 +9,7 @@ import { API_BASE_URL, Health, safeValue } from './core/api';
 import { LayersService, TALL_BUILDING_M } from './core/layers';
 import { PlannerStore } from './core/planner.store';
 import { AirspaceService } from './core/airspace';
+import { MapDataService } from './core/map-data';
 import { AirspacePanelComponent } from './planner/airspace-panel';
 import { PlannerPanelComponent } from './planner/planner-panel';
 import { RouteResultsComponent } from './planner/route-results';
@@ -33,6 +34,7 @@ export class App {
   protected readonly layers = inject(LayersService);
   protected readonly planner = inject(PlannerStore);
   protected readonly airspace = inject(AirspaceService);
+  protected readonly mapData = inject(MapDataService);
   protected readonly tallBuildingM = TALL_BUILDING_M;
 
   protected readonly healthInfo = computed(() => safeValue(this.health));
@@ -47,5 +49,7 @@ export class App {
     this.health.reload();
     this.layers.resource.reload();
     this.airspace.resource.reload();
+    this.mapData.boundary.reload();
+    this.mapData.coverage.reload();
   }
 }

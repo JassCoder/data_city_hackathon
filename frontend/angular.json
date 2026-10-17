@@ -32,7 +32,8 @@
             "allowedCommonJsDependencies": ["leaflet"],
             "styles": [
               "node_modules/leaflet/dist/leaflet.css",
-              "src/styles.scss"
+              "src/styles.scss",
+              "src/styles/map.scss"
             ]
           },
           "configurations": {

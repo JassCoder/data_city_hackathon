@@ -28,11 +28,25 @@ DEMO_BBOX = {
 # File names inside DATA_DIR.
 DATA_FILES = {
     "corridors": "corridors.geojson",
-    "buildings": "buildings.geojson",
+    "tall_buildings": "tall_buildings.geojson",  # >= 50 m, citywide overview (all buildings: tiles)
     "stations": "landing_stations.geojson",
 }
 
 DRONE_PROFILES_FILE = "drone_profiles.json"
+
+# Citywide coverage: the official Warsaw boundary (GUGiK PRG, TERYT 1465) and
+# its 18 districts, cached by scripts/fetch_boundaries.py.
+BOUNDARY_CITY_FILE = DATA_DIR / "boundaries" / "warsaw_city.geojson"
+BOUNDARY_DISTRICTS_FILE = DATA_DIR / "boundaries" / "warsaw_districts.geojson"
+# Shown only when the boundary file is missing (never used for routing coverage).
+FALLBACK_VIEW = {"center": [52.2297, 21.0122], "zoom": 11}
+
+# Citywide OSM products written by scripts/fetch_osm.py.
+OSM_DIR = DATA_DIR / "osm"
+CITY_GRID_FILE = OSM_DIR / "grid_warsaw_25m.npz"  # routing raster (buildings, river, parks)
+BUILDING_TILES_DIR = OSM_DIR / "tiles"  # {z}/{x}/{y}.json.gz, display only
+BUILDING_TILE_ZOOM = 14
+BUILDINGS_INDEX_FILE = OSM_DIR / "buildings_index.json"
 
 # Airspace (UAS geographical zones). Provider is chosen by environment:
 #   SKYROUTE_AIRSPACE_PROVIDER=demo (default) | geojson | ed269
@@ -70,6 +84,19 @@ OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 WEATHER_TIMEOUT_S = 5.0
 WEATHER_CACHE_TTL_S = 600
 DEMO_WEATHER = {"windSpeedKmh": 14.0, "windDirectionDeg": 250.0, "windGustKmh": 22.0}
+WEATHER_SAMPLE_SPACING_KM = 5.0  # LIVE: one forecast point per ~5 km of the A-B line
+WEATHER_MAX_SAMPLES = 8
+WEATHER_SAMPLE_GRID_DEG = 0.02  # snap sample points (~2 km) so nearby trips share the cache
+
+# Corridor search (app/routing/planner.py). A window around A-B is searched
+# first and widened up to the whole city if no path is found inside it.
+ROUTE_MIN_MARGIN_M = 1500.0  # window margin around the A-B box
+ROUTE_MARGIN_FACTOR = 0.35  # extra margin as a fraction of the A-B distance
+ROUTE_MARGIN_GROWTH = 2.5  # margin multiplier per retry
+ROUTE_MAX_FINE_CELLS = 300_000  # larger windows are coarsened (conservatively) to stay under this
+ROUTE_MAX_EXPANSIONS = 1_200_000  # A* node budget per attempt
+ROUTE_TIME_LIMIT_S = 20.0  # total search time budget per request
+ROUTE_CACHE_SIZE = 128
 
 # Buildings are simplified for the /layers response only (routing keeps full detail).
 LAYERS_SIMPLIFY_TOLERANCE_DEG = 0.00001  # ~1 m

@@ -5,8 +5,9 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { API_BASE_URL } from './api';
 import { LayersService } from './layers';
 import { PlannerApi } from './planner-api';
-import { PLANNER_DEFAULTS, PlannerStore } from './planner.store';
-import { CENTRALNA, KOPERNIK, flushStartup, routeResponse } from '../../testing/fixtures';
+import { MISSING_POINTS_MESSAGE, PLANNER_DEFAULTS, PlannerStore } from './planner.store';
+import { CENTRALNA, KOPERNIK, OUTSIDE_POINT, routeResponse, settle } from '../../testing/fixtures';
+import { MapDataService } from './map-data';
 import { RouteRequest } from './models';
 
 const ROUTE_URL = `${API_BASE_URL}/routes/calculate`;
@@ -22,9 +23,9 @@ describe('PlannerStore', () => {
     // Instantiate the resources so their requests start, then answer them.
     TestBed.inject(LayersService).resource.value();
     TestBed.inject(PlannerApi).profiles.value();
-    TestBed.tick();
-    flushStartup(http);
-    await TestBed.inject(ApplicationRef).whenStable();
+    TestBed.inject(PlannerApi).scenarios.value();
+    TestBed.inject(MapDataService).boundary.value();
+    await settle(http, TestBed.inject(ApplicationRef));
   });
 
   afterEach(() => http.verify());
@@ -49,6 +50,7 @@ describe('PlannerStore', () => {
     store.setMode('EMERGENCY');
     store.setDroneProfile('DEMO_DRONE_02');
     store.setWeatherMode('LIVE');
+    store.setRouteObjective('FASTEST');
     expect(store.request()).toEqual({
       start: { latitude: 52.22882, longitude: 21.00316 },
       destination: { latitude: 52.24178, longitude: 21.0286 },
@@ -56,7 +58,8 @@ describe('PlannerStore', () => {
       flightAltitudeMeters: 95,
       droneProfileId: 'DEMO_DRONE_02',
       weatherMode: 'LIVE',
-    } satisfies RouteRequest);
+      routeObjective: 'FASTEST',
+    } satisfies RouteRequest);  // manual mode/objective => custom: no scenario field
     expect(typeof store.request()!.start.latitude).toBe('number');
   });
 
@@ -67,6 +70,8 @@ describe('PlannerStore', () => {
       flightAltitudeMeters: 80,
       droneProfileId: 'DEMO_DRONE_01',
       weatherMode: 'DEMO',
+      routeObjective: 'CORRIDORS',
+      scenario: 'NORMAL',
     });
   });
 
@@ -91,10 +96,10 @@ describe('PlannerStore', () => {
   });
 
   it('rejects out-of-coverage points with a precise notice', () => {
-    const airport = { coordinate: { latitude: 52.16307, longitude: 20.97081 }, label: 'Airport', source: 'MANUAL' as const };
-    expect(store.setLocation('destination', airport)).toBe(false);
+    const outside = { coordinate: OUTSIDE_POINT, label: 'Piaseczno', source: 'MANUAL' as const };
+    expect(store.setLocation('destination', outside)).toBe(false);
     expect(store.destination()).toBeNull();
-    expect(store.notices().destination).toContain('Outside the supported routing area');
+    expect(store.notices().destination).toContain('not inside the official City of Warsaw boundary');
   });
 
   it('posts the request, shows loading, then the route', () => {
@@ -116,6 +121,8 @@ describe('PlannerStore', () => {
     ['mode', (s: PlannerStore) => s.setMode('EMERGENCY')],
     ['drone profile', (s: PlannerStore) => s.setDroneProfile('DEMO_DRONE_02')],
     ['weather mode', (s: PlannerStore) => s.setWeatherMode('LIVE')],
+    ['route objective', (s: PlannerStore) => s.setRouteObjective('SHORTEST')],
+    ['scenario', (s: PlannerStore) => { s.selectedScenario.set('EMERGENCY'); s.setMode('EMERGENCY'); }],
     ['start', (s: PlannerStore) => s.setLocation('start', { ...CENTRALNA, coordinate: { latitude: 52.235, longitude: 21.0385 } })],
     ['destination', (s: PlannerStore) => s.setLocation('destination', { ...KOPERNIK, coordinate: { latitude: 52.2398, longitude: 21.0454 } })],
   ])('marks the route stale when %s changes', (_, change) => {
@@ -209,6 +216,7 @@ describe('PlannerStore', () => {
     store.setMode('EMERGENCY');
     store.setWeatherMode('LIVE');
     store.setDroneProfile('DEMO_DRONE_02');
+    store.setRouteObjective('FASTEST');
     store.calculate();
     const req = http.expectOne(ROUTE_URL);
     store.reset();
@@ -220,19 +228,88 @@ describe('PlannerStore', () => {
     expect(store.mode()).toBe('NORMAL');
     expect(store.weatherMode()).toBe('DEMO');
     expect(store.droneProfileId()).toBe('DEMO_DRONE_01');
+    expect(store.routeObjective()).toBe('CORRIDORS');
+    expect(store.selectedScenario()).toBe('NORMAL');
   });
 
-  it('demo scenario uses the synthetic stations and the normal route API', () => {
-    expect(store.loadDemoScenario()).toBeNull();
+  it('demo fixture is an explicit action that sets points but not scenario, mode or profile', () => {
+    store.setDroneProfile('DEMO_DRONE_01');
+    store.selectScenario('AED_DELIVERY');
+    expect(store.loadDemoFixture('depot-hospital')).toBeNull();
     expect(store.start()?.source).toBe('DEMO');
-    expect(store.scenarioLabel()).toContain('DEMO');
+    expect(store.fixtureLabel()).toContain('Depot');
     const req = http.expectOne(ROUTE_URL);
     expect(req.request.body).toMatchObject({
       start: { latitude: 52.2352, longitude: 21.0385 },
       destination: { latitude: 52.23, longitude: 20.993 },
-      droneProfileId: 'DEMO_DRONE_02',
+      droneProfileId: 'DEMO_DRONE_01',
+      scenario: 'AED_DELIVERY',
     });
     req.flush(routeResponse(req.request.body));
+  });
+
+  // --- routing scenarios: configuration only ---------------------------------
+
+  const SCENARIO_IDS = ['BLOOD_DELIVERY', 'AED_DELIVERY', 'AVOID_PROHIBITED_ZONE', 'EMERGENCY', 'NORMAL'] as const;
+
+  it.each(SCENARIO_IDS)('selecting %s keeps Point A and B and sends their exact coordinates', (id) => {
+    withPoints();
+    const before = { start: store.start(), destination: store.destination() };
+    expect(store.selectScenario(id)).toBe(true);
+    expect(store.start()).toBe(before.start); // same object: label + coordinates untouched
+    expect(store.destination()).toBe(before.destination);
+    const req = http.expectOne(ROUTE_URL);
+    expect(req.request.body.start).toEqual(CENTRALNA.coordinate);
+    expect(req.request.body.destination).toEqual(KOPERNIK.coordinate);
+    expect(req.request.body.scenario).toBe(id);
+    req.flush(routeResponse(req.request.body));
+    const r = store.route();
+    expect(r.phase === 'ready' && r.response.scenario).toBe(id);
+  });
+
+  it('scenario selection applies its optimisation but keeps altitude, profile and weather', () => {
+    withPoints();
+    store.setAltitude(95);
+    store.setDroneProfile('DEMO_DRONE_01');
+    store.setWeatherMode('LIVE');
+    store.selectScenario('EMERGENCY');
+    expect(store.mode()).toBe('EMERGENCY');
+    expect(store.routeObjective()).toBe('FASTEST');
+    expect([store.altitude(), store.droneProfileId(), store.weatherMode()]).toEqual([95, 'DEMO_DRONE_01', 'LIVE']);
+    http.expectOne(ROUTE_URL).flush(routeResponse(store.request()!));
+  });
+
+  it('selecting a scenario never loads predefined coordinates', () => {
+    store.setLocation('start', CENTRALNA);
+    for (const id of SCENARIO_IDS) {
+      expect(store.selectScenario(id)).toBe(false);
+      expect(store.destination()).toBeNull(); // no fallback destination
+      expect(store.start()).toEqual(CENTRALNA);
+      expect(store.scenarioNotice()).toBe(MISSING_POINTS_MESSAGE);
+    }
+    http.expectNone(ROUTE_URL);
+  });
+
+  it('changing the scenario invalidates the route and drops the outdated response', () => {
+    withPoints();
+    store.selectScenario('BLOOD_DELIVERY');
+    const first = http.expectOne(ROUTE_URL);
+    store.selectScenario('AVOID_PROHIBITED_ZONE');
+    expect(first.cancelled).toBe(true);
+    const second = http.expectOne(ROUTE_URL);
+    second.flush(routeResponse(second.request.body));
+    const r = store.route();
+    expect(r.phase === 'ready' && r.response.scenario).toBe('AVOID_PROHIBITED_ZONE');
+  });
+
+  it('manual mode/objective changes switch to custom settings', () => {
+    withPoints();
+    store.selectScenario('BLOOD_DELIVERY');
+    http.expectOne(ROUTE_URL).flush(routeResponse(store.request()!));
+    store.setRouteObjective('SHORTEST');
+    expect(store.selectedScenario()).toBeNull();
+    expect(store.request()?.scenario).toBeUndefined();
+    expect(store.route().phase).toBe('stale');
   });
 
   it('marks the route stale when the airspace dataset version changes', () => {

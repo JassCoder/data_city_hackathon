@@ -21,7 +21,7 @@ from shapely.geometry import Point, Polygon, mapping, shape
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 from app.airspace.geometry import geodesic_circle  # noqa: E402
-from app.config import AIRSPACE_DEMO_FILE, DATA_DIR, DATA_FILES  # noqa: E402
+from app.config import AIRSPACE_DEMO_FILE, DATA_DIR, DATA_FILES, DEMO_BBOX  # noqa: E402
 
 TIMESTAMP = "2026-10-17T00:00:00Z"
 DISCLAIMER = (
@@ -163,6 +163,9 @@ def main() -> None:
             "label": "SkyRoute DEMO airspace (synthetic, non-authoritative)",
             "sourceTimestamp": TIMESTAMP,
             "disclaimer": DISCLAIMER,
+            # The synthetic zones were only drawn for central Warsaw: elsewhere zones are unknown.
+            "extent": DEMO_BBOX,
+            "extentLabel": "DEMO zones exist only for central Warsaw (Śródmieście / Powiśle)",
         },
         "features": [_zone_feature(z) for z in ZONES],
     }

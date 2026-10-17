@@ -35,6 +35,8 @@
       [airspaceSource]="airspace.source()"
       [highlightZoneIds]="airspace.highlightZoneIds()"
       [focusZoneId]="airspace.focusZoneId()"
+      [boundary]="mapData.boundaryData()"
+      [boundaryMissing]="mapData.boundaryMissing()"
       (mapClick)="planner.handleMapClick($event)"
       (focusDone)="airspace.focusZoneId.set(null)"
     />
@@ -48,6 +50,7 @@
     @if (layers.summary(); as s) {
       <dl class="stats" data-testid="layer-summary">
         <dt>Landing stations</dt><dd>{{ s.stations }} <span class="tag">DEMO</span></dd>
+        <dt>Coverage</dt><dd>Warsaw, 18 districts</dd>
         <dt>Buildings (OSM)</dt><dd>{{ s.buildings }}</dd>
         <dt>&nbsp;&nbsp;≥ {{ tallBuildingM }} m</dt><dd>{{ s.tallBuildings }}</dd>
         <dt>&nbsp;&nbsp;height estimated</dt><dd>{{ s.estimatedHeights }}</dd>

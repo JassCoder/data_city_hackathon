@@ -1,5 +1,6 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
+import { HttpInterceptorFn, HttpResponse, provideHttpClient, withInterceptors } from '@angular/common/http';
+import { of } from 'rxjs';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { HarnessLoader } from '@angular/cdk/testing';
 import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
@@ -9,10 +10,23 @@ import { MatSliderHarness } from '@angular/material/slider/testing';
 import { API_BASE_URL } from '../core/api';
 import { LayersService } from '../core/layers';
 import { PlannerStore } from '../core/planner.store';
-import { CENTRALNA, DEMO_WEATHER, KOPERNIK, flushStartup, routeResponse } from '../../testing/fixtures';
+import { CENTRALNA, DEMO_WEATHER, KOPERNIK, routeResponse, settle } from '../../testing/fixtures';
 import { PlannerPanelComponent } from './planner-panel';
 
 const ROUTE_URL = `${API_BASE_URL}/routes/calculate`;
+
+/** The weather readout refetches whenever the altitude changes: answer it at once. */
+const weatherStub: HttpInterceptorFn = (req, next) =>
+  req.url.startsWith(`${API_BASE_URL}/weather`)
+    ? of(new HttpResponse({ status: 200, body: req.urlWithParams.includes('mode=LIVE') ? LIVE_FALLBACK : DEMO_WEATHER }))
+    : next(req);
+const LIVE_FALLBACK = {
+  ...DEMO_WEATHER,
+  mode: 'LIVE',
+  source: 'DEMO_FALLBACK',
+  liveAvailable: false,
+  message: 'Live weather is not available (ConnectError). Using DEMO wind instead.',
+};
 
 describe('PlannerPanelComponent', () => {
   let fixture: ComponentFixture<PlannerPanelComponent>;
@@ -24,15 +38,14 @@ describe('PlannerPanelComponent', () => {
   beforeEach(async () => {
     TestBed.configureTestingModule({
       imports: [PlannerPanelComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(withInterceptors([weatherStub])), provideHttpClientTesting()],
     });
     http = TestBed.inject(HttpTestingController);
     store = TestBed.inject(PlannerStore);
     TestBed.inject(LayersService).resource.value();
     fixture = TestBed.createComponent(PlannerPanelComponent);
     fixture.detectChanges();
-    flushStartup(http);
-    await fixture.whenStable();
+    await settle(http, fixture);
     loader = TestbedHarnessEnvironment.loader(fixture);
     el = fixture.nativeElement;
   });
@@ -116,13 +129,6 @@ describe('PlannerPanelComponent', () => {
     el.querySelector<HTMLButtonElement>('[data-testid="weather"] mat-button-toggle[value="LIVE"] button')!.click();
     fixture.detectChanges();
     expect(store.weatherMode()).toBe('LIVE');
-    http.expectOne(`${API_BASE_URL}/weather?mode=LIVE`).flush({
-      ...DEMO_WEATHER,
-      mode: 'LIVE',
-      source: 'DEMO_FALLBACK',
-      liveAvailable: false,
-      message: 'Live weather is not available (ConnectError). Using DEMO wind instead.',
-    });
     await render();
     expect(q('weather-info').textContent).toContain('Live weather is not available');
   });
@@ -143,6 +149,8 @@ describe('PlannerPanelComponent', () => {
       flightAltitudeMeters: 80,
       droneProfileId: 'DEMO_DRONE_01',
       weatherMode: 'DEMO',
+      routeObjective: 'CORRIDORS',
+      scenario: 'NORMAL',
     });
     req.flush(routeResponse(req.request.body));
     await render();
@@ -166,25 +174,56 @@ describe('PlannerPanelComponent', () => {
     expect(calculateButton().disabled).toBe(true);
   });
 
-  it('Load Demo Scenario fills demo stations and calculates', async () => {
-    q('demo-blood').click();
+  it('demo fixtures are behind an explicit "Load demo fixture" toggle', async () => {
+    expect(q('fixture-depot-hospital')).toBeNull();
+    q('fixtures-toggle').click();
     await render();
-    expect(q('scenario-label').textContent).toContain('DEMO');
+    q('fixture-sejm').click();
+    await render();
+    expect(q('fixture-label').textContent).toContain('Across the Sejm zone');
     const req = http.expectOne(ROUTE_URL);
-    expect(req.request.body.droneProfileId).toBe('DEMO_DRONE_02');
+    expect(req.request.body).toMatchObject({ start: { latitude: 52.2255, longitude: 21.0205 }, scenario: 'NORMAL' });
     req.flush(routeResponse(req.request.body));
   });
 
-  it('avoidance and no-route demo scenarios send their example points through the same API', async () => {
-    q('demo-avoid').click();
-    let req = http.expectOne(ROUTE_URL);
-    expect(req.request.body).toMatchObject({ start: { latitude: 52.2255, longitude: 21.0205 }, flightAltitudeMeters: 80 });
-    req.flush(routeResponse(req.request.body));
-    q('demo-noroute').click();
-    req = http.expectOne(ROUTE_URL);
-    expect(req.request.body).toMatchObject({ flightAltitudeMeters: 20, destination: { latitude: 52.23, longitude: 20.993 } });
-    req.flush(routeResponse(req.request.body, { status: 'NO_ROUTE', geometry: null }));
+  it.each(['BLOOD_DELIVERY', 'AED_DELIVERY', 'AVOID_PROHIBITED_ZONE', 'EMERGENCY'])(
+    'clicking %s keeps both points, highlights it and recalculates with the same coordinates',
+    async (id) => {
+      store.setLocation('start', CENTRALNA);
+      store.setLocation('destination', KOPERNIK);
+      await render();
+      q(`scenario-${id}`).click();
+      await render();
+      expect(q(`scenario-${id}`).classList.contains('active')).toBe(true);
+      expect(q(`scenario-${id}`).getAttribute('aria-pressed')).toBe('true');
+      expect(store.start()).toEqual(CENTRALNA);
+      expect(store.destination()).toEqual(KOPERNIK);
+      const req = http.expectOne(ROUTE_URL);
+      expect(req.request.body.start).toEqual(CENTRALNA.coordinate);
+      expect(req.request.body.destination).toEqual(KOPERNIK.coordinate);
+      expect(req.request.body.scenario).toBe(id);
+      req.flush(routeResponse(req.request.body));
+    },
+  );
+
+  it('asks for both points instead of loading fallback coordinates', async () => {
+    q('scenario-BLOOD_DELIVERY').click();
     await render();
-    expect(q('scenario-label').textContent).toContain('No route available');
+    expect(q('scenario-notice').textContent).toContain(
+      'Please select both the starting point and destination before calculating a route.',
+    );
+    expect(store.start()).toBeNull();
+    http.expectNone(ROUTE_URL);
+  });
+
+  it('route optimisation selector sends CORRIDORS / SHORTEST / FASTEST', async () => {
+    store.setLocation('start', CENTRALNA);
+    store.setLocation('destination', KOPERNIK);
+    expect(store.routeObjective()).toBe('CORRIDORS');
+    await (await loader.getHarness(MatButtonToggleHarness.with({ text: 'Fastest' }))).check();
+    expect(store.routeObjective()).toBe('FASTEST');
+    expect(q('objective-hint').textContent).toContain('wind at your altitude');
+    await (await loader.getHarness(MatButtonToggleHarness.with({ text: 'Shortest' }))).check();
+    expect(store.request()?.routeObjective).toBe('SHORTEST');
   });
 });

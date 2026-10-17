@@ -1,10 +1,12 @@
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import * as L from 'leaflet';
 import { RouteState } from '../core/planner.store';
-import { CENTRALNA, KOPERNIK, ZONES, routeResponse } from '../../testing/fixtures';
+import { BOUNDARY, CENTRALNA, KOPERNIK, ZONES, routeResponse } from '../../testing/fixtures';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { stubCanvas } from '../../testing/canvas-stub';
 import { AirspaceZone } from '../core/airspace';
-import { MapComponent } from './map';
+import { BUILDING_MIN_ZOOM, MapComponent, tilesFor } from './map';
 import { Coordinate, RouteRequest } from '../core/models';
 
 const REQUEST: RouteRequest = {
@@ -14,6 +16,7 @@ const REQUEST: RouteRequest = {
   flightAltitudeMeters: 80,
   droneProfileId: 'DEMO_DRONE_01',
   weatherMode: 'DEMO',
+  routeObjective: 'CORRIDORS',
 };
 
 describe('MapComponent', () => {
@@ -23,6 +26,7 @@ describe('MapComponent', () => {
   let el: HTMLElement;
 
   beforeEach(async () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     fixture = TestBed.createComponent(MapComponent);
     fixture.detectChanges();
     await fixture.whenStable();
@@ -158,5 +162,79 @@ describe('MapComponent', () => {
     fixture.componentInstance.mapClick.subscribe((c) => clicks.push(c));
     byId('DEMO-P-SEJM').fire('click', { latlng: L.latLng(52.225, 21.026) });
     expect(clicks).toEqual([{ latitude: 52.225, longitude: 21.026 }]);
+  });
+
+  // --- citywide view ----------------------------------------------------------
+
+  const sized = () => {
+    (leaflet() as unknown as { getSize: () => L.Point }).getSize = () => L.point(800, 600);
+  };
+
+  it('draws the Warsaw boundary and 18-district layer and fits the whole city on load', async () => {
+    sized();
+    const fit = vi.spyOn(leaflet(), 'fitBounds');
+    await set('boundary', BOUNDARY);
+    expect(fit).toHaveBeenCalledTimes(1);
+    const bounds = fit.mock.calls[0][0] as L.LatLngBounds;
+    expect(bounds.getWest()).toBeCloseTo(20.85);
+    expect(bounds.getNorth()).toBeCloseTo(52.37);
+    expect(el.querySelectorAll('.district-label').length).toBe(BOUNDARY.districts.features.length);
+    // Later boundary refreshes do not yank the view again.
+    await set('boundary', { ...BOUNDARY });
+    expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  it('"Show Entire Warsaw" fits the city again', async () => {
+    sized();
+    await set('boundary', BOUNDARY);
+    const fit = vi.spyOn(leaflet(), 'fitBounds');
+    el.querySelector<HTMLButtonElement>('[data-testid="show-warsaw"]')!.click();
+    expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a labelled fallback view when the boundary is missing', async () => {
+    await set('boundaryMissing', true);
+    const banner = el.querySelector<HTMLElement>('[data-testid="coverage-banner"]')!;
+    expect(banner.hidden).toBe(false);
+    expect(banner.textContent).toContain('boundary data unavailable');
+    expect(leaflet().getZoom()).toBe(11); // approximate city view, not a blank map
+  });
+
+  it('computes the z14 building tiles covering a view', () => {
+    const tiles = tilesFor(21.0, 52.225, 21.02, 52.235);
+    expect(tiles.length).toBeGreaterThan(0);
+    expect(tiles).toContainEqual([9148, 5394]); // Palace of Culture tile
+  });
+
+  it('loads building tiles only at street zoom', async () => {
+    const http = TestBed.inject(HttpTestingController);
+    const map = leaflet();
+    (map as unknown as { getSize: () => L.Point }).getSize = () => L.point(800, 600);
+    map.setView([52.2297, 21.0122], 12);
+    map.fire('moveend');
+    http.expectNone((r) => r.url.includes('/map/buildings/'));
+    map.setView([52.2297, 21.0122], BUILDING_MIN_ZOOM + 1);
+    map.fire('moveend');
+    const reqs = http.match((r) => r.url.includes('/map/buildings/14/'));
+    expect(reqs.length).toBeGreaterThan(0);
+    reqs.forEach((r) => r.flush({ type: 'FeatureCollection', features: [] }));
+  });
+
+  it('keeps both markers in place when routes for different scenarios are shown', async () => {
+    await set('start', CENTRALNA);
+    await set('destination', KOPERNIK);
+    const pos = (role: string) =>
+      (Object.values((leaflet() as unknown as { _layers: Record<string, L.Layer> })._layers).find(
+        (l) => l instanceof L.Marker && (l.options.icon as L.DivIcon).options.html?.toString().includes(`route-pin-${role}`),
+      ) as L.Marker).getLatLng();
+    const a = pos('start');
+    const b = pos('destination');
+    for (const scenario of ['BLOOD_DELIVERY', 'AED_DELIVERY', 'AVOID_PROHIBITED_ZONE', 'EMERGENCY'] as const) {
+      const req = { ...REQUEST, scenario };
+      await set('route', { phase: 'ready', response: routeResponse(req), request: req } satisfies RouteState);
+      expect(pos('start')).toEqual(a);
+      expect(pos('destination')).toEqual(b);
+      expect(el.querySelectorAll('.route-pin-start').length).toBe(1);
+    }
   });
 });

@@ -1,12 +1,15 @@
+import { TestBed } from '@angular/core/testing';
 import { HttpTestingController } from '@angular/common/http/testing';
 import { API_BASE_URL } from '../app/core/api';
 import { Layers } from '../app/core/layers';
+import { BoundaryResponse, CoverageResponse } from '../app/core/map-data';
 import { AirspaceSource, AirspaceZone, ZonesResponse } from '../app/core/airspace';
 import {
   DroneProfilesResponse,
   GeocodingResponse,
   RouteRequest,
   RouteResponse,
+  ScenariosResponse,
   SelectedLocation,
   WeatherInfo,
 } from '../app/core/models';
@@ -15,9 +18,9 @@ const empty = { type: 'FeatureCollection' as const, features: [] };
 
 /** Stations only: zones, buildings and corridors use Leaflet's canvas renderer, which jsdom can't draw. */
 export const LAYERS: Layers = {
-  bbox: { minLon: 20.985, minLat: 52.215, maxLon: 21.05, maxLat: 52.25 },
   corridors: empty,
-  buildings: empty,
+  tallBuildings: empty,
+  buildingStats: { buildings: 120000, tallBuildings: 200, estimatedHeights: 9000, parks: 900, tiles: 400 },
   stations: {
     type: 'FeatureCollection',
     features: [
@@ -75,6 +78,38 @@ export const GEOCODE_KOPERNIK: GeocodingResponse = {
     { displayName: 'Lotnisko Chopina, Okęcie, Warszawa', latitude: 52.16307, longitude: 20.97081, placeId: 'nominatim:2', category: 'aeroway/aerodrome', source: 'nominatim', inCoverage: false },
   ],
 };
+
+// Simplified Warsaw stand-in: two "districts" splitting a box at lon 21.05.
+const ring = (w: number, s: number, e: number, n: number): GeoJSON.Polygon => ({
+  type: 'Polygon',
+  coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]],
+});
+const CITY_GEOM = ring(20.85, 52.1, 21.27, 52.37);
+export const BOUNDARY: BoundaryResponse = {
+  city: { type: 'Feature', properties: { teryt: '1465', name: 'Warszawa', officialName: 'powiat Warszawa', areaKm2: 517 }, geometry: CITY_GEOM },
+  districts: {
+    type: 'FeatureCollection',
+    features: [
+      { type: 'Feature', properties: { teryt: '146510_8', name: 'Śródmieście', officialName: 'Śródmieście - dzielnica', areaKm2: 15.6 }, geometry: ring(20.85, 52.1, 21.05, 52.37) },
+      { type: 'Feature', properties: { teryt: '146507_8', name: 'Praga-Południe', officialName: 'Praga-Południe - dzielnica', areaKm2: 22.4 }, geometry: ring(21.05, 52.1, 21.27, 52.37) },
+    ],
+  },
+  bounds: [20.85, 52.1, 21.27, 52.37],
+  source: { source: 'GUGiK – Państwowy Rejestr Granic (PRG), OGC API Features', url: 'https://example', retrievedAt: '2026-10-17' },
+};
+export const COVERAGE: CoverageResponse = {
+  status: 'AVAILABLE',
+  message: 'ok',
+  area: 'City of Warsaw (GUGiK PRG boundary, TERYT 1465)',
+  geometry: CITY_GEOM,
+  bounds: [20.85, 52.1, 21.27, 52.37],
+  districts: ['Śródmieście', 'Praga-Południe'],
+  source: { source: 'GUGiK' },
+  fallbackView: null,
+  routing: { cellSizeM: 25, gridCells: 1380000, maxFineCells: 300000, maxExpansions: 1200000, timeLimitS: 20, buildingData: 'OSM', buildingDataFetchedAt: null },
+  airspace: { label: 'DEMO', sourceType: 'DEMO', extent: ring(20.985, 52.215, 21.05, 52.25), extentLabel: 'DEMO zones: central Warsaw only' },
+};
+export const OUTSIDE_POINT = { latitude: 52.05, longitude: 21.0 }; // south of the stand-in city
 
 export const AIRSPACE_SOURCE: AirspaceSource = {
   provider: 'skyroute-demo',
@@ -146,10 +181,27 @@ export const ZONES: ZonesResponse = {
   ],
 };
 
+/** Mirrors GET /api/v1/scenarios (configuration only, no coordinates). */
+export const SCENARIOS: ScenariosResponse = {
+  note: 'Scenarios configure the optimisation only. Start and destination always come from the request.',
+  scenarios: [
+    { id: 'NORMAL', displayName: 'Normal Flight', description: 'Standard route.', optimizationGoal: 'PREFER_SAFE_CORRIDORS', routeObjective: 'CORRIDORS', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+    { id: 'BLOOD_DELIVERY', displayName: 'Blood Delivery', description: 'Minimises delivery time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: 'DEMO_DRONE_02' },
+    { id: 'AED_DELIVERY', displayName: 'AED / First Aid Delivery', description: 'Minimises response time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+    { id: 'AVOID_PROHIBITED_ZONE', displayName: 'Avoid Prohibited Zone', description: 'Shortest path around blocked zones.', optimizationGoal: 'MINIMIZE_DISTANCE', routeObjective: 'SHORTEST', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+    { id: 'EMERGENCY', displayName: 'Emergency Flight', description: 'Minimises travel time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'EMERGENCY', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+  ],
+};
+
 export function routeResponse(req: RouteRequest, over: Partial<RouteResponse> = {}): RouteResponse {
   return {
     status: 'OK',
     message: 'Route calculated',
+    start: req.start,
+    destination: req.destination,
+    scenario: req.scenario ?? null,
+    scenarioDisplayName: SCENARIOS.scenarios.find((s) => s.id === req.scenario)?.displayName ?? 'Custom settings',
+    optimizationGoal: SCENARIOS.scenarios.find((s) => s.id === req.scenario)?.optimizationGoal ?? null,
     geometry: {
       type: 'LineString',
       coordinates: [
@@ -161,11 +213,17 @@ export function routeResponse(req: RouteRequest, over: Partial<RouteResponse> = 
     distanceM: 3035.2,
     etaS: 175.6,
     mode: req.mode,
+    routeObjective: req.routeObjective,
     flightAltitudeMeters: req.flightAltitudeMeters,
     droneProfileId: req.droneProfileId,
     weather: DEMO_WEATHER,
     routeStart: req.start,
     routeDestination: req.destination,
+    coverage: {
+      valid: true, area: 'City of Warsaw', startDistrict: 'Śródmieście', destinationDistrict: 'Praga-Południe',
+      source: 'GUGiK PRG', airspaceOutsideExtentM: 0,
+    },
+    search: { attempts: 1, resolutionM: 25, windowKm2: 12.5, expansions: 4200, wholeCity: false, limitedBy: null, elapsedMs: 85, cached: false },
     zoneConflicts: [],
     airspace: AIRSPACE_SOURCE,
     planningVerificationStatus: 'SIMULATION_ONLY: DEMO airspace (synthetic zones). Not a check of real-world flight legality.',
@@ -180,9 +238,24 @@ export function routeResponse(req: RouteRequest, over: Partial<RouteResponse> = 
 export function flushStartup(http: HttpTestingController): void {
   for (const req of http.match(`${API_BASE_URL}/layers`)) req.flush(LAYERS);
   for (const req of http.match(`${API_BASE_URL}/drone-profiles`)) req.flush(PROFILES);
+  for (const req of http.match(`${API_BASE_URL}/scenarios`)) req.flush(SCENARIOS);
   for (const req of http.match(`${API_BASE_URL}/health`)) {
-    req.flush({ status: 'ok', version: '0.3.0', mapCenter: [52.2297, 21.0122], demoBbox: LAYERS.bbox });
+    req.flush({ status: 'ok', version: '0.3.0', mapCenter: [52.2297, 21.0122], coverageAvailable: true });
   }
   for (const req of http.match((r) => r.url.startsWith(`${API_BASE_URL}/weather`))) req.flush(DEMO_WEATHER);
   for (const req of http.match((r) => r.url.startsWith(`${API_BASE_URL}/zones`))) req.flush(ZONES);
+  for (const req of http.match(`${API_BASE_URL}/map/warsaw-boundary`)) req.flush(BOUNDARY);
+  for (const req of http.match(`${API_BASE_URL}/map/coverage`)) req.flush(COVERAGE);
+}
+
+/**
+ * Answers startup requests until none are left: services such as the boundary
+ * resource only issue their request on the next change-detection tick.
+ */
+export async function settle(http: HttpTestingController, fixture?: { whenStable(): Promise<unknown> }): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    TestBed.tick();
+    flushStartup(http);
+  }
+  if (fixture) await fixture.whenStable();
 }

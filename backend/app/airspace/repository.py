@@ -11,6 +11,7 @@ import threading
 from dataclasses import dataclass
 
 import numpy as np
+from shapely.geometry import mapping
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
@@ -31,6 +32,7 @@ class AirspaceState:
     geoms_m: list[BaseGeometry]  # exact zone areas, EPSG:2180
     cells: list[np.ndarray]  # flat grid indices touching the zone + safety margin
     tree: STRtree | None
+    extent_m: BaseGeometry | None = None  # dataset extent, EPSG:2180
 
     @property
     def version(self) -> str:
@@ -57,6 +59,8 @@ class AirspaceState:
             dataset_version=d.version,
             loaded_at=d.loaded_at,
             disclaimer=d.disclaimer,
+            extent=mapping(d.extent) if d.extent is not None else None,
+            extent_label=d.extent_label,
         )
 
 
@@ -69,7 +73,8 @@ def build_state(dataset: AirspaceDataset, grid: Grid, margin_m: float = AIRSPACE
         rs, cs = win
         rr, cc = np.nonzero(hit)
         cells.append(((rr + rs.start) * grid.cols + (cc + cs.start)).astype(np.int64))
-    return AirspaceState(dataset, list(dataset.zones), geoms_m, cells, STRtree(geoms_m) if geoms_m else None)
+    extent_m = to_metres(dataset.extent) if dataset.extent is not None else None
+    return AirspaceState(dataset, list(dataset.zones), geoms_m, cells, STRtree(geoms_m) if geoms_m else None, extent_m)
 
 
 class AirspaceRepository:

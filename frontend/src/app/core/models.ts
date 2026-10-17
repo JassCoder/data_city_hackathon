@@ -4,6 +4,28 @@ import type { AirspaceSource, ZoneConflict } from './airspace';
 
 export type FlightMode = 'NORMAL' | 'EMERGENCY';
 export type WeatherMode = 'DEMO' | 'LIVE';
+/** What the route minimises (hard restrictions always apply). */
+export type RouteObjective = 'CORRIDORS' | 'SHORTEST' | 'FASTEST';
+/** Routing scenario: configuration only. It never carries or changes Point A/B. */
+export type ScenarioId = 'NORMAL' | 'BLOOD_DELIVERY' | 'AED_DELIVERY' | 'AVOID_PROHIBITED_ZONE' | 'EMERGENCY';
+export type OptimizationGoal = 'PREFER_SAFE_CORRIDORS' | 'MINIMIZE_DISTANCE' | 'MINIMIZE_ETA';
+
+export interface ScenarioConfig {
+  id: ScenarioId;
+  displayName: string;
+  description: string;
+  optimizationGoal: OptimizationGoal;
+  routeObjective: RouteObjective;
+  mode: FlightMode;
+  respectRestrictedZones: boolean;
+  useWeather: boolean;
+  recommendedProfileId: string | null;
+}
+
+export interface ScenariosResponse {
+  scenarios: ScenarioConfig[];
+  note: string;
+}
 export type PointRole = 'start' | 'destination';
 
 export interface Coordinate {
@@ -27,6 +49,8 @@ export interface RouteRequest {
   flightAltitudeMeters: number;
   droneProfileId: string;
   weatherMode: WeatherMode;
+  routeObjective: RouteObjective;
+  scenario?: ScenarioId | null;
 }
 
 export type RouteStatus =
@@ -35,7 +59,9 @@ export type RouteStatus =
   | 'OUTSIDE_COVERAGE'
   | 'START_BLOCKED'
   | 'DESTINATION_BLOCKED'
-  | 'BLOCKED_WEATHER';
+  | 'BLOCKED_WEATHER'
+  | 'SEARCH_LIMIT'
+  | 'COVERAGE_UNAVAILABLE';
 
 export interface WeatherInfo {
   mode: WeatherMode;
@@ -45,19 +71,50 @@ export interface WeatherInfo {
   windDirectionDeg: number;
   windGustKmh: number | null;
   observedAt: string | null;
+  altitudeM?: number | null;
+  samples?: { latitude: number; longitude: number; windSpeedKmh: number; windDirectionDeg: number; windGustKmh: number | null }[];
   message: string;
+}
+
+export interface CoverageCheck {
+  valid: boolean;
+  area: string;
+  startDistrict: string | null;
+  destinationDistrict: string | null;
+  source: string;
+  airspaceOutsideExtentM: number;
+}
+
+export interface SearchInfo {
+  attempts: number;
+  resolutionM: number;
+  windowKm2: number;
+  expansions: number;
+  wholeCity: boolean;
+  limitedBy: string | null;
+  elapsedMs: number;
+  cached: boolean;
 }
 
 export interface RouteResponse {
   status: RouteStatus;
   message: string;
+  /** Echo of the submitted endpoints (never replaced by a scenario). */
+  start: Coordinate;
+  destination: Coordinate;
+  scenario: ScenarioId | null;
+  scenarioDisplayName: string;
+  optimizationGoal: OptimizationGoal | null;
   geometry: { type: 'LineString'; coordinates: [number, number][] } | null;
   distanceM: number | null;
   etaS: number | null;
   mode: FlightMode;
+  routeObjective: RouteObjective;
   flightAltitudeMeters: number;
   droneProfileId: string;
   weather: WeatherInfo;
+  coverage: CoverageCheck;
+  search: SearchInfo | null;
   routeStart: Coordinate | null;
   routeDestination: Coordinate | null;
   zoneConflicts: ZoneConflict[];

@@ -195,6 +195,157 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
 - **The UI no-route scenario** comes from real building geometry (a courtyard enclosed by buildings ≥ 10 m at 20 m altitude). Zone-enclosure no-route cases are covered by tests with synthetic polygons.
 - **Terrain range 75–120 m AMSL** is used for AMSL limits, because there is no DEM.
 
+## Phase 5: Whole-city coverage + route optimisation options (done, 2026-10-17)
+
+**Built: data**
+- `scripts/fetch_boundaries.py`: the official boundary from GUGiK PRG OGC API Features. City TERYT `1465` (516.7 km²) and the 18 districts (`1465NN_8`), validated (count, area match within 1%) and cached in `data/boundaries/`.
+- `scripts/fetch_osm.py` rewritten for the whole city:
+  - 16 tiled Overpass queries per layer, with retries; about 40 minutes.
+  - **189,276 buildings** (174 at 50 m or taller), rasterised into a **25 m citywide grid of 1,198 × 1,151 cells** (`data/osm/grid_warsaw_25m.npz`, 0.3 MB).
+  - 263 gzipped z14 building tiles for display (12 MB).
+  - Citywide corridors (river + 2,822 parks), plus `tall_buildings.geojson`.
+  - Invalid geometries from rounding are repaired.
+  - The old central `buildings.geojson` was removed.
+
+**Built: backend**
+- `app/geo/coverage.py`: polygon `Coverage` with districts and prepared geometries. A missing boundary gives `available=False` and routing returns `COVERAGE_UNAVAILABLE`; there is no rectangle fallback.
+- `grid.py`:
+  - Loads the precomputed raster; the coverage mask comes from the city polygon.
+  - `pool_blocked()` for conservative coarsening.
+  - `build_grid()` kept for synthetic tests.
+- **Corridor A\* (`planner.py`):**
+  - Searches a window around A–B (margin of at least 1.5 km and 35% of the distance), widened ×2.5 up to the whole city when no path is found.
+  - Windows larger than 300k cells are coarsened (any blocked sub-cell blocks the coarse cell).
+  - Budgets of 1.2 M expansions per attempt and 20 s total; exhaustion gives `SEARCH_LIMIT`.
+  - A route cache keyed by request, wind samples and dataset version, plus a per-settings cost-array cache.
+  - Final segments are checked against the exact zones and the 25 m building raster.
+- `astar.py`: flat-list implementation with an octile heuristic, node and time budgets, and an optional **direction-dependent move cost**.
+- **Route objectives (requested mid-phase):**
+  - `routeObjective` = `CORRIDORS` (default) | `SHORTEST` | `FASTEST`.
+  - `FASTEST` uses, for each of the 8 move directions, *cruise speed ÷ ground speed* from the nearest wind sample (a region raster plus a per-sample table), with an admissible heuristic.
+- **Weather:** LIVE samples the Open-Meteo next-hour forecast along the A–B line (one point per ~5 km, max 8, one multi-location request) at 10/80/120 m, interpolated to the flight altitude and cached. The ETA uses the nearest sample per segment, and wind above the limit at any sample gives `BLOCKED_WEATHER`.
+- **Airspace:** datasets can declare an `extent`; the DEMO extent is central Warsaw. The length of route outside it is reported (`coverage.airspaceOutsideExtentM`, a warning, and "PARTIAL AIRSPACE DATA" in the verification status).
+- **API:**
+  - New `GET /map/warsaw-boundary`, `GET /map/coverage` and `GET /map/buildings/14/{x}/{y}`.
+  - The route response gained `routeObjective`, `coverage` (districts, validity, source) and `search` (resolution, window, attempts, expansions, time, cached).
+  - The geocoding viewbox comes from the city bounds, and `inCoverage` is a point-in-polygon test.
+  - `/health` reports `coverageAvailable`.
+
+**Built: frontend**
+- `core/map-data.ts` (boundary + coverage resources) and `core/geo.ts` (point-in-polygon with holes and MultiPolygons). The store validates points against the city polygon.
+- **Map:**
+  - Starts on an approximate city view, then **fits the official boundary**.
+  - City outline, 18 district outlines with permanent labels, and a **Show Entire Warsaw** control.
+  - A labelled fallback banner if the boundary is missing.
+  - Building footprint tiles loaded on demand from zoom 15 (cached, at most 30 in view); tall buildings always shown.
+  - A dashed outline of the airspace dataset extent.
+  - A `ResizeObserver` calls `invalidateSize`, and zero-size containers no longer jump to maximum zoom.
+- **Planner:** a **Route optimisation** toggle (Safe corridors / Shortest / Fastest) with an explanation. The weather readout shows the wind at the chosen altitude.
+- **Results:** the optimisation used, start → destination districts, search statistics, and labels for `SEARCH_LIMIT` and `COVERAGE_UNAVAILABLE`.
+- **Styles:** the map styles moved to the global `src/styles/map.scss` (they were already global via `ViewEncapsulation.None`; this stays under the component style budget).
+- **Demo:** the no-route scenario moved to an enclosed courtyard in Praga-Północ (the old one is not enclosed in the fresh OSM snapshot).
+
+**Verified**
+- **pytest: 164 passed.** New `test_citywide.py` and `test_weather.py`, plus objective tests. They cover:
+  - The official boundary (18 districts, TERYT codes) and point-in-polygon versus bounding box.
+  - Each test point lies in its named district.
+  - The 5 district pairs (Śródmieście→Mokotów, Wola→Praga-Południe, Ursynów→Białołęka, Bemowo→Wawer, Wilanów→Bielany): feasibility not assumed; districts, budgets and zone clearance checked.
+  - Long-distance performance and caching, airspace-extent flagging, start or destination outside Warsaw, a zone near the destination, the map endpoints, building tiles, and missing boundary data (503 / `COVERAGE_UNAVAILABLE`).
+  - Corridor widening, conservative coarsening, `SEARCH_LIMIT`, and `NO_ROUTE` over the whole coverage.
+  - Weather sampling, altitude interpolation, caching and fallback.
+  - Shortest versus corridors, Fastest choosing the longer but calm gap under variable wind, and objectives respecting zones.
+- **`ng test`: 86 passed; `ng build` clean.** Added: point-in-polygon, boundary and districts rendering with fit-on-load, Show Entire Warsaw, the fallback banner, tile maths, tiles loaded only at street zoom, the objective selector and payload, and the objective, districts and search display.
+- **Live in Edge (Playwright) against both servers:**
+  - The whole city on load with 18 district labels.
+  - Real Nominatim search: Lotnisko Chopina (Włochy) → Pałac w Wilanowie (Wilanów).
+  - Safe corridors 9.06 km / Shortest 8.19 km / Fastest 8.19 km, each in 63–221 ms, with "8.2 km outside the loaded airspace data" flagged.
+  - Show Entire Warsaw works; street zoom loaded 9 tiles (3,642 footprints in view).
+  - A point outside Warsaw is refused. No page errors.
+- **District pairs measured** (Safe corridors / Shortest / Fastest):
+
+  | Pair | Safe corridors | Shortest | Fastest | Searched at |
+  |---|---|---|---|---|
+  | Śródmieście→Mokotów | 4.08 km | 3.49 km | 3.49 km | 25 m |
+  | Wola→Praga-Południe | 8.81 km | 8.18 km | 8.19 km | 25 m |
+  | Ursynów→Białołęka | 26.6 km | 19.95 km | 20.3 km | 50 m |
+  | Bemowo→Wawer | 24.8 km | 20.0 km | 20.2 km | 50 m |
+  | Wilanów→Bielany | 21.5 km | 16.7 km | 16.8 km | 50 m |
+
+  Every search took ≤ 240 ms.
+
+**Decisions / assumptions**
+- **Precomputed raster instead of rasterising 189k buildings at startup:** startup takes about 1 s. The same building data is served as tiles for display.
+- **Corridor plus conservative coarsening** instead of a single fine citywide search. It is fast and never unsafe, but a coarse result may be longer than a fine one, and `NO_ROUTE` states the resolution searched.
+- **NumPy A\* kept,** per the project spec (no NetworkX at runtime).
+- **No zones were invented** for the rest of the city (airports and so on). Uncovered route length is reported instead.
+- **Route optimisation is a separate field** from NORMAL/EMERGENCY, to keep the agreed API contract.
+
+## Phase 6: Dynamic routing scenarios, no hard-coded endpoints (done, 2026-10-18)
+
+**What the inspection found**
+- **No hard-coded route polylines existed.** Every displayed route was already calculated by A* from the submitted points.
+- **The one behaviour that replaced Point A/B:** the frontend "Load Demo Scenario" buttons (`loadDemoScenario`: "Blood delivery", "Avoid a prohibited zone", "No route available"). They set fixed coordinates or stations, plus altitude, drone profile and mode. The "Blood delivery" label made it look like a routing mode.
+- **Not in the app before:** "AED / First Aid", "Normal Flight" and "Emergency Flight" as scenarios (NORMAL/EMERGENCY existed only as the flight-mode toggle, which never touched the points). There is also no AED-location dataset in the repo; none was invented.
+
+**Built: backend**
+- `app/routing/scenarios.py`: a configuration-driven `Scenario` enum and `ScenarioConfig`, holding display name, description, `OptimizationGoal` (→ `RouteObjective`), cost-profile mode, `use_weather`, a suggested profile only, and `respect_restricted_zones=True`, asserted for every scenario. **No coordinates.**
+  - NORMAL → corridors.
+  - BLOOD_DELIVERY and AED_DELIVERY → MINIMIZE_ETA (fastest).
+  - AVOID_PROHIBITED_ZONE → MINIMIZE_DISTANCE (shortest around all active blocked zones).
+  - EMERGENCY → MINIMIZE_ETA with EMERGENCY mode.
+- `app/services/route_service.py` `RouteService`: one shared pipeline (resolve scenario → profile → wind sampling → the **same** `RoutePlanner`/A* → response). The router is now thin. `get_route_service` is built from the overridable planner, profiles and weather dependencies.
+- **API:**
+  - `RouteRequest.scenario` is optional, so older requests still work. An explicit `mode`/`routeObjective` that contradicts the scenario gets a **422** (detected via `model_fields_set`) instead of being silently overridden.
+  - The response echoes `start` and `destination` exactly, plus `scenario`, `scenarioDisplayName` and `optimizationGoal`.
+  - New `GET /api/v1/scenarios` (configuration only).
+  - A suggested profile produces a warning but never changes the user's `droneProfileId`.
+
+**Built: frontend**
+- **Store:** `PlannerStore` is the flight-planner store.
+  - Its fields map to the requested names: `start`/`destination` (`SelectedLocation` with label + coordinates), `altitude`, `droneProfileId`, `weatherMode`, the new `selectedScenario`, and `route` (idle / loading / ready / stale / error).
+  - `selectScenario(id)` sets the scenario and its mode/objective, keeps A, B, altitude, profile and weather, invalidates, then recalculates with the same coordinates. If a point is missing it shows "Please select both the starting point and destination before calculating a route." and sends nothing.
+  - Manual mode/objective changes switch to custom settings (`scenario` omitted).
+  - Stale and late responses are dropped through the existing `requestId`.
+- **Planner panel:** a "Routing scenario" grid with 5 buttons loaded from `/scenarios`. The active one is highlighted (`aria-pressed`) and shows its description and suggested profile, which is not applied.
+- **Demo fixtures:** the demo buttons became `DEMO_FIXTURES` ("Depot → hospital pad", "Across the Sejm zone", "Enclosed courtyard"), behind a collapsed **"Load demo fixture (replaces Point A and B)"** toggle. They set points (and 20 m for the courtyard) only, never the scenario, mode, profile or weather, and are never called by scenario selection.
+- **Results:** the route results show the scenario name.
+
+**Hard-coded coordinate audit** (app code, after the change)
+
+| Location | Classification |
+|---|---|
+| `backend/app/config.py` `MAP_CENTER` | Map / weather configuration: default map centre and the point for DEMO wind / `GET /weather`. Never a route endpoint. |
+| `backend/app/config.py` `DEMO_BBOX` | Dataset metadata: the extent of the synthetic DEMO airspace dataset. |
+| `config.py` / `core/map-data.ts` `FALLBACK_VIEW` | Map view shown only if the boundary is missing. Not a route. |
+| `planner/location-input.ts` help text "e.g. 52.2297 and 21.0122" | UI hint text. |
+| `core/planner.store.ts` `DEMO_FIXTURES` | **Explicit demonstration fixture**, only via "Load demo fixture". |
+| `scripts/build_demo_data.py`, `data/airspace/demo_zones.geojson`, `data/landing_stations.geojson` | Synthetic demo dataset (zones, stations). |
+| `data/boundaries/*`, `data/osm/*`, `data/corridors.geojson`, `data/tall_buildings.geojson` | Real geographic datasets (GUGiK PRG, OSM). |
+| `*.spec.ts`, `backend/tests/*` | Test fixtures. |
+| Unwanted hard-coded routing behaviour | **None remaining.** The old `loadDemoScenario` (scenario-like labels that replaced A/B, profile, mode and altitude) was refactored into explicit fixtures. |
+
+**Verified**
+- **pytest: 205 passed.** New `test_scenarios.py` (41 tests), each across all 5 scenarios where relevant:
+  - Submitted coordinates are echoed, and the route starts and ends exactly there; changing the scenario never changes the endpoints.
+  - Changing Point A or B changes the route.
+  - The DEMO-P-SEJM direct line is avoided, with `DIRECT_LINE_BLOCKED` reported; a synthetic full wall gives NO_ROUTE.
+  - A meaningful NO_ROUTE for the enclosed courtyard; missing start, destination or both → 422.
+  - Objective mapping; Blood, AED and Emergency giving an identical route; the suggested profile not applied; conflicting settings → 422; unknown scenario → 422; legacy requests without a scenario; `/scenarios` containing no coordinates.
+- **`ng test`: 102 passed; `ng build` clean.** Covered:
+  - Selecting each scenario keeps the same A and B objects and sends their exact coordinates plus the scenario.
+  - Altitude, profile and weather are kept; no predefined coordinates are loaded when a point is missing.
+  - A scenario change cancels the outdated request; manual changes → custom.
+  - The panel highlights the active scenario; address text and selection are unchanged; map markers keep their lat/lng across scenario routes.
+  - Demo fixtures sit behind an explicit toggle.
+- **Acceptance test in Edge (Playwright), live servers, real Nominatim — 66/66 checks:**
+  - **Trip 1** (Warszawa Centralna → Stadion Narodowy, sent as 52.2288207, 21.00316 → 52.2397726, 21.0454432):
+    - NORMAL 3.41 km; Blood / AED / Emergency 3.16 km (identical); Avoid Prohibited Zone 3.22 km (shortest path, PKiN zone listed as avoided).
+  - **Trip 2** (Łazienki Królewskie → Dworzec Gdański):
+    - NORMAL 7.26 km; Blood / AED / Emergency 6.01 km; Avoid 5.78 km.
+  - For every scenario in both trips: the backend received **the same coordinates as NORMAL** and echoed them; the route starts and ends at those exact points; addresses and marker positions were unchanged; the button was highlighted; no fixture coordinates were sent.
+  - With no points selected, the scenario shows the message and sends nothing.
+  - An independent Shapely check: no trip-1 route touches any obstacle zone. No page errors.
+
 ## Next
 - Obtain a permitted official zone export from PAŻP and validate the ED-269 mapping against it (see DATA_SOURCES.md).
 - Spec phase 4 remainder: `/routes/compare`.

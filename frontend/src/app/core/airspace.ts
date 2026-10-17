@@ -64,6 +64,9 @@ export interface AirspaceSource {
   datasetVersion: string;
   loadedAt: string;
   disclaimer: string;
+  /** Area the zone dataset covers (null = whole routing area). */
+  extent?: GeoJSON.Polygon | GeoJSON.MultiPolygon | null;
+  extentLabel?: string | null;
 }
 
 export interface ZonesResponse {

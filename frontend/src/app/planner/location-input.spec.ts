@@ -3,8 +3,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { API_BASE_URL } from '../core/api';
 import { LayersService } from '../core/layers';
+import { MapDataService } from '../core/map-data';
 import { PlannerStore } from '../core/planner.store';
-import { GEOCODE_KOPERNIK, flushStartup } from '../../testing/fixtures';
+import { GEOCODE_KOPERNIK, settle } from '../../testing/fixtures';
 import { LocationInputComponent } from './location-input';
 
 const SEARCH_URL = `${API_BASE_URL}/geocoding/search`;
@@ -23,12 +24,12 @@ describe('LocationInputComponent', () => {
     http = TestBed.inject(HttpTestingController);
     store = TestBed.inject(PlannerStore);
     TestBed.inject(LayersService).resource.value();
+    TestBed.inject(MapDataService).boundary.value();
     fixture = TestBed.createComponent(LocationInputComponent);
     fixture.componentRef.setInput('role', 'destination');
     fixture.componentRef.setInput('label', 'Point B: Destination address');
     fixture.detectChanges();
-    flushStartup(http);
-    await fixture.whenStable();
+    await settle(http, fixture);
     el = fixture.nativeElement;
   });
 
@@ -131,11 +132,11 @@ describe('LocationInputComponent', () => {
   it('shows a coverage message for manual points outside the routing area', () => {
     q('manual-toggle').click();
     fixture.detectChanges();
-    type('lat', '52.163');
-    type('lon', '20.970');
+    type('lat', '52.05');
+    type('lon', '21.0');
     q('manual-set').click();
     fixture.detectChanges();
-    expect(q('notice').textContent).toContain('Outside the supported routing area');
+    expect(q('notice').textContent).toContain('not inside the official City of Warsaw boundary');
     expect(store.destination()).toBeNull();
   });
 
@@ -154,5 +155,23 @@ describe('LocationInputComponent', () => {
     await fixture.whenStable();
     expect(qa('result').length).toBe(0);
     expect((q('query') as HTMLInputElement).value).toBe('');
+  });
+
+  it('address text and selection stay unchanged when a routing scenario is selected', async () => {
+    submitSearch('Kopernik');
+    http.expectOne((r) => r.url === SEARCH_URL).flush(GEOCODE_KOPERNIK);
+    fixture.detectChanges();
+    qa('result')[0].click();
+    fixture.detectChanges();
+    const query = (q('query') as HTMLInputElement).value;
+    const selected = q('selected').textContent;
+    const before = store.destination();
+    for (const id of ['BLOOD_DELIVERY', 'AED_DELIVERY', 'AVOID_PROHIBITED_ZONE', 'EMERGENCY'] as const) {
+      store.selectScenario(id); // Point A missing: no request, points untouched
+      await fixture.whenStable();
+      expect((q('query') as HTMLInputElement).value).toBe(query);
+      expect(q('selected').textContent).toBe(selected);
+      expect(store.destination()).toBe(before);
+    }
   });
 });

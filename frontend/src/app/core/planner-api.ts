@@ -2,7 +2,7 @@ import { Injectable, computed, inject } from '@angular/core';
 import { HttpClient, httpResource } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL, safeValue } from './api';
-import { DroneProfilesResponse, GeocodingResponse, RouteRequest, RouteResponse } from './models';
+import { DroneProfilesResponse, GeocodingResponse, RouteRequest, RouteResponse, ScenariosResponse } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class PlannerApi {
@@ -11,6 +11,10 @@ export class PlannerApi {
   /** Drone profiles come from the backend only (single source of truth). */
   readonly profiles = httpResource<DroneProfilesResponse>(() => `${API_BASE_URL}/drone-profiles`);
   readonly profileList = computed(() => safeValue(this.profiles)?.profiles);
+
+  /** Scenario configurations (no coordinates), defined once in the backend. */
+  readonly scenarios = httpResource<ScenariosResponse>(() => `${API_BASE_URL}/scenarios`);
+  readonly scenarioList = computed(() => safeValue(this.scenarios)?.scenarios);
 
   /** Explicit search only: the public Nominatim policy forbids autocomplete. */
   searchAddress(query: string): Observable<GeocodingResponse> {

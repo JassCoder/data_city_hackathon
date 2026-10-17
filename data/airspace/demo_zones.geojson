@@ -5,7 +5,14 @@
   "sourceType": "DEMO",
   "label": "SkyRoute DEMO airspace (synthetic, non-authoritative)",
   "sourceTimestamp": "2026-10-17T00:00:00Z",
-  "disclaimer": "SYNTHETIC DEMO DATA. These boundaries are invented for the SkyRoute prototype and are NOT official PAŻP geographical zones. Check PAŻP DroneMap/DroneTower before any real flight."
+  "disclaimer": "SYNTHETIC DEMO DATA. These boundaries are invented for the SkyRoute prototype and are NOT official PAŻP geographical zones. Check PAŻP DroneMap/DroneTower before any real flight.",
+  "extent": {
+   "minLon": 20.985,
+   "minLat": 52.215,
+   "maxLon": 21.05,
+   "maxLat": 52.25
+  },
+  "extentLabel": "DEMO zones exist only for central Warsaw (Śródmieście / Powiśle)"
  },
  "features": [
   {

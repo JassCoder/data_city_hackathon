@@ -7,7 +7,7 @@ import { MatCheckboxHarness } from '@angular/material/checkbox/testing';
 import { API_BASE_URL } from '../core/api';
 import { AirspaceService } from '../core/airspace';
 import { PlannerStore } from '../core/planner.store';
-import { LAYERS, PROFILES, ZONES } from '../../testing/fixtures';
+import { BOUNDARY, COVERAGE, LAYERS, PROFILES, SCENARIOS, ZONES } from '../../testing/fixtures';
 import { AirspacePanelComponent } from './airspace-panel';
 
 describe('AirspacePanelComponent', () => {
@@ -33,6 +33,9 @@ describe('AirspacePanelComponent', () => {
     // The planner store behind the service also loads layers and profiles.
     for (const r of http.match(`${API_BASE_URL}/layers`)) r.flush(LAYERS);
     for (const r of http.match(`${API_BASE_URL}/drone-profiles`)) r.flush(PROFILES);
+    for (const r of http.match(`${API_BASE_URL}/scenarios`)) r.flush(SCENARIOS);
+    for (const r of http.match(`${API_BASE_URL}/map/warsaw-boundary`)) r.flush(BOUNDARY);
+    for (const r of http.match(`${API_BASE_URL}/map/coverage`)) r.flush(COVERAGE);
     fixture.detectChanges();
     await fixture.whenStable();
   }

@@ -1,4 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
+import { DecimalPipe } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { RouteResponse } from '../core/models';
@@ -21,11 +22,19 @@ const STATUS_LABEL: Record<RouteResponse['status'], string> = {
   START_BLOCKED: 'Start blocked',
   DESTINATION_BLOCKED: 'Destination blocked',
   BLOCKED_WEATHER: 'Blocked by weather',
+  SEARCH_LIMIT: 'Search limit reached',
+  COVERAGE_UNAVAILABLE: 'Coverage unavailable',
+};
+
+const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
+  CORRIDORS: 'Safe corridors',
+  SHORTEST: 'Shortest',
+  FASTEST: 'Fastest (wind-aware)',
 };
 
 @Component({
   selector: 'app-route-results',
-  imports: [MatIconModule, MatProgressSpinnerModule],
+  imports: [MatIconModule, MatProgressSpinnerModule, DecimalPipe],
   template: `
     <h2>Route details</h2>
     @switch (state().phase) {
@@ -53,7 +62,12 @@ const STATUS_LABEL: Record<RouteResponse['status'], string> = {
           <dl class="stats">
             <dt>Distance</dt><dd data-testid="route-distance">{{ km(r.distanceM) }}</dd>
             <dt>ETA</dt><dd data-testid="route-eta">{{ eta(r.etaS) }}</dd>
+            <dt>Scenario</dt><dd data-testid="route-scenario">{{ r.scenarioDisplayName }}</dd>
+            <dt>Optimised for</dt><dd data-testid="route-objective">{{ objectiveLabel[r.routeObjective] }}</dd>
             <dt>Mode</dt><dd [class.emergency]="r.mode === 'EMERGENCY'">{{ r.mode }}</dd>
+            @if (r.coverage.startDistrict || r.coverage.destinationDistrict) {
+              <dt>Districts</dt><dd data-testid="route-districts">{{ r.coverage.startDistrict }} → {{ r.coverage.destinationDistrict }}</dd>
+            }
             <dt>Altitude</dt><dd>{{ r.flightAltitudeMeters }} m AGL</dd>
             <dt>Drone</dt><dd>{{ profileName(r.droneProfileId) }}</dd>
             <dt>Wind</dt><dd>{{ r.weather.windSpeedKmh }} km/h from {{ r.weather.windDirectionDeg }}° ({{ r.weather.source }})</dd>
@@ -88,6 +102,12 @@ const STATUS_LABEL: Record<RouteResponse['status'], string> = {
             }
           </ul>
         }
+        @if (r.search; as s) {
+          <p class="hint" data-testid="route-search">
+            Searched {{ s.windowKm2 }} km² at {{ s.resolutionM }} m resolution{{ s.wholeCity ? ' (whole city)' : '' }},
+            {{ s.attempts }} attempt{{ s.attempts === 1 ? '' : 's' }}, {{ s.elapsedMs | number: '1.0-0' }} ms{{ s.cached ? ' (cached)' : '' }}.
+          </p>
+        }
         <details class="sources">
           <summary>Data sources</summary>
           <ul>
@@ -106,6 +126,7 @@ export class RouteResultsComponent {
   private readonly api = inject(PlannerApi);
   protected readonly airspace = inject(AirspaceService);
   protected readonly relationLabel = RELATION_LABEL;
+  protected readonly objectiveLabel = OBJECTIVE_LABEL;
 
   protected readonly state = this.store.route;
   protected readonly stale = computed(() => {

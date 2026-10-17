@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from pydantic import ValidationError
+from shapely.geometry import box, shape
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from app.airspace.geometry import as_area, geodesic_circle, to_geojson
@@ -51,6 +53,10 @@ class AirspaceDataset:
     zones: list[AirspaceZone]
     version: str  # content hash: changes whenever the dataset changes
     loaded_at: datetime
+    # Area the dataset claims to cover (WGS84). None = the whole routing area.
+    # Outside it, zones are unknown: routes there are flagged as not checked.
+    extent: BaseGeometry | None = None
+    extent_label: str | None = None
 
 
 class AirspaceProvider(Protocol):
@@ -123,7 +129,17 @@ class GeoJsonZoneFileProvider(_FileProvider):
             zones=zones,
             version=_version(raw),
             loaded_at=datetime.now(timezone.utc),
+            extent=self._extent(meta.get("extent")),
+            extent_label=meta.get("extentLabel"),
         )
+
+    @staticmethod
+    def _extent(value) -> BaseGeometry | None:
+        if not value:
+            return None
+        if {"minLon", "minLat", "maxLon", "maxLat"} <= set(value):
+            return box(value["minLon"], value["minLat"], value["maxLon"], value["maxLat"])
+        return shape(value)
 
     @staticmethod
     def _zone(feature: dict, source_type: SourceType) -> AirspaceZone:

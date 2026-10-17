@@ -76,6 +76,7 @@ def test_changing_start_changes_route(client):
     {"start": {"latitude": 52.2}},
     {"mode": "TURBO"},
     {"weatherMode": "SOMETIMES"},
+    {"routeObjective": "SCENIC"},
     {"flightAltitudeMeters": 10},
     {"flightAltitudeMeters": 125},
     {"flightAltitudeMeters": 82},  # not a 5 m step
@@ -94,10 +95,11 @@ def test_unknown_drone_profile(client):
 
 
 def test_outside_coverage(client):
-    r = client.post(URL, json=body(destination={"latitude": 52.16307, "longitude": 20.97081})).json()
+    r = client.post(URL, json=body(destination={"latitude": 52.0812, "longitude": 21.0240})).json()  # Piaseczno
     assert r["status"] == "OUTSIDE_COVERAGE"
     assert r["geometry"] is None
-    assert "outside the supported routing area" in r["message"]
+    assert "outside the supported area" in r["message"] and "Warsaw" in r["message"]
+    assert r["coverage"]["valid"] is False
 
 
 def test_destination_inside_zone(client):
@@ -136,7 +138,9 @@ def test_live_weather_failure_is_explicit(client, overrides):
 
 
 def test_live_weather_parsed_from_open_meteo(client, overrides):
-    payload = {"current": {"time": "2026-10-17T12:00", "wind_speed_10m": 50.0, "wind_direction_10m": 90, "wind_gusts_10m": 70}}
+    payload = {"hourly": {"time": ["2026-10-17T12:00"], "wind_speed_10m": [40.0], "wind_speed_80m": [50.0],
+                          "wind_speed_120m": [56.0], "wind_direction_10m": [90], "wind_direction_80m": [90],
+                          "wind_direction_120m": [90], "wind_gusts_10m": [70]}}
     live = WeatherService(httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=payload))))
     overrides[get_weather] = lambda: live
     r = client.post(URL, json=body(weatherMode="LIVE")).json()
@@ -179,7 +183,7 @@ def test_demo_avoidance_scenario_routes_around_prohibited_zone(client):
 
 
 def test_demo_no_route_scenario_enclosed_courtyard(client):
-    courtyard = {"latitude": 52.22344, "longitude": 21.01109}  # enclosed by >=10 m buildings
+    courtyard = {"latitude": 52.25549, "longitude": 21.04532}  # Praga-Północ, enclosed by >=10 m buildings
     hospital = {"latitude": 52.2300, "longitude": 20.9930}
     low = client.post(URL, json=body(start=courtyard, destination=hospital, flightAltitudeMeters=20)).json()
     assert low["status"] == "NO_ROUTE" and low["geometry"] is None
@@ -221,3 +225,22 @@ def test_zones_evaluation_follows_time(client):
 def test_zone_not_found_and_invalid_altitude(client):
     assert client.get("/api/v1/zones/NOPE").status_code == 404
     assert client.get("/api/v1/zones", params={"altitudeM": 83}).status_code == 422
+
+
+@pytest.mark.parametrize("objective", ["CORRIDORS", "SHORTEST", "FASTEST"])
+def test_route_objective_is_echoed_and_respects_zones(client, objective):
+    r = client.post(URL, json=body(destination=STADION, routeObjective=objective)).json()
+    assert r["status"] == "OK" and r["routeObjective"] == objective
+    zones = client.get("/api/v1/zones").json()["zones"]
+    line = LineString(r["geometry"]["coordinates"])
+    assert not any(line.intersects(shape(z["geojsonGeometry"])) for z in zones if z["evaluation"]["isObstacle"])
+
+
+def test_shortest_is_never_longer_than_corridors(client):
+    corridors = client.post(URL, json=body(destination=STADION)).json()
+    shortest = client.post(URL, json=body(destination=STADION, routeObjective="SHORTEST")).json()
+    assert shortest["distanceM"] <= corridors["distanceM"] + 1
+
+
+def test_default_objective_is_corridors(client):
+    assert client.post(URL, json=body()).json()["routeObjective"] == "CORRIDORS"

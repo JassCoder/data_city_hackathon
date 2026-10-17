@@ -123,6 +123,8 @@ class AirspaceSourceInfo(CamelModel):
     dataset_version: str
     loaded_at: datetime
     disclaimer: str
+    extent: dict[str, Any] | None = None  # GeoJSON area the dataset covers; None = whole routing area
+    extent_label: str | None = None
 
 
 class FlightContextInfo(CamelModel):

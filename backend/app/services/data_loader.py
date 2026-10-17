@@ -1,8 +1,9 @@
 """Loads and validates the GeoJSON layers in /data once at startup.
 
-Airspace zones are loaded separately (app/airspace). Keeps full-detail
-Shapely geometries for routing and pre-serialises
-the lighter /layers response so requests don't re-encode ~7k buildings.
+Citywide display layers only: corridors (river + parks), tall buildings and
+landing stations. All building footprints are served as tiles and the routing
+raster is precomputed (app/routing/grid.py); airspace zones live in app/airspace.
+The /layers body is pre-serialised once.
 """
 
 from __future__ import annotations
@@ -17,8 +18,8 @@ from shapely.geometry.base import BaseGeometry
 
 from app.config import (
     DATA_DIR,
+    BUILDINGS_INDEX_FILE,
     DATA_FILES,
-    DEMO_BBOX,
     LAYERS_COORD_DECIMALS,
     LAYERS_SIMPLIFY_TOLERANCE_DEG,
 )
@@ -46,8 +47,9 @@ class Layer[P: BaseModel]:
 @dataclass(frozen=True)
 class DemoData:
     corridors: Layer[CorridorProperties]
-    buildings: Layer[BuildingProperties]
+    tall_buildings: Layer[BuildingProperties]
     stations: Layer[StationProperties]
+    building_stats: dict  # citywide counts from data/osm/buildings_index.json
     layers_json: bytes  # pre-built GET /layers body
 
 
@@ -97,16 +99,17 @@ def _light_collection(layer: Layer, simplify: bool) -> dict:
     return {"type": "FeatureCollection", "metadata": layer.raw.get("metadata", {}), "features": features}
 
 
-def load_demo_data(data_dir: Path = DATA_DIR) -> DemoData:
+def load_demo_data(data_dir: Path = DATA_DIR, index_file: Path = BUILDINGS_INDEX_FILE) -> DemoData:
     corridors = _load_layer(data_dir, "corridors", CorridorProperties, POLYGONAL)
-    buildings = _load_layer(data_dir, "buildings", BuildingProperties, POLYGONAL)
+    tall = _load_layer(data_dir, "tall_buildings", BuildingProperties, POLYGONAL)
     stations = _load_layer(data_dir, "stations", StationProperties, ("Point",))
+    stats = json.loads(index_file.read_text(encoding="utf-8")).get("stats", {}) if index_file.is_file() else {}
 
     body = {
-        "bbox": DEMO_BBOX,
         "corridors": _light_collection(corridors, simplify=True),
-        "buildings": _light_collection(buildings, simplify=True),
+        "tallBuildings": _light_collection(tall, simplify=True),
         "stations": _light_collection(stations, simplify=False),
+        "buildingStats": stats,
     }
     layers_json = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return DemoData(corridors, buildings, stations, layers_json)
+    return DemoData(corridors, tall, stations, stats, layers_json)

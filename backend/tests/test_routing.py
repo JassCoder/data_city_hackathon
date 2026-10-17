@@ -5,7 +5,8 @@ import pytest
 from shapely.geometry import LineString, Point
 
 from app.routing.astar import astar, line_cells, smooth
-from app.routing.costs import FlightMode
+from app.routing.costs import FlightMode, RouteObjective
+from app.schemas.planning import WindSample
 from app.routing.grid import lonlat_to_xy
 from app.schemas.planning import RouteStatus
 from tests.conftest import CALM, EAST, NOW, PROFILE, WEST, lon_box, make_planner, zone
@@ -126,7 +127,7 @@ def test_changing_endpoints_changes_route():
 def test_outside_coverage_is_reported_precisely():
     r = _plan(make_planner(), dest=(20.9671, 52.1657))  # Chopin Airport
     assert r.status == RouteStatus.OUTSIDE_COVERAGE
-    assert "Destination point" in r.message and "outside the supported routing area" in r.message
+    assert "Destination point" in r.message and "outside the supported area" in r.message
 
 
 def test_start_inside_zone_is_rejected_not_snapped():
@@ -174,3 +175,41 @@ def test_emergency_prefers_shorter_path_than_normal_over_river_detour():
     assert normal.status == emergency.status == RouteStatus.OK
     assert emergency.distance_m < normal.distance_m * 0.8
     assert min(lat for _, lat in normal.path_lonlat) < 52.2312  # normal reached the river
+
+
+# --- route objectives -------------------------------------------------------------
+
+def test_shortest_ignores_the_corridor_preference():
+    river = lon_box(21.0000, 52.2300, 21.0100, 52.2312)
+    planner = make_planner(river=river)
+    a, b = (21.0010, 52.2328), (21.0090, 52.2328)
+    corridors = planner.plan(a, b, FlightMode.NORMAL, 80, PROFILE, CALM, NOW)
+    shortest = planner.plan(a, b, FlightMode.NORMAL, 80, PROFILE, CALM, NOW, RouteObjective.SHORTEST)
+    assert shortest.distance_m < corridors.distance_m * 0.8
+    assert len(shortest.path_lonlat) == 2  # open air: a straight line
+
+
+def test_fastest_trades_distance_for_time_under_variable_wind():
+    # Wall with a short northern gap and a longer southern gap; strong headwind
+    # in the north, calm in the south.
+    wall = lon_box(21.0045, 52.2312, 21.0055, 52.2350)
+    planner = make_planner(zones=[zone("P", wall)], margin_m=0)
+    windy = CALM.model_copy(update={"wind_speed_kmh": 35.0, "wind_direction_deg": 90.0, "samples": [
+        WindSample(latitude=52.2356, longitude=21.005, wind_speed_kmh=35.0, wind_direction_deg=90.0),
+        WindSample(latitude=52.2304, longitude=21.005, wind_speed_kmh=0.0, wind_direction_deg=90.0),
+    ]})
+    a, b = (21.0010, 52.2335), (21.0090, 52.2335)
+    shortest = planner.plan(a, b, FlightMode.NORMAL, 80, PROFILE, windy, NOW, RouteObjective.SHORTEST)
+    fastest = planner.plan(a, b, FlightMode.NORMAL, 80, PROFILE, windy, NOW, RouteObjective.FASTEST)
+    assert shortest.status == fastest.status == RouteStatus.OK
+    assert max(lat for _, lat in shortest.path_lonlat) > 52.2350  # north gap
+    assert min(lat for _, lat in fastest.path_lonlat) < 52.2312  # south gap, out of the headwind
+    assert fastest.distance_m > shortest.distance_m
+    assert fastest.eta_s < shortest.eta_s
+
+
+def test_fastest_respects_hard_restrictions():
+    full = lon_box(21.0045, 52.2290, 21.0055, 52.2370)
+    r = make_planner(zones=[zone("P", full)]).plan(WEST, EAST, FlightMode.NORMAL, 80, PROFILE, CALM, NOW,
+                                                    RouteObjective.FASTEST)
+    assert r.status == RouteStatus.NO_ROUTE

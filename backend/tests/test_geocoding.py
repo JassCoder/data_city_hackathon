@@ -4,6 +4,7 @@ import httpx
 import pytest
 
 from app.dependencies import get_geocoder
+from app.geo.coverage import load_city_coverage
 from app.services.geocoding import (
     GeocodingBusyError,
     GeocodingError,
@@ -29,6 +30,15 @@ AIRPORT = {
     "category": "aeroway",
     "type": "aerodrome",
 }
+PIASECZNO = {  # town south of Warsaw: outside the city boundary
+    "place_id": 789,
+    "lat": "52.0812",
+    "lon": "21.0240",
+    "display_name": "Piaseczno, powiat piaseczyński",
+    "category": "boundary",
+    "type": "administrative",
+}
+CITY = load_city_coverage()
 
 
 class FakeClock:
@@ -53,7 +63,8 @@ def make_service(handler, clock=None):
         return handler(request)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(wrapped))
-    provider = NominatimProvider(client, "https://nominatim.test/search", "SkyRouteTest/1.0", "20.85,52.37,21.27,52.09")
+    provider = NominatimProvider(client, "https://nominatim.test/search", "SkyRouteTest/1.0", "20.85,52.37,21.27,52.09",
+                                 contains=CITY.contains)
     service = GeocodingService(
         provider, TTLCache(10, 3600, clock), RateLimiter(1.0, 5.0, clock, clock.sleep), limit=5
     )
@@ -67,13 +78,14 @@ def ok(*items):
 # --- parsing & provider ------------------------------------------------------
 
 def test_parse_nominatim_results_and_coverage_flag():
-    results = NominatimProvider.parse([KOPERNIK, AIRPORT])
-    assert [r.display_name for r in results] == [KOPERNIK["display_name"], AIRPORT["display_name"]]
-    k, a = results
+    results = NominatimProvider.parse([KOPERNIK, AIRPORT, PIASECZNO], CITY.contains)
+    assert [r.display_name for r in results][:2] == [KOPERNIK["display_name"], AIRPORT["display_name"]]
+    k, a, p = results
     assert (k.latitude, k.longitude) == (52.24178, 21.0286)
     assert k.place_id == "nominatim:123" and k.source == "nominatim" and k.category == "tourism/museum"
     assert k.in_coverage is True
-    assert a.in_coverage is False  # airport is outside the routing region
+    assert a.in_coverage is True  # Chopin Airport (Włochy district) is inside the city polygon
+    assert p.in_coverage is False  # Piaseczno is outside Warsaw
 
 
 def test_parse_skips_malformed_entries():
@@ -160,7 +172,7 @@ URL = "/api/v1/geocoding/search"
 
 
 def test_search_endpoint_returns_structured_results(client, overrides):
-    service, _, _ = make_service(ok(KOPERNIK, AIRPORT))
+    service, _, _ = make_service(ok(KOPERNIK, PIASECZNO))
     overrides[get_geocoder] = lambda: service
     res = client.get(URL, params={"query": "Kopernik"})
     assert res.status_code == 200

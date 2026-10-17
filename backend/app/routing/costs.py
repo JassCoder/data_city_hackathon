@@ -25,6 +25,14 @@ class FlightMode(StrEnum):
     EMERGENCY = "EMERGENCY"
 
 
+class RouteObjective(StrEnum):
+    """What the route minimises, always under the same hard constraints."""
+
+    CORRIDORS = "CORRIDORS"  # prefer river/parks (TERRAIN_COSTS per mode)
+    SHORTEST = "SHORTEST"  # minimise distance
+    FASTEST = "FASTEST"  # minimise flight time: cruise speed + wind per direction of travel
+
+
 # Terrain costs (cells not blocked by a zone or a too-tall building).
 TERRAIN_COSTS: dict[FlightMode, dict[str, float]] = {
     FlightMode.NORMAL: {"river": 1.0, "park": 2.0, "open": 5.0},

@@ -200,3 +200,41 @@ app-map .zone-popup {
     dd { margin: 0; }
   }
 }
+
+app-map .show-warsaw-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 2px solid rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  background: #fff;
+  font: 500 12px Roboto, sans-serif;
+  cursor: pointer;
+
+  .material-icons { font-size: 16px; }
+  &:hover { background: #f4f4f4; }
+}
+
+app-map .coverage-banner {
+  max-width: 300px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #ffebee;
+  color: #b71c1c;
+  border-left: 4px solid #c62828;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+app-map .district-label {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: #283593;
+  font-weight: 600;
+  font-size: 11px;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+
+  &::before { display: none; }
+}

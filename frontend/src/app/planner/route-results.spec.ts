@@ -13,6 +13,7 @@ const REQUEST: RouteRequest = {
   flightAltitudeMeters: 90,
   droneProfileId: 'DEMO_DRONE_01',
   weatherMode: 'DEMO',
+  routeObjective: 'FASTEST',
 };
 
 describe('RouteResultsComponent', () => {
@@ -112,5 +113,23 @@ describe('RouteResultsComponent', () => {
     store.route.set({ phase: 'ready', request: REQUEST, response: routeResponse(REQUEST, { status: 'NO_ROUTE', geometry: null }) });
     fixture.detectChanges();
     expect(q('route-no-route-hint')?.textContent).toContain('No path exists');
+  });
+
+  it('shows the optimisation objective, districts and search statistics', () => {
+    store.route.set({ phase: 'ready', request: REQUEST, response: routeResponse(REQUEST) });
+    fixture.detectChanges();
+    expect(q('route-objective')?.textContent).toContain('Fastest (wind-aware)');
+    expect(q('route-districts')?.textContent).toContain('Śródmieście → Praga-Południe');
+    expect(q('route-search')?.textContent).toContain('25 m resolution');
+  });
+
+  it('labels search-limit results explicitly', () => {
+    store.route.set({
+      phase: 'ready', request: REQUEST,
+      response: routeResponse(REQUEST, { status: 'SEARCH_LIMIT', geometry: null, message: 'Route could not be calculated within the supported limits' }),
+    });
+    fixture.detectChanges();
+    expect(q('route-status')?.textContent).toContain('Search limit reached');
+    expect(q('route-message')?.textContent).toContain('supported limits');
   });
 });

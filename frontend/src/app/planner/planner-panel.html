@@ -7,6 +7,37 @@
   placeholder="e.g. Centrum Nauki Kopernik, Warszawa"
 />
 
+<section class="block" data-testid="scenarios">
+  <span class="block-title">Routing scenario</span>
+  <div class="scenario-grid" role="group" aria-label="Routing scenario">
+    @for (sc of api.scenarioList() ?? []; track sc.id) {
+      <button
+        type="button"
+        class="scenario"
+        [class.active]="store.selectedScenario() === sc.id"
+        [attr.aria-pressed]="store.selectedScenario() === sc.id"
+        [attr.data-testid]="'scenario-' + sc.id"
+        (click)="selectScenario(sc.id)"
+      >
+        {{ sc.displayName }}
+      </button>
+    }
+  </div>
+  @if (store.scenarioNotice(); as n) {
+    <p class="error" role="alert" data-testid="scenario-notice">{{ n }}</p>
+  }
+  @if (store.selectedScenarioConfig(); as sc) {
+    <p class="hint" data-testid="scenario-description">
+      {{ sc.description }} Uses your Point A and Point B.
+      @if (sc.recommendedProfileId && sc.recommendedProfileId !== store.droneProfileId()) {
+        Suggested profile: {{ profileName(sc.recommendedProfileId) }} (not applied automatically).
+      }
+    </p>
+  } @else {
+    <p class="hint" data-testid="scenario-description">Custom settings: mode and optimisation chosen below.</p>
+  }
+</section>
+
 <section class="block" data-testid="altitude">
   <div class="row">
     <span class="block-title">Flight Altitude</span>
@@ -67,6 +98,35 @@
 </section>
 
 <section class="block">
+  <span class="block-title">Route optimisation</span>
+  <mat-button-toggle-group
+    data-testid="objective"
+    aria-label="Route optimisation"
+    hideSingleSelectionIndicator
+    [value]="store.routeObjective()"
+    (change)="setObjective($event.value)"
+  >
+    <mat-button-toggle value="CORRIDORS">Safe corridors</mat-button-toggle>
+    <mat-button-toggle value="SHORTEST">Shortest</mat-button-toggle>
+    <mat-button-toggle value="FASTEST">Fastest</mat-button-toggle>
+  </mat-button-toggle-group>
+  <p class="hint" data-testid="objective-hint">
+    @switch (store.routeObjective()) {
+      @case ('SHORTEST') {
+        Minimises distance. Same hard limits: zones, buildings, wind limit.
+      }
+      @case ('FASTEST') {
+        Minimises flight time using cruise speed and the wind at your altitude for each direction of travel
+        (LIVE wind varies along the route; DEMO wind is uniform, so it then matches Shortest except around obstacles).
+      }
+      @default {
+        Prefers the river and parks (weights depend on the flight mode).
+      }
+    }
+  </p>
+</section>
+
+<section class="block">
   <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full">
     <mat-label>Drone profile</mat-label>
     <mat-select
@@ -105,6 +165,9 @@
   @if (weatherInfo(); as w) {
     <p class="hint" data-testid="weather-info" [class.warn]="w.source === 'DEMO_FALLBACK'">
       Wind {{ w.windSpeedKmh }} km/h from {{ w.windDirectionDeg }}°
+      @if (w.altitudeM) {
+        at {{ w.altitudeM }} m
+      }
       @if (w.windGustKmh !== null) {
         (gusts {{ w.windGustKmh }} km/h)
       }
@@ -139,14 +202,18 @@
     <button mat-stroked-button data-testid="clear-route" (click)="store.clearRoute()">Clear Route</button>
     <button mat-stroked-button data-testid="reset" (click)="reset()">Reset Planner</button>
   </div>
-  <span class="block-title demo-title"><mat-icon>science</mat-icon> Load Demo Scenario</span>
-  @for (d of scenarios; track d.id) {
-    <button mat-stroked-button class="demo" [attr.data-testid]="'demo-' + d.id" [title]="d.description" (click)="loadDemo(d.id)">
-      {{ d.title }}
-    </button>
+  <button mat-button type="button" class="demo-title" data-testid="fixtures-toggle" (click)="showFixtures.set(!showFixtures())">
+    <mat-icon>science</mat-icon> Load demo fixture (replaces Point A and B)
+  </button>
+  @if (showFixtures()) {
+    @for (d of fixtures; track d.id) {
+      <button mat-stroked-button class="demo" [attr.data-testid]="'fixture-' + d.id" [title]="d.description" (click)="loadFixture(d.id)">
+        {{ d.title }}
+      </button>
+    }
   }
-  @if (store.scenarioLabel(); as label) {
-    <p class="hint" data-testid="scenario-label"><span class="tag">DEMO</span> {{ label }}: synthetic stations and settings.</p>
+  @if (store.fixtureLabel(); as label) {
+    <p class="hint" data-testid="fixture-label"><span class="tag">DEMO</span> Points from the demo fixture "{{ label }}". Change either point to use your own.</p>
   }
   @if (demoError(); as err) {
     <p class="error" role="alert">{{ err }}</p>

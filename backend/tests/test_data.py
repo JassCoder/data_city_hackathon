@@ -1,3 +1,4 @@
+import gzip
 import json
 import shutil
 
@@ -6,7 +7,7 @@ from shapely.geometry import box, shape
 
 from app.airspace.factory import make_provider
 from app.airspace.models import DraCategory
-from app.config import DATA_DIR, DATA_FILES, DEMO_BBOX
+from app.config import BUILDING_TILES_DIR, DATA_DIR, DATA_FILES, DEMO_BBOX
 from app.services.data_loader import DataLoadError, load_demo_data
 
 
@@ -22,7 +23,8 @@ def demo_zones():
 
 def test_all_layers_load(data):
     assert len(data.stations.properties) == 4
-    assert len(data.buildings.properties) > 1000
+    assert all(p.height_m >= 50 for p in data.tall_buildings.properties)
+    assert data.building_stats["buildings"] > 50_000  # citywide OSM snapshot
     corridor_types = {p.corridor_type for p in data.corridors.properties}
     assert corridor_types == {"RIVER", "PARK"}
 
@@ -40,11 +42,15 @@ def test_stations_and_zones_inside_bbox(data, demo_zones):
         assert bbox.contains(g)
 
 
-def test_building_heights_follow_source_rules(data):
-    for p in data.buildings.properties:
-        assert p.height_m > 0
-        if p.height_source == "default_15m":
-            assert p.height_m == 15
+def test_building_heights_follow_source_rules():
+    tiles = sorted(BUILDING_TILES_DIR.glob("14/*/*.json.gz"))[:20]
+    assert tiles
+    for t in tiles:
+        for f in json.loads(gzip.decompress(t.read_bytes()))["features"]:
+            p = f["properties"]
+            assert p["height_m"] > 0
+            if p["height_source"] == "default_15m":
+                assert p["height_m"] == 15
 
 
 def test_missing_file_fails_with_clear_message(tmp_path):
@@ -71,7 +77,7 @@ def test_layers_endpoint(client):
     assert res.status_code == 200
     assert res.headers["content-encoding"] == "gzip"
     body = res.json()
-    assert set(body) == {"bbox", "corridors", "buildings", "stations"}  # zones: /zones
-    assert body["bbox"] == DEMO_BBOX
+    assert set(body) == {"corridors", "tallBuildings", "stations", "buildingStats"}  # zones: /zones, buildings: tiles
     assert body["stations"]["features"][0]["properties"]["source"] == "DEMO"
-    assert body["buildings"]["features"][0]["properties"].keys() == {"id", "height_m", "height_source"}
+    assert body["tallBuildings"]["features"][0]["properties"].keys() == {"id", "height_m", "height_source"}
+    assert body["buildingStats"]["buildings"] > 50_000

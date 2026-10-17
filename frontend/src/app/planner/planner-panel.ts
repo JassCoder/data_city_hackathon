@@ -9,9 +9,9 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSliderModule } from '@angular/material/slider';
 import { API_BASE_URL, safeValue } from '../core/api';
-import { ALTITUDE, FlightMode, WeatherInfo, WeatherMode } from '../core/models';
+import { ALTITUDE, FlightMode, RouteObjective, ScenarioId, WeatherInfo, WeatherMode } from '../core/models';
 import { PlannerApi } from '../core/planner-api';
-import { DEMO_SCENARIOS, DemoScenario, PlannerStore } from '../core/planner.store';
+import { DEMO_FIXTURES, DemoFixture, PlannerStore } from '../core/planner.store';
 import { LocationInputComponent } from './location-input';
 
 @Component({
@@ -36,11 +36,12 @@ export class PlannerPanelComponent {
   protected readonly ALTITUDE = ALTITUDE;
 
   protected readonly weather = httpResource<WeatherInfo>(
-    () => `${API_BASE_URL}/weather?mode=${this.store.weatherMode()}`,
+    () => `${API_BASE_URL}/weather?mode=${this.store.weatherMode()}&altitude_m=${this.store.altitudeValid() ? this.store.altitude() : 80}`,
   );
   protected readonly weatherInfo = computed(() => safeValue(this.weather));
   protected readonly demoError = signal<string | null>(null);
-  protected readonly scenarios = DEMO_SCENARIOS;
+  protected readonly fixtures = DEMO_FIXTURES;
+  protected readonly showFixtures = signal(false);
 
   protected readonly selectedProfile = computed(() =>
     this.api.profileList()?.find((p) => p.id === this.store.droneProfileId()),
@@ -75,12 +76,24 @@ export class PlannerPanelComponent {
     this.store.setMode(mode);
   }
 
+  protected setObjective(objective: RouteObjective): void {
+    this.store.setRouteObjective(objective);
+  }
+
   protected setWeatherMode(mode: WeatherMode): void {
     this.store.setWeatherMode(mode);
   }
 
-  protected loadDemo(id: DemoScenario['id']): void {
-    this.demoError.set(this.store.loadDemoScenario(id));
+  protected loadFixture(id: DemoFixture['id']): void {
+    this.demoError.set(this.store.loadDemoFixture(id));
+  }
+
+  protected selectScenario(id: ScenarioId): void {
+    this.store.selectScenario(id);
+  }
+
+  protected profileName(id: string | null): string {
+    return this.api.profileList()?.find((p) => p.id === id)?.name ?? id ?? '';
   }
 
   protected reset(): void {

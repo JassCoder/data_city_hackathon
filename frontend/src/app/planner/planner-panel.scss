@@ -1,0 +1,103 @@
+:host {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+h2 {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+}
+
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.block-title {
+  font: var(--mat-sys-title-small);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-row {
+  .slider { flex: 1; min-width: 0; margin: 0; }
+  .altitude-input { width: 92px; }
+}
+
+.full {
+  width: 100%;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--mat-sys-on-surface-variant);
+
+  &.warn { color: #8a4b00; font-weight: 500; }
+}
+
+.error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--mat-sys-error);
+}
+
+.tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #ffb300;
+  color: #1a1a1a;
+}
+
+mat-button-toggle-group {
+  width: 100%;
+
+  mat-button-toggle { flex: 1; }
+}
+
+.buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  .calculate {
+    height: 48px;
+    font-size: 15px;
+
+    mat-spinner { display: inline-block; margin-right: 8px; vertical-align: middle; }
+  }
+
+  .secondary {
+    display: flex;
+    gap: 8px;
+
+    button { flex: 1; }
+  }
+}
+
+.demo-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+
+  mat-icon { font-size: 18px; width: 18px; height: 18px; }
+}
+
+.demo { justify-content: flex-start; }

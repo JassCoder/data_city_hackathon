@@ -1,0 +1,143 @@
+import { Component, computed, inject } from '@angular/core';
+import { MatIconModule } from '@angular/material/icon';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { RouteResponse } from '../core/models';
+import { PlannerApi } from '../core/planner-api';
+import { PlannerStore } from '../core/planner.store';
+import { AirspaceService, ZoneConflict } from '../core/airspace';
+
+const RELATION_LABEL: Record<ZoneConflict['relation'], string> = {
+  START_INSIDE: 'Start inside zone',
+  DESTINATION_INSIDE: 'Destination inside zone',
+  DIRECT_LINE_BLOCKED: 'Avoided',
+  ROUTE_CROSSES_INFO: 'Information',
+  NEAR_ROUTE: 'Near route',
+};
+
+const STATUS_LABEL: Record<RouteResponse['status'], string> = {
+  OK: 'Route found',
+  NO_ROUTE: 'No route',
+  OUTSIDE_COVERAGE: 'Outside coverage',
+  START_BLOCKED: 'Start blocked',
+  DESTINATION_BLOCKED: 'Destination blocked',
+  BLOCKED_WEATHER: 'Blocked by weather',
+};
+
+@Component({
+  selector: 'app-route-results',
+  imports: [MatIconModule, MatProgressSpinnerModule],
+  template: `
+    <h2>Route details</h2>
+    @switch (state().phase) {
+      @case ('idle') {
+        <p class="muted" data-testid="route-idle">No route yet. Select Point A and Point B, then Calculate Route.</p>
+      }
+      @case ('loading') {
+        <p class="loading" data-testid="route-loading"><mat-spinner diameter="18" /> Calculating route…</p>
+      }
+      @case ('error') {
+        <p class="error-box" role="alert" data-testid="route-error">{{ errorMessage() }}</p>
+      }
+    }
+    @if (response(); as r) {
+      <div class="result" [class.stale]="stale()" data-testid="route-result">
+        @if (stale()) {
+          <p class="stale-banner" data-testid="route-stale">
+            <mat-icon>update</mat-icon> Inputs changed. This route is outdated; recalculate.
+          </p>
+        }
+        <div class="status" [class]="'status ' + (r.status === 'OK' ? 'ok' : 'bad')" data-testid="route-status">
+          {{ statusLabel(r) }}
+        </div>
+        @if (r.status === 'OK') {
+          <dl class="stats">
+            <dt>Distance</dt><dd data-testid="route-distance">{{ km(r.distanceM) }}</dd>
+            <dt>ETA</dt><dd data-testid="route-eta">{{ eta(r.etaS) }}</dd>
+            <dt>Mode</dt><dd [class.emergency]="r.mode === 'EMERGENCY'">{{ r.mode }}</dd>
+            <dt>Altitude</dt><dd>{{ r.flightAltitudeMeters }} m AGL</dd>
+            <dt>Drone</dt><dd>{{ profileName(r.droneProfileId) }}</dd>
+            <dt>Wind</dt><dd>{{ r.weather.windSpeedKmh }} km/h from {{ r.weather.windDirectionDeg }}° ({{ r.weather.source }})</dd>
+          </dl>
+        } @else {
+          <p class="error-box" data-testid="route-message">{{ r.message }}</p>
+        }
+        <p class="verification" data-testid="route-verification">{{ r.planningVerificationStatus }}</p>
+        @if (r.zoneConflicts.length) {
+          <ul class="conflicts" data-testid="route-conflicts">
+            @for (c of r.zoneConflicts; track $index) {
+              <li [class]="'conflict rel-' + c.relation.toLowerCase()">
+                <span class="dot" [class]="'dot dot-' + c.displayClass.toLowerCase()"></span>
+                <span>
+                  <b>{{ relationLabel[c.relation] }}</b> · {{ c.message }}
+                  <button type="button" class="link" (click)="airspace.focusZoneId.set(c.zoneId)">Show zone</button>
+                </span>
+              </li>
+            }
+          </ul>
+        }
+        @if (r.status === 'NO_ROUTE') {
+          <p class="hint" data-testid="route-no-route-hint">
+            No path exists around the currently blocked geometry with these settings. Choose other points, change the
+            altitude, or check the zone list.
+          </p>
+        }
+        @if (r.warnings.length) {
+          <ul class="warnings" data-testid="route-warnings">
+            @for (w of r.warnings; track $index) {
+              <li><mat-icon>warning_amber</mat-icon>{{ w }}</li>
+            }
+          </ul>
+        }
+        <details class="sources">
+          <summary>Data sources</summary>
+          <ul>
+            @for (s of r.dataSources; track $index) {
+              <li>{{ s }}</li>
+            }
+          </ul>
+        </details>
+      </div>
+    }
+  `,
+  styleUrl: './route-results.scss',
+})
+export class RouteResultsComponent {
+  private readonly store = inject(PlannerStore);
+  private readonly api = inject(PlannerApi);
+  protected readonly airspace = inject(AirspaceService);
+  protected readonly relationLabel = RELATION_LABEL;
+
+  protected readonly state = this.store.route;
+  protected readonly stale = computed(() => {
+    const s = this.state();
+    return s.phase === 'stale' || (s.phase === 'loading' && !!s.previous);
+  });
+  protected readonly response = computed(() => {
+    const s = this.state();
+    if (s.phase === 'ready' || s.phase === 'stale') return s.response;
+    if (s.phase === 'loading') return s.previous;
+    return undefined;
+  });
+  protected readonly errorMessage = computed(() => {
+    const s = this.state();
+    return s.phase === 'error' ? s.message : '';
+  });
+
+  protected statusLabel(r: RouteResponse): string {
+    return STATUS_LABEL[r.status];
+  }
+
+  protected km(m: number | null): string {
+    return m === null ? '—' : m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+  }
+
+  protected eta(s: number | null): string {
+    if (s === null) return '—';
+    const total = Math.round(s);
+    return `${Math.floor(total / 60)} min ${String(total % 60).padStart(2, '0')} s`;
+  }
+
+  protected profileName(id: string): string {
+    return this.api.profileList()?.find((p) => p.id === id)?.name ?? id;
+  }
+}

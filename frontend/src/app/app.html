@@ -1,0 +1,67 @@
+<mat-toolbar class="topbar">
+  <span class="brand">SkyRoute Warsaw</span>
+  <span class="demo-badge" title="All zones and stations are synthetic, not real legal restrictions">DEMO DATA</span>
+  <span class="spacer"></span>
+  <span class="backend" [class]="'backend ' + backendStatus()" data-testid="backend-status">
+    <span class="dot"></span>
+    Backend {{ backendStatus() }}
+    @if (healthInfo(); as h) {
+      <span class="version">v{{ h.version }}</span>
+    }
+  </span>
+  @if (backendStatus() === 'offline' || layers.resource.error()) {
+    <button mat-icon-button (click)="retry()" aria-label="Retry backend connection">
+      <mat-icon>refresh</mat-icon>
+    </button>
+  }
+</mat-toolbar>
+@if (layers.resource.isLoading()) {
+  <mat-progress-bar mode="indeterminate" class="loading-bar" />
+}
+
+<div class="layout">
+  <aside class="panel left">
+    <app-planner-panel />
+  </aside>
+
+  <main class="map-area">
+    <app-map
+      [layers]="layers.data()"
+      [start]="planner.start()"
+      [destination]="planner.destination()"
+      [route]="planner.route()"
+      [picking]="planner.pickTarget() !== null"
+      [zones]="airspace.visibleZones()"
+      [airspaceSource]="airspace.source()"
+      [highlightZoneIds]="airspace.highlightZoneIds()"
+      [focusZoneId]="airspace.focusZoneId()"
+      (mapClick)="planner.handleMapClick($event)"
+      (focusDone)="airspace.focusZoneId.set(null)"
+    />
+  </main>
+
+  <aside class="panel right">
+    <app-route-results />
+    <app-airspace-panel />
+
+    <h2 class="section">Data layers</h2>
+    @if (layers.summary(); as s) {
+      <dl class="stats" data-testid="layer-summary">
+        <dt>Landing stations</dt><dd>{{ s.stations }} <span class="tag">DEMO</span></dd>
+        <dt>Buildings (OSM)</dt><dd>{{ s.buildings }}</dd>
+        <dt>&nbsp;&nbsp;≥ {{ tallBuildingM }} m</dt><dd>{{ s.tallBuildings }}</dd>
+        <dt>&nbsp;&nbsp;height estimated</dt><dd>{{ s.estimatedHeights }}</dd>
+        <dt>Parks / green (OSM)</dt><dd>{{ s.parks }}</dd>
+      </dl>
+    } @else if (layers.resource.error()) {
+      <p class="error">Could not load map layers from the backend.</p>
+    } @else {
+      <p class="muted">Loading layers…</p>
+    }
+  </aside>
+</div>
+
+<footer class="disclaimer">
+  Planning and simulation prototype. Never controls real drones. Airspace zones shown are synthetic DEMO data unless marked official; avoiding them does not confirm legality.
+  Buildings, parks and river &copy; OpenStreetMap contributors.
+</footer>

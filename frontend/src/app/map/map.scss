@@ -1,0 +1,202 @@
+app-map {
+  display: block;
+  height: 100%;
+}
+
+app-map .map {
+  height: 100%;
+  width: 100%;
+}
+
+app-map .swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border-radius: 3px;
+  box-sizing: border-box;
+  opacity: 0.85;
+}
+
+app-map .map-legend {
+  background: rgba(255, 255, 255, 0.95);
+  padding: 8px 10px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  font-size: 12px;
+  line-height: 20px;
+  max-width: 200px;
+
+  .legend-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+
+  .legend-icon {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    margin-right: 6px;
+    vertical-align: -3px;
+    border-width: 1px;
+
+    .material-icons {
+      font-size: 11px;
+    }
+  }
+
+  .legend-note {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 14px;
+    color: #6d4c00;
+  }
+}
+
+app-map .leaflet-control-layers-overlays label {
+  font-size: 12px;
+  line-height: 20px;
+}
+
+app-map .station-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #1565c0;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+
+  .material-icons {
+    font-size: 18px;
+  }
+
+  &.station-hospital { background: #c62828; }
+  &.station-rooftop { background: #6a1b9a; }
+  &.station-park { background: #2e7d32; }
+  &.station-depot { background: #1565c0; }
+}
+
+app-map .station-popup {
+  font-size: 13px;
+  line-height: 1.5;
+
+  .title {
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .status-available { color: #2e7d32; font-weight: 600; }
+  .status-busy { color: #ef6c00; font-weight: 600; }
+  .status-offline { color: #c62828; font-weight: 600; }
+
+  .demo-tag {
+    display: inline-block;
+    margin-top: 4px;
+    padding: 0 6px;
+    border-radius: 3px;
+    background: #ffb300;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+}
+
+app-map .map.picking,
+app-map .map.picking .leaflet-interactive {
+  cursor: crosshair;
+}
+
+app-map .route-pin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+
+  &.route-pin-start { background: #2e7d32; }
+  &.route-pin-destination { background: #c62828; }
+
+  // Keep the letter upright inside the rotated pin.
+  span { display: block; transform: rotate(45deg); line-height: 1; }
+}
+
+app-map .airspace-banner {
+  max-width: 300px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  background: #fff8e1;
+  color: #5d4037;
+  border-left: 4px solid #ffb300;
+
+  &.source-permitted_snapshot,
+  &.source-official { background: #e3f2fd; color: #0d47a1; border-left-color: #1565c0; }
+}
+
+app-map .legend-source {
+  margin: 2px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5d4037;
+}
+
+app-map .zone-popup {
+  font-size: 12px;
+  line-height: 1.4;
+
+  .zone-demo {
+    margin-bottom: 6px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: #ffb300;
+    color: #1a1a1a;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+  }
+
+  .title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .status { font-weight: 600; }
+  .reasons { margin: 4px 0; padding-left: 16px; }
+
+  .chip {
+    padding: 0 6px;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+
+    &.chip-red { background: #d32f2f; }
+    &.chip-orange { background: #f57c00; }
+    &.chip-yellow { background: #f9a825; color: #1a1a1a; }
+    &.chip-gray { background: #757575; }
+    &.chip-inactive { background: #bdbdbd; color: #1a1a1a; }
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 2px 8px;
+    margin: 4px 0 0;
+
+    dt { color: #616161; }
+    dd { margin: 0; }
+  }
+}

@@ -1,0 +1,83 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {
+  "layer": "landing_stations",
+  "source": "DEMO",
+  "disclaimer": "SYNTHETIC DEMO DATA. These boundaries are invented for the SkyRoute prototype and are NOT official PAŻP geographical zones. Check PAŻP DroneMap/DroneTower before any real flight.",
+  "timestamp": "2026-10-17T00:00:00Z"
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "st-hospital",
+    "name": "Śródmieście Hospital Pad",
+    "station_type": "HOSPITAL",
+    "status": "AVAILABLE",
+    "capacity": 2,
+    "source": "DEMO"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     20.993,
+     52.23
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "st-rooftop",
+    "name": "Powiśle Rooftop Pad",
+    "station_type": "ROOFTOP",
+    "status": "AVAILABLE",
+    "capacity": 1,
+    "source": "DEMO"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     21.02877,
+     52.23747
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "st-park",
+    "name": "Rydz-Śmigły Park Pad",
+    "station_type": "PARK",
+    "status": "AVAILABLE",
+    "capacity": 2,
+    "source": "DEMO"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     21.0395,
+     52.23
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "id": "st-depot",
+    "name": "Vistula Boulevard Depot",
+    "station_type": "DEPOT",
+    "status": "AVAILABLE",
+    "capacity": 6,
+    "source": "DEMO"
+   },
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     21.0385,
+     52.2352
+    ]
+   }
+  }
+ ]
+}

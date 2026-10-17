@@ -1,0 +1,457 @@
+{
+ "type": "FeatureCollection",
+ "metadata": {
+  "provider": "skyroute-demo",
+  "sourceType": "DEMO",
+  "label": "SkyRoute DEMO airspace (synthetic, non-authoritative)",
+  "sourceTimestamp": "2026-10-17T00:00:00Z",
+  "disclaimer": "SYNTHETIC DEMO DATA. These boundaries are invented for the SkyRoute prototype and are NOT official PAŻP geographical zones. Check PAŻP DroneMap/DroneTower before any real flight."
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-P-SEJM",
+    "name": "DEMO prohibited area: Sejm / Wiejska",
+    "draCategory": "DRA-P",
+    "restrictionType": "PROHIBITED",
+    "lowerAltitude": 0,
+    "upperAltitude": 300,
+    "altitudeReference": "AGL",
+    "authorizationRequired": true,
+    "operationalConditions": "Synthetic example of a DRA-P zone: only narrowly defined state operations."
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.0245,
+       52.2238
+      ],
+      [
+       21.0322,
+       52.2236
+      ],
+      [
+       21.033,
+       52.2262
+      ],
+      [
+       21.029,
+       52.2275
+      ],
+      [
+       21.025,
+       52.2268
+      ],
+      [
+       21.0245,
+       52.2238
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-P-CASTLE",
+    "name": "DEMO prohibited circle: Royal Castle",
+    "draCategory": "DRA-P",
+    "restrictionType": "PROHIBITED",
+    "lowerAltitude": null,
+    "upperAltitude": 350,
+    "altitudeReference": "AMSL",
+    "authorizationRequired": true,
+    "operationalConditions": "Synthetic circular DRA-P example (centre + radius), AMSL ceiling.",
+    "circle": {
+     "center": [
+      21.0152,
+      52.2478
+     ],
+     "radiusM": 140
+    }
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-RM-PKIN",
+    "name": "DEMO restricted area: Palace of Culture",
+    "draCategory": "DRA-RM",
+    "restrictionType": "AUTHORIZATION_REQUIRED",
+    "lowerAltitude": 0,
+    "upperAltitude": 250,
+    "altitudeReference": "AGL",
+    "authorizationRequired": true,
+    "operationalConditions": "Synthetic DRA-RM example: consent from the zone requester required."
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.004,
+       52.23
+      ],
+      [
+       21.0098,
+       52.23
+      ],
+      [
+       21.0098,
+       52.234
+      ],
+      [
+       21.004,
+       52.234
+      ],
+      [
+       21.004,
+       52.23
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-RH-SCHOOL-POWISLE",
+    "name": "DEMO restricted circle: school, Powiśle",
+    "draCategory": "DRA-RH",
+    "restrictionType": "AUTHORIZATION_REQUIRED",
+    "lowerAltitude": 0,
+    "upperAltitude": 60,
+    "altitudeReference": "AGL",
+    "authorizationRequired": true,
+    "operationalConditions": "Synthetic DRA-RH example limited to 0–60 m AGL (not applicable to higher cruise).",
+    "circle": {
+     "center": [
+      21.0255,
+      52.239
+     ],
+     "radiusM": 100
+    }
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-RH-SCHOOL-SOUTH",
+    "name": "DEMO restricted circle: school, Śródmieście Południowe",
+    "draCategory": "DRA-RH",
+    "restrictionType": "AUTHORIZATION_REQUIRED",
+    "lowerAltitude": 0,
+    "upperAltitude": 60,
+    "altitudeReference": "AGL",
+    "authorizationRequired": true,
+    "operationalConditions": "Synthetic DRA-RH example limited to 0–60 m AGL (not applicable to higher cruise).",
+    "circle": {
+     "center": [
+      21.0165,
+      52.2205
+     ],
+     "radiusM": 100
+    }
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-RH-SCHOOL-MIROW",
+    "name": "DEMO restricted circle: school, Mirów",
+    "draCategory": "DRA-RH",
+    "restrictionType": "AUTHORIZATION_REQUIRED",
+    "lowerAltitude": 0,
+    "upperAltitude": 60,
+    "altitudeReference": "AGL",
+    "authorizationRequired": true,
+    "operationalConditions": "Synthetic DRA-RH example limited to 0–60 m AGL (not applicable to higher cruise).",
+    "circle": {
+     "center": [
+      20.9935,
+      52.242
+     ],
+     "radiusM": 100
+    }
+   },
+   "geometry": null
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-T-UW",
+    "name": "DEMO technical-requirements area: University campus",
+    "draCategory": "DRA-T",
+    "restrictionType": "TECHNICAL_REQUIREMENTS",
+    "lowerAltitude": 0,
+    "upperAltitude": 120,
+    "altitudeReference": "AGL",
+    "authorizationRequired": null,
+    "operationalConditions": "Synthetic DRA-T example: Remote ID and geo-awareness required."
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.0172,
+       52.2392
+      ],
+      [
+       21.0212,
+       52.2392
+      ],
+      [
+       21.0215,
+       52.2418
+      ],
+      [
+       21.0175,
+       52.242
+      ],
+      [
+       21.0172,
+       52.2392
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-U-PORT",
+    "name": "DEMO U-space area: Port Czerniakowski",
+    "draCategory": "DRA-U",
+    "restrictionType": "USPACE_SERVICES_REQUIRED",
+    "lowerAltitude": 0,
+    "upperAltitude": 120,
+    "altitudeReference": "AGL",
+    "authorizationRequired": null,
+    "operationalConditions": "Synthetic DRA-U example: network identification and traffic information services."
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.04,
+       52.217
+      ],
+      [
+       21.047,
+       52.217
+      ],
+      [
+       21.047,
+       52.2205
+      ],
+      [
+       21.04,
+       52.2205
+      ],
+      [
+       21.04,
+       52.217
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-I-VISTULA",
+    "name": "DEMO information area: Vistula bridge works",
+    "draCategory": "DRA-I",
+    "restrictionType": "INFORMATION",
+    "lowerAltitude": 0,
+    "upperAltitude": 120,
+    "altitudeReference": "AGL",
+    "authorizationRequired": false,
+    "operationalConditions": "Synthetic navigation warning: cranes up to 40 m near the bridges."
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.033,
+       52.233
+      ],
+      [
+       21.043,
+       52.233
+      ],
+      [
+       21.047,
+       52.24
+      ],
+      [
+       21.036,
+       52.241
+      ],
+      [
+       21.033,
+       52.233
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "SYNTHETIC_DEMO",
+    "validityStart": "2026-09-01T00:00:00Z",
+    "validityEnd": "2026-09-30T23:59:59Z",
+    "id": "DEMO-RL-EVENT",
+    "name": "DEMO temporary restricted area: Plac Piłsudskiego event",
+    "draCategory": "DRA-RL",
+    "restrictionType": "AUTHORIZATION_REQUIRED",
+    "lowerAltitude": 0,
+    "upperAltitude": 150,
+    "altitudeReference": "AGL",
+    "authorizationRequired": true,
+    "operationalConditions": "Synthetic temporary zone, expired: shows validity-period handling."
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       21.0085,
+       52.24
+      ],
+      [
+       21.014,
+       52.24
+      ],
+      [
+       21.014,
+       52.243
+      ],
+      [
+       21.0085,
+       52.243
+      ],
+      [
+       21.0085,
+       52.24
+      ]
+     ]
+    ]
+   }
+  },
+  {
+   "type": "Feature",
+   "properties": {
+    "source": "SkyRoute DEMO dataset (synthetic)",
+    "sourceType": "DEMO",
+    "sourceTimestamp": "2026-10-17T00:00:00Z",
+    "verificationStatus": "INSUFFICIENT_DATA",
+    "validityStart": null,
+    "validityEnd": null,
+    "id": "DEMO-X-INCOMPLETE",
+    "name": "DEMO zone with incomplete metadata",
+    "draCategory": "UNKNOWN",
+    "restrictionType": "UNKNOWN",
+    "lowerAltitude": null,
+    "upperAltitude": null,
+    "altitudeReference": "UNKNOWN",
+    "authorizationRequired": null,
+    "operationalConditions": null
+   },
+   "geometry": {
+    "type": "Polygon",
+    "coordinates": [
+     [
+      [
+       20.9962,
+       52.2364
+      ],
+      [
+       20.9988,
+       52.2364
+      ],
+      [
+       20.9988,
+       52.2378
+      ],
+      [
+       20.9962,
+       52.2378
+      ],
+      [
+       20.9962,
+       52.2364
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

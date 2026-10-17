@@ -1,0 +1,28 @@
+{
+  "source": "DEMO",
+  "disclaimer": "SAMPLE drone profiles for the prototype. Performance values are illustrative assumptions, not manufacturer or regulatory data.",
+  "profiles": [
+    {
+      "id": "DEMO_DRONE_01",
+      "name": "Standard Drone",
+      "description": "Light multirotor for short urban hops.",
+      "cruiseSpeedMps": 15.0,
+      "maxWindKmh": 36.0,
+      "verticalClearanceM": 10.0,
+      "maxRangeKm": 12.0,
+      "maxPayloadKg": 0.5,
+      "source": "DEMO"
+    },
+    {
+      "id": "DEMO_DRONE_02",
+      "name": "Delivery Drone",
+      "description": "Heavier delivery multirotor with medical cargo box.",
+      "cruiseSpeedMps": 18.0,
+      "maxWindKmh": 45.0,
+      "verticalClearanceM": 15.0,
+      "maxRangeKm": 20.0,
+      "maxPayloadKg": 2.5,
+      "source": "DEMO"
+    }
+  ]
+}

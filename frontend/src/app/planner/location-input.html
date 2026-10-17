@@ -1,0 +1,119 @@
+<div class="location" [attr.data-testid]="'location-' + role()">
+  <div class="heading">
+    <span class="pin" [class]="'pin pin-' + role()">{{ letter() }}</span>
+    <span class="title">{{ label() }}</span>
+  </div>
+
+  <form class="search-row" (submit)="search($event)">
+    <mat-form-field appearance="outline" subscriptSizing="dynamic" class="query">
+      <mat-label>Address in Warsaw</mat-label>
+      <input
+        matInput
+        name="query"
+        data-testid="query"
+        autocomplete="off"
+        [placeholder]="placeholder()"
+        [value]="query()"
+        (input)="query.set(value($event))"
+      />
+    </mat-form-field>
+    <button mat-stroked-button type="submit" data-testid="search">
+      @if (searching()) {
+        <mat-spinner diameter="16" />
+      } @else {
+        Search
+      }
+    </button>
+  </form>
+
+  @if (searchError(); as err) {
+    <p class="error" role="alert" data-testid="search-error">{{ err }}</p>
+  }
+
+  @if (results(); as list) {
+    <div class="results" data-testid="results">
+      @if (list.length === 0) {
+        <p class="muted">No matching places in Warsaw. Try a fuller address, click the map, or enter coordinates.</p>
+      } @else {
+        <p class="muted small">{{ list.length }} match{{ list.length === 1 ? '' : 'es' }}. Choose the right place:</p>
+        @for (r of list; track r.placeId ?? $index) {
+          <button
+            type="button"
+            class="result"
+            data-testid="result"
+            [disabled]="!r.inCoverage"
+            (click)="select(r)"
+          >
+            <span class="name">{{ r.displayName }}</span>
+            <span class="meta">
+              {{ r.latitude.toFixed(5) }}, {{ r.longitude.toFixed(5) }}
+              @if (r.category) {
+                · {{ r.category }}
+              }
+            </span>
+            @if (!r.inCoverage) {
+              <span class="out">Outside the routing area</span>
+            }
+          </button>
+        }
+      }
+      @if (attribution(); as a) {
+        <p class="attribution">{{ a }}</p>
+      }
+    </div>
+  }
+
+  <div class="actions">
+    <button
+      mat-button
+      type="button"
+      data-testid="pick"
+      [class.active]="picking()"
+      (click)="togglePick()"
+      matTooltip="Then click the map to set this point"
+    >
+      <mat-icon>ads_click</mat-icon>
+      {{ picking() ? 'Click the map…' : 'Pick on map' }}
+    </button>
+    <button mat-button type="button" data-testid="manual-toggle" (click)="manualOpen.set(!manualOpen())">
+      <mat-icon>pin_drop</mat-icon>
+      Coordinates
+    </button>
+  </div>
+
+  @if (manualOpen()) {
+    <form class="manual" (submit)="applyManual($event)" data-testid="manual">
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Latitude</mat-label>
+        <input matInput name="lat" data-testid="lat" inputmode="decimal" [value]="manualLat()" (input)="manualLat.set(value($event))" />
+      </mat-form-field>
+      <mat-form-field appearance="outline" subscriptSizing="dynamic">
+        <mat-label>Longitude</mat-label>
+        <input matInput name="lon" data-testid="lon" inputmode="decimal" [value]="manualLon()" (input)="manualLon.set(value($event))" />
+      </mat-form-field>
+      <button mat-stroked-button type="submit" data-testid="manual-set">Set</button>
+    </form>
+    @if (manualError(); as err) {
+      <p class="error" role="alert">{{ err }}</p>
+    }
+  }
+
+  @if (notice(); as n) {
+    <p class="error" role="alert" data-testid="notice">{{ n }}</p>
+  }
+
+  @if (selected(); as s) {
+    <div class="selected" data-testid="selected">
+      <div class="selected-text">
+        <span class="label">{{ s.label }}</span>
+        <span class="coords">
+          {{ s.coordinate.latitude.toFixed(5) }}, {{ s.coordinate.longitude.toFixed(5) }}
+          <span class="source">{{ s.source === 'MAP_CLICK' ? 'map click' : s.source.toLowerCase() }}</span>
+        </span>
+      </div>
+      <button mat-icon-button type="button" (click)="clear()" [attr.aria-label]="'Clear ' + label()">
+        <mat-icon>close</mat-icon>
+      </button>
+    </div>
+  }
+</div>

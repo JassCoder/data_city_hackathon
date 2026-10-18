@@ -372,8 +372,27 @@ At weight 5 the route takes 85 % less crowd exposure for 8 % more distance and 6
 
 **Verified:** pytest **311 passed** (new: config, providers, terms/energy, search incl. Dijkstra comparison and determinism, OSM provider, planner integration, API). `ng test` 104 passed; `ng build` clean. Density is a proxy from OSM floor area and stops, not census data; the UI and API say so.
 
+## Phase 8: UI/UX redesign, multiple drones (done, 2026-10-18, branch `ui-redesign`)
+
+**Decisions** (approved): local instant suggestions + Nominatim only on Enter (policy); Balanced/Fastest/Safest/Lowest energy → CORRIDORS/FASTEST/SAFEST/new LOWEST_ENERGY (`objectivePresets.lowestEnergy`); Blood/AED scenarios may fly in EMERGENCY (`allowedModes`); Angular Material removed in favour of tokens + small native components; Playwright (Python, system Chrome) for browser checks. B612 was dropped after a glyph test showed no Polish diacritics (system font stack instead).
+
+**Built**
+- Backend: `LOWEST_ENERGY` objective (energy-only preset; works without the risk raster); `ScenarioConfig.extra_modes` / `allowedModes` in `/scenarios`. pytest 318 passed.
+- Frontend:
+  - Shell: slim top bar with one "Demo data" badge (popover with the full disclaimer and the PANSA DroneMap/DroneTower pointer) and backend status; drone sidebar (bottom sheet < 768 px); map; details drawer (full-height sheet on mobile).
+  - Map overlays: one Layers panel and one Legend, adopted as Leaflet corner controls so they cannot overlap; pick hint and boundary warning as strips above the map.
+  - Airspace visual language: colour + pattern + border + glyph per meaning for the selected flight; popovers lead with "For <drone> at <altitude>: …".
+  - Fleet: add/edit/duplicate/hide/focus/delete (undo) drones with their own colours; point fields with local suggestions, typed coordinates, map pick (Esc), drag; flight mode + missions; optimisation locked by a mission; Calculate per drone and Calculate all (parallel, failures isolated); crossing warning at similar altitude; fleet remembered per browser; URL keeps drone and tab.
+  - Details: plain-language outcome + next step, distance/time/energy, zones avoided/crossed (deduplicated), cost breakdown, safety note; Airspace tab grouped by meaning.
+  - Initial bundle 200.9 kB → 128.7 kB gzipped; dark scheme and reduced motion supported.
+
+**Verified**
+- `ng test`: 79 passed (fleet logic and store, suggestions, routing options, editor, details, map, app); `ng build` clean.
+- `e2e/ui_check.py`: 0 overlaps at 1280×720 and 390×844, default and with panels open.
+- `e2e/flows.py`: 20/20 acceptance checks (three coloured routes at once; A/B by suggestion, typed coordinates, map pick with Esc, marker drag; zone popup for the selected flight; one forced server error stays on its drone; mobile sheets). The flows found and fixed one bug: the automatic fit was undone when the drawer opened (animated zoom + `invalidateSize` pan), hiding Point A behind the sidebar.
+
 ## Next
 - Obtain a permitted official zone export from PAŻP and validate the ED-269 mapping against it (see DATA_SOURCES.md).
 - Spec phase 4 remainder: `/routes/compare`.
-- Spec phase 5: drone animation, landing station / drop-point selection, "Holding position".
+- Spec phase 5: drone animation (route `playbackPoints` are ready; per-segment times need a backend field), landing station / drop-point selection, "Holding position".
 - Spec phase 6: polish and optional Docker.

@@ -21,7 +21,7 @@ The aim is a reliable end-to-end demo, not completeness. Working features beat p
 
 ## Stack and hard constraints
 
-- **Frontend** (`frontend/`): Angular (latest stable), standalone components, Signals, Angular Material, SCSS, Leaflet with OSM tiles.
+- **Frontend** (`frontend/`): Angular (latest stable, zoneless), standalone components, Signals, SCSS with design tokens, Leaflet with OSM tiles. No component library (Angular Material removed 2026-10-18; ask before adding any dependency).
 - **Backend** (`backend/`): Python 3.12+, FastAPI, Pydantic, Uvicorn, Shapely, PyProj, NumPy, HTTPX, Pytest.
 - **Data:** local files in `data/`, all committed. No database and no auth; the app is a modular monolith.
 - **Coverage is the whole City of Warsaw:** the official GUGiK PRG polygon, TERYT `1465`, with 18 districts. Every coverage check is point-in-polygon on that geometry; never reintroduce a rectangle/bbox check. `DEMO_BBOX` now only describes where the DEMO zones and stations exist (the airspace dataset `extent`).
@@ -72,16 +72,17 @@ Uvicorn `--reload` on this OneDrive-synced folder can stop watching after the fi
 Shell gotcha: heredocs passed to the Bash tool break on some quote patterns. Write multi-line edit scripts to the scratchpad and run them instead.
 
 Frontend test gotchas:
-- `httpResource` keeps `fixture.whenStable()` pending until its request is flushed. Use `HttpTestingController` to flush it, or call `detectChanges()` instead.
-- jsdom has no canvas. Specs that render zones call `stubCanvas()` (`src/testing/canvas-stub.ts`) and assert on the Leaflet layer objects (`options`, `getPopup()`). Buildings and corridors should still be flushed with empty `features`.
-- `httpResource.value()` **throws** while the resource is in an error state. Always read resources through `safeValue()` (`core/api.ts`) or a computed built on it (`LayersService.data`, `PlannerApi.profileList`, `AirspaceService.response`).
-- The route line uses an SVG renderer in its own `routePane`, so it is testable as `path.route-normal`, `path.route-emergency` or `path.route-stale`.
-- Shared fixtures live in `src/testing/fixtures.ts` (`BOUNDARY` and `COVERAGE` are a simplified two-district box). `settle(http, fixture)` ticks and flushes startup requests (layers, profiles, health, weather, zones, boundary, coverage) until none remain; use it instead of a single `flushStartup`, because services issue their requests on the next tick.
-- The weather readout refetches whenever the altitude changes. The planner-panel spec auto-answers `/weather` with an interceptor, so harness actions don't deadlock.
-- `MapComponent` injects `HttpClient` optionally (for building tiles). jsdom maps have zero size: stub `getSize` when asserting `fitBounds` or tile loading.
-- Material harnesses (`MatSelectHarness`, `MatSliderHarness`, `MatButtonToggleHarness`) wait for stability. If an action triggers an `httpResource` request (for example the weather toggle), click the native element and flush the request instead of using the harness, or the test deadlocks.
+- `httpResource` keeps `fixture.whenStable()` pending until its request is flushed. Instantiate every resource a component touches (e.g. `TestBed.inject(HealthService).resource.value()`) **before** `settle(http, appRef)`, or flush it with `HttpTestingController`.
+- jsdom has no canvas. Specs that render the map call `stubCanvas()` (`src/testing/canvas-stub.ts`) and assert on Leaflet layer objects (`options`, `getPopup()`; zone popups are functions: call `getContent()(layer)`). jsdom maps have zero size: stub `getSize` when asserting `fitBounds` or tile loading.
+- `httpResource.value()` **throws** in an error state. Read resources through `safeValue()` or a computed built on it.
+- Shared fixtures: `src/testing/fixtures.ts` (`BOUNDARY`/`COVERAGE` are a simplified two-district box; `SCENARIOS` mirrors `/scenarios` incl. `allowedModes`; `COST_BREAKDOWN`). `settle()` ticks and flushes startup requests until none remain.
+- Fleet tests build drones with `createDrone` + `toRouteRequest` + `routeResponse` (see `fleet.spec.ts`, `map.spec.ts`). `FleetStore` persists to `localStorage`: call `localStorage.clear()` in `beforeEach`.
+- Zone and route paths are SVG: assert `path.route-ready` / `path.route-stale` strokes and zone `fillColor` (`url(#zp-…)`).
 
-Headless screenshots: Edge's `--virtual-time-budget` stops Leaflet's frame-based canvas redraws, so canvas layers look blank. To check the map visually, drive Edge with Playwright (`channel="msedge"`) and wait for `[data-testid="layer-summary"]`.
+Browser checks (Playwright for Python in `backend/.venv`, dev tool only, not in requirements; drives the installed Google Chrome with `channel="chrome"`, no browser download). With backend (8000) and `ng serve` (4200) running:
+- `backend/.venv/bin/python frontend/e2e/ui_check.py --out <dir>`: screenshots at 1280×720 and 390×844 and fails if any overlay (`.leaflet-control`, `[data-overlay]`) overlaps another, default and with panels open.
+- `backend/.venv/bin/python frontend/e2e/flows.py --out <dir>`: the acceptance flows (3 coloured routes, A/B by suggestion/coordinates/pick/drag, zone popup, one failing drone isolated, mobile sheets).
+- The app is zoneless: rendering happens a frame after a signal change, so use Playwright's auto-waiting `expect()` instead of reading values right after an action. Leaflet canvas layers need a short wait after load. `.claude/skills/webapp-testing/scripts/with_server.py` can start both servers.
 
 ## Architecture
 
@@ -186,34 +187,25 @@ Schemas are in `app/schemas/layers.py`.
 - `osm/risk_warsaw_25m.npz`: built by `scripts/fetch_risk_layers.py` on exactly the routing grid's cells: residential/other floor area, residential, open space (no forests, ≥ 2,000 m²), sensitive sites, transit stops. Facts only; density and costs are computed at runtime from `cost_model.json`. A missing or misaligned file does **not** stop the app: it starts with `grid_only_providers` (logged warning, `/health` `riskDataAvailable: false`), SAFEST returns `RISK_DATA_UNAVAILABLE`, other objectives work and their breakdown note says the crowd/noise/sensitive terms are not loaded. The fetch caches tiles in `scripts/.cache/overpass` (gitignored), so a rerun after an Overpass outage resumes.
 
 ### Frontend structure
-- **`core/models.ts`:** wire types, plus the shared `ALTITUDE` constants and validators.
-- **`core/api.ts`:** `API_BASE_URL`, `safeValue`, and `describeHttpError`, which surfaces the backend `detail`.
-- **`core/map-data.ts` (`MapDataService`):** the boundary and coverage resources, `contains()` (point-in-polygon via `core/geo.ts`) and `districtOf()`. It must not inject the store.
-- **`core/planner-api.ts`:** HTTP for geocoding and routing, plus the drone profiles `httpResource`.
-- **`core/planner.store.ts` (`PlannerStore`):** the single Signals store for points, settings and route state.
-  - `request` is a computed value that is null until every input is valid, which drives the Calculate button.
-  - Every setter calls `invalidate()`: a `ready` route becomes `stale` (still drawn, grey and dashed), and an in-flight request is cancelled.
-  - A `requestId` drops late responses.
-  - `setLocation` rejects points outside the city polygon with a per-point notice (`OUTSIDE_WARSAW`).
-  - The `routeObjective` signal (default CORRIDORS) is part of `request`, and changing it invalidates the route.
-  - `selectedScenario` (default `NORMAL`; null = custom): `selectScenario(id)` applies the config's mode/objective, keeps A/B/altitude/profile/weather, invalidates, then recalculates (or sets `scenarioNotice` = `MISSING_POINTS_MESSAGE`). Manual mode/objective changes → custom. **Scenario selection must never touch Point A/B.**
-  - `loadDemoFixture(id)` (`DEMO_FIXTURES`) is the only code with predefined points, behind the explicit "Load demo fixture (replaces Point A and B)" toggle. It never changes scenario, mode, profile or weather.
-- **`planner/location-input`:** search on submit only (results go through a `switchMap`, so superseded searches are dropped). The user must choose a result explicitly; out-of-coverage results are disabled. It also offers "Pick on map" (`store.pickTarget`) and manual lat/lon entry. `store.resetCount` clears its local state.
-- **`planner/planner-panel`:** the altitude slider and numeric input, the mode, **route optimisation**, profile and weather selectors, and the Calculate / Clear Route / Reset Planner / Load Demo Scenario buttons.
-- **`planner/route-results`:** the route details shown in the right panel.
-- **`core/airspace.ts` (`AirspaceService`):**
-  - Holds the `/zones` resource for the current valid altitude (the last value stays visible while reloading).
-  - Provides display-only DRA category `filters`, `highlightZoneIds` (from `*_INSIDE` conflicts) and `focusZoneId`.
-  - Calls `store.onAirspaceVersion()` on a dataset change (routes on another version become stale), and reloads itself if a route arrives with a newer version. The store never injects this service, to avoid a DI cycle.
-- **`planner/airspace-panel`:** source badge, filters, zone list (click to focus) and error state.
-- **`map/map.ts`:** owns all Leaflet code and uses `ViewEncapsulation.None`.
-  - Corridors, zones and buildings share **one guarded canvas renderer**. `enforceOrder()` keeps corridors at the back, zones in the middle and buildings in front, because canvas hit-testing picks the topmost shape; call it after any change to these layers.
-  - `zoneStyle()`: fill by `displayClass`, a solid red outline when `isObstacle`, dashed when inactive. Zone popups carry all metadata and a DEMO badge. While a pick target is armed, a click on a zone emits `mapClick` instead of opening the popup.
-  - A/B markers are DOM `divIcon`s. The route is drawn on an SVG renderer in `routePane` (z 450): blue for NORMAL, **green** for EMERGENCY (red is reserved for zones), grey dashed when stale. Dotted links show snapped endpoints.
-  - On a new `ready` route the map fits its bounds. Map clicks are emitted to `store.handleMapClick`, which fills the armed point, otherwise the first empty one.
-  - **Citywide view:** the map starts on `FALLBACK_VIEW`, then fits the boundary once (`showEntireWarsaw()`, also the "Show Entire Warsaw" control). It draws the city and district outlines (SVG, non-interactive, permanent district labels). A missing boundary shows the `coverage-banner`.
-  - **Building tiles:** z14 tiles are fetched on `moveend` from zoom ≥ `BUILDING_MIN_ZOOM` (15), cached in `tiles` and removed from `tileGroup` when zoomed out; tall buildings are always drawn. Zero-size containers skip fitting and tiles.
-  - The dashed **airspace extent** comes from `airspaceSource.extent`. Map styles are global in `src/styles/map.scss` (listed in `angular.json`).
+No component library (Angular Material was removed in the redesign): shared styles are design tokens in `src/styles/tokens.scss` and base components in `src/styles/base.scss` (button, input, segmented radio group, badge, native `[popover]`, tabs, toast, states). Icons are inline SVG (`ui/icon.ts`). Endpoints come from `src/environments/environment.ts`; UI thresholds from `core/settings.ts` (`SETTINGS`). No web fonts (system stack; B612 was rejected because it lacks Polish diacritics).
+- **`core/models.ts`:** wire types, `ALTITUDE` (= `SETTINGS.altitude`) and validators. **`core/api.ts`:** `API_BASE_URL`, `safeValue`, `describeHttpError`. **`core/health.ts`:** `/health` (status, `riskDataMissing`).
+- **`core/map-data.ts` (`MapDataService`):** boundary + coverage, `contains()` (point-in-polygon), `districtOf()`.
+- **`core/planner-api.ts`:** geocoding (explicit search only), `POST /routes/calculate`, profiles and scenarios resources.
+- **`core/routing-options.ts`:** the UI-to-API mapping. Optimisations Balanced/Fastest/Safest/Lowest energy → `CORRIDORS`/`FASTEST`/`SAFEST`/`LOWEST_ENERGY`. Missions per mode: Normal = General (free optimisation), Avoid prohibited zone; Emergency = General emergency (`EMERGENCY` scenario), Blood delivery, AED / first aid. A mission sends its `scenario` + mode and **no** `routeObjective` (the scenario sets it; the UI shows it locked). No weights in the frontend.
+- **`core/fleet.ts` (pure, no Angular):** `Drone` records (colour from `DRONE_COLORS`, colour-blind safe, no red/amber/yellow), `updateDrone` (route-relevant changes: ready → stale, calculating/error → draft), `droneIssues` (plain-language validation), `toRouteRequest`, `droneStatus`, `findCrossings` (same-altitude-band segment intersections), `playbackPoints` (timestamped points for a future animation; time spread by distance because the backend returns only the total ETA).
+- **`core/fleet.store.ts` (`FleetStore`):** the single store: `drones`, `selectedId`, `editingId`, `pickTarget {droneId, role}`, `weatherMode`, `lastDeleted` (undo). One request per drone with its own cancellation and `requestIds` (late responses dropped); `calculateAll` runs in parallel and failures stay per drone. `setLocation` validates against the city polygon (per-point `notices`). `handleMapClick` fills the armed point, else the first empty point of the open drone; `handleMarkerDrag` returns false to snap a rejected marker back. `loadDemoFleet()` (`DEMO_FLEET`) is the only code with predefined points, behind the explicit "Load demo fleet" button. The fleet (without routes) persists in `localStorage`.
+- **`core/place-suggestions.ts`:** instant local suggestions (recent places, stations, district label points), `parseCoordinates`, diacritic-insensitive matching. **Never** query Nominatim while typing.
+- **`core/airspace.ts` (`AirspaceService`):** `/zones` at the altitude of the drone being edited, else selected, else default (`altitude` linkedSignal keeps the last valid value); display-only category `filters`; `highlightZoneIds` = the selected drone's blocking zones when its result is not OK; calls `fleet.onAirspaceVersion()`. The fleet never injects this service (DI cycle).
+- **`core/map-layers.ts`:** layer visibility + which overlay panel is open (exclusive on mobile). **`core/ui-state.ts`:** drawer open/tab, mobile sheet state, one-shot `focusRequest`.
+- **`fleet/`:** `drone-list` (list, per-drone actions in a native popover menu, Calculate all, wind, demo fleet, live status announcements), `drone-editor` (inline form), `point-field` (ARIA combobox), `altitude-input`.
+- **`details/`:** `route-details` (drawer Route tab: plain-language `STATUS_HEADLINE` + `STATUS_NEXT_STEP`, stats, zones deduplicated by strongest relation, cost breakdown, safety note) and `airspace-tab` (zones grouped by meaning).
+- **`map/map.ts`:** all Leaflet code, `ViewEncapsulation.None`, global styles in `src/styles/map.scss`.
+  - **Overlays never overlap by construction:** `LayersPanelComponent` and `MapLegendComponent` are projected (`mapTopRight` / `mapBottomRight`) and adopted as Leaflet corner controls (`hostControl`), so Leaflet stacks them; their max-heights use container-query units (`app-map` has `container-type: size`). Pick hints and the boundary warning are strips above the map, not overlays. `frontend/e2e/ui_check.py` asserts it.
+  - **Airspace:** `map-style.ts` is the visual language: `zoneKind(evaluation)` → prohibited / conditional / unverified / info / inactive, each with colour + SVG fill pattern + border (ticks for no-entry) + glyph. Zones are SVG in `zonePane` (z 420, above the building canvas, so building tooltips under zones are not clickable). One shared `<defs>` (`installPatternDefs`) serves the renderer and the legend. Popups lead with "For <flight>: <meaning>" (`flightLabel`).
+  - Corridors and buildings share one guarded canvas; `enforceOrder()` keeps corridors behind buildings.
+  - **Drones:** coloured draggable A/B `divIcon` pins per visible drone, route lines on the SVG `routePane` (z 450): drone colour when ready (`path.route-ready`), grey dashed when outdated (`path.route-stale`), selected on top and wider; clicking a line emits `routeClick` (or `mapClick` while picking). Crossing markers per pair.
+  - **Fitting:** a new ready route of the selected drone (or a `focusRequest`) fits without animation; the fit is re-applied when the map resizes (drawer opens) until the user interacts with the map (`keepFit`). An animated fit or `invalidateSize()` panning would undo it.
+  - Citywide view, building tiles (z14 from zoom 15) and the zone-data extent work as before; layers are keyed by `LayerKey` and toggled from `layerVisibility`.
 
 ### Not built yet (original spec phases 4–6)
 - Drone animation and the bottom bar.
@@ -223,7 +215,7 @@ Schemas are in `app/schemas/layers.py`.
 
 ### Demo fixtures and scenario tests
 - Routing scenarios are tested in `backend/tests/test_scenarios.py` (all 5 scenarios: endpoints preserved, A/B changes, zone avoidance, NO_ROUTE, validation).
-- The demo fixtures (explicit only), with the routes they currently produce:
+- The demo fixtures (explicit only; in the UI they are the three drones of `DEMO_FLEET` in `core/fleet.store.ts`, loaded by "Load demo fleet"), with the routes they currently produce:
 - **Depot → hospital pad:** depot → hospital pad, Delivery Drone, 80 m. About 4.4 km; it crosses the DRA-I Vistula zone with a warning.
 - **Across the Sejm zone:** (52.2255, 21.0205) → (52.2250, 21.0370). The straight line crosses DEMO-P-SEJM, and the route goes around it (about 1.37 km).
 - **Enclosed courtyard:** a courtyard in Praga-Północ at (52.25549, 21.04532) → hospital at 20 m gives NO_ROUTE after a whole-city search, because it is enclosed by buildings ≥ 10 m; at 80 m the same trip routes. If `fetch_osm.py` is rerun, re-check it, because OSM edits can open the courtyard.

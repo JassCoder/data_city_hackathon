@@ -141,10 +141,32 @@ app-map .zone-tooltip {
   font-size: var(--fs-12);
 }
 
+app-map .leaflet-popup-content-wrapper,
+app-map .leaflet-popup-tip {
+  background: var(--c-surface);
+  color: var(--c-text);
+}
+
 app-map .leaflet-popup-content-wrapper {
   border-radius: var(--radius-l);
   box-shadow: var(--shadow-float);
 }
+
+app-map .leaflet-container a.leaflet-popup-close-button {
+  color: var(--c-muted);
+}
+
+app-map .leaflet-tooltip {
+  border-color: var(--c-line);
+  background: var(--c-surface);
+  color: var(--c-text);
+  box-shadow: var(--shadow-float);
+}
+
+app-map .leaflet-tooltip-top::before { border-top-color: var(--c-surface); }
+app-map .leaflet-tooltip-bottom::before { border-bottom-color: var(--c-surface); }
+app-map .leaflet-tooltip-left::before { border-left-color: var(--c-surface); }
+app-map .leaflet-tooltip-right::before { border-right-color: var(--c-surface); }
 
 app-map .leaflet-popup-content {
   margin: var(--sp-3) var(--sp-4);

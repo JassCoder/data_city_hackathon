@@ -33,62 +33,44 @@ To refresh the data, run from the repo root:
 
 ## Using the planner
 
-1. **The map** opens showing the whole of Warsaw: the official city boundary, the 18 districts with their names, and the zones. **Show Entire Warsaw** (top left) fits the city again. From zoom 15, every building footprint is loaded from tiles; zoomed out, only buildings of 50 m or taller are drawn.
-2. **Point A / Point B:** type an address anywhere in Warsaw (for example *Lotnisko Chopina* or *Pałac w Wilanowie*) and press **Search**, then choose the right place from the list. You can also click **Pick on map**, or enter coordinates under **Coordinates**. A plain map click fills A first, then B.
-   - Every point is checked against the **official city polygon** (point-in-polygon, not a box). Places outside Warsaw are refused with an explanation, and outside search results can't be selected.
-3. **Routing scenario:** **Normal Flight**, **Blood Delivery**, **AED / First Aid Delivery**, **Avoid Prohibited Zone** or **Emergency Flight**.
-   - A scenario only changes *how* the route is optimised. It **always uses your Point A and Point B**: addresses, markers, altitude, drone profile and weather stay exactly as you set them.
-   - Clicking a scenario recalculates immediately with the same points. If a point is missing, you'll see "Please select both the starting point and destination before calculating a route."
-   - What each scenario does:
+The screen has three parts: the **drone list** on the left (a bottom sheet on phones), the **map** in the middle, and **route details** on the right (closed until a drone has a result; a full-height sheet on phones). The **Demo data** badge in the top bar opens the full disclaimer.
 
-     | Scenario | Optimises | Notes |
-     |---|---|---|
-     | Normal Flight | Safe corridors (river/parks) | The standard route |
-     | Blood Delivery | Estimated delivery time (wind-aware) | Suggests the Delivery Drone profile but never switches it |
-     | AED / First Aid Delivery | Estimated response time (wind-aware) | |
-     | Avoid Prohibited Zone | Shortest path around every active blocked zone | Lists the zones the direct line would cross; NO_ROUTE if none exists |
-     | Emergency Flight | Estimated travel time (EMERGENCY mode) | No special airspace permission |
+1. **Add drone** opens a short form for that drone. Each drone gets its own colour, used for its list entry, its A/B markers and its route line.
+2. **Point A / Point B** can be set three ways:
+   - type into the field: places you used before, the landing stations and the 18 districts are suggested instantly (all local data); press **Enter** (or choose *Search addresses for …*) to search addresses with OpenStreetMap Nominatim. Address search never runs while you type (Nominatim policy);
+   - type coordinates such as `52.2297, 21.0122` and press Enter;
+   - press the crosshair button and click the map (a hint above the map says which point is being set; **Esc** cancels).
+   Drag a marker on the map to move a point. **Swap A and B** and **Clear points** are under the fields. Points outside the official Warsaw polygon are refused with an inline message.
+3. **Flight mode:** *Normal* or *Emergency*. Emergency status grants no airspace permission: every restriction still applies. Each mode has missions:
+   - Normal: *General* (you choose the optimisation) or *Avoid prohibited zone* (shortest path around active blocked zones);
+   - Emergency: *General emergency*, *Blood delivery* or *AED / first aid* (all minimise flight time; the mission sets the optimisation).
+4. **Route optimisation:** *Balanced* (prefers the Vistula and parks, the default), *Fastest* (wind-aware flight time), *Safest* (multi-criteria risk cost: estimated crowds, noise over homes, landing space, schools and hospitals) or *Lowest energy* (wind- and payload-aware battery use). Weights live in the backend (`data/cost_model.json`, `costs.py`).
+5. **Altitude** 20–120 m in 5 m steps (slider or number). This is a planning setting, not an authorization to fly. **Drone profile** and optional **payload** affect speed, wind limit and energy.
+6. **Calculate route** (per drone) or **Calculate all** (in parallel; a failing drone shows its own error and does not affect the others). Any change marks that drone's route **outdated** (grey, dashed) until you recalculate.
+7. **Route details:** the outcome in plain language (and what to do if there is no feasible route), distance, estimated time, energy against the usable battery, the zones the route avoids or passes, the cost breakdown, warnings and the safety note. Blocking zones are highlighted on the map. The **Airspace** tab lists the zones as evaluated for the selected drone's altitude.
+8. **Per-drone actions** (⋯): route details, show on map, hide/show route, duplicate, delete (with **Undo**). Two routes that cross at a similar altitude get a warning badge and a marker on the map (a hint, not collision avoidance).
+9. **Load demo fleet** adds three demo drones (blood delivery from the depot, a flight across the Sejm zone, and an enclosed courtyard at 20 m that has no feasible route). It is the only place with predefined points and never replaces your drones.
+10. The fleet is remembered in this browser (settings only; routes are recalculated). The URL keeps the selected drone and the open details tab.
 
-   - **Every scenario enforces all hard airspace restrictions**, and there is no switch to disable them. Scenarios with the same goal (Blood, AED, Emergency) honestly produce the same route.
-   - Changing the flight mode or route optimisation by hand switches to "Custom settings".
-4. **Flight Altitude:** 20–120 m in 5 m steps (default 80 m). This is a prototype above-ground-level setting, not an authorization to fly.
-5. **Flight mode:** **NORMAL** or **EMERGENCY**. With *Safe corridors*, EMERGENCY uses weights that favour more direct paths. Neither mode ever enters a blocked zone.
-6. **Route optimisation:**
-   - **Safe corridors** (default): prefers the river and parks.
-   - **Shortest:** minimises distance.
-   - **Fastest:** minimises flight time from the drone's cruise speed and the wind at your altitude in each direction of travel. With uniform wind (always the case for DEMO weather), the fastest path in open air is the straight line, so *Fastest* only differs from *Shortest* around obstacles, or where LIVE wind varies along the route.
-7. **Drone profile:** *Standard* (DEMO_DRONE_01) or *Delivery* (DEMO_DRONE_02), which set cruise speed, wind limit, vertical clearance and range.
-8. **Weather:**
-   - **DEMO:** fixed sample wind, reproducible.
-   - **LIVE:** the Open-Meteo forecast sampled about every 5 km along the trip, at your flight altitude. If it can't be fetched, the app says so and uses DEMO wind.
-9. **Calculate Route:**
-   - The route is drawn blue for NORMAL and green for EMERGENCY.
-   - The results show distance, ETA, districts (e.g. Włochy → Wilanów), the optimisation used, warnings and search statistics.
-   - Changing any input marks the route **outdated** until you recalculate.
-10. **Clear Route** keeps your inputs; **Reset Planner** restores the defaults.
-11. **Load demo fixture (replaces Point A and B):** an explicit, collapsed option and the only place with predefined points. It never runs when you pick a scenario, and it doesn't change your scenario, mode, profile or weather. The fixtures are:
-    - **Depot → hospital pad** (DEMO stations).
-    - **Across the Sejm zone:** the straight line crosses the DEMO DRA-P zone.
-    - **Enclosed courtyard (no route at 20 m):** sets 20 m.
+### Map layers and legend
+
+- **Layers** (top right) groups the toggles: Airspace (zones, category filters with counts, data extent), Buildings, Boundaries (city, districts, river, parks) and Landing stations. Filters change the map display only; routing always uses every loaded zone.
+- **Legend** (bottom right) explains the symbols. Both are collapsed by default and never cover each other or the map controls.
 
 ### Airspace zones
 
-The map shows the loaded zones **before** any route is calculated, coloured by what they mean for *your* planned flight. The zones are re-evaluated when you change the altitude.
+Zones are drawn by what they mean **for the selected drone's flight** (its altitude, now), with a colour, a fill pattern, a border style and a glyph, so they stay readable without colour vision:
 
-| Colour | Meaning |
+| Look | Meaning for this flight |
 |---|---|
-| RED | Blocked / prohibited for the planned operation (DRA-P) |
-| ORANGE | Conditional / authorization required: DRA-R, RH, RM, RL and DRA-U. Shown as **Unavailable for this route**, because no authorization is recorded. |
-| YELLOW | Technical requirements (DRA-T: unavailable, not verified) or information (DRA-I: warning only) |
-| GRAY | Insufficient verification (unknown category or missing source). Treated as blocked. |
-| Dashed outline | Not active for this flight (outside its validity period or altitude band) |
-| Solid red outline | Routing obstacle |
-| Dashed grey rectangle | **Extent of the airspace dataset.** The DEMO zones exist only inside it; elsewhere zones are unknown and routes say so. |
+| Red hatching, ticked border, ⊖ | Prohibited: blocked; routes always go around it |
+| Amber dots, ticked border, ⚠ | Authorization or conditions required: not verifiable here, so routes go around it |
+| Grey cross-hatch, ? | Unverified data: avoided to be safe |
+| Blue outline, ⓘ | Information only: routes may cross it |
+| Dashed outline, no fill | Not active at this altitude or time |
+| Dashed grey rectangle | Extent of the zone dataset: elsewhere zones are unknown and routes say so |
 
-- **Zone details:** click a zone (or a zone in the right-hand list) to see its DRA category, status and reasons, altitude band, validity, conditions, source and verification status.
-- **Filters and toggles:** filters by DRA category and the layer toggles change the display only; routing always uses every loaded zone.
-- **Points inside a blocked zone:** the route is refused (the point is never secretly moved). The zone is highlighted, and its popup opens.
-- **Dataset changes:** if the zone dataset changes, routes planned on the old version are marked outdated.
+Click a zone for a popover with its name, DRA category, what it means for the selected flight, its altitude band and validity, and further details. Points inside a blocked zone are refused (never moved), and that zone is shown.
 
 ## API
 
@@ -190,8 +172,11 @@ Typical times on a laptop, measured end to end on real data:
 ## Tests
 
 ```bash
-cd backend  && .venv/Scripts/python -m pytest          # 311 tests, external APIs mocked
-cd frontend && npx ng test --watch=false                # 104 tests (Vitest)
+cd backend  && .venv/Scripts/python -m pytest          # 318 tests, external APIs mocked
+cd frontend && npx ng test --watch=false                # 79 tests (Vitest)
+# Browser checks (Playwright in the backend venv, uses your installed Chrome; servers must be running):
+backend/.venv/bin/python frontend/e2e/ui_check.py --out /tmp/shots   # no overlay overlaps, 1280x720 + 390x844
+backend/.venv/bin/python frontend/e2e/flows.py --out /tmp/shots      # acceptance flows (20 checks)
 ```
 
 ## Limitations
@@ -207,4 +192,5 @@ cd frontend && npx ng test --watch=false                # 104 tests (Vitest)
 - **SAFEST costs are DEMO values:** the density proxy ignores time-of-use per building type, the energy model holds a constant airspeed (no climb, hover or temperature), and the battery check applies to the chosen route, not the lowest-energy one.
 - **Routing engine:** a hand-written A* on a NumPy grid, as the project spec requires (no NetworkX at runtime).
 - **Scenarios differ only by optimisation goal and cost profile.** Blood, AED and Emergency share the same goal and give the same route. There is no AED-location dataset in the repository (none was added).
-- **Not built yet:** drone animation, normal-vs-emergency comparison, and choosing a landing station or drop point as the route end.
+- **Multiple drones are planned independently.** Crossing routes at a similar altitude are only flagged; there is no deconfliction.
+- **Not built yet:** drone animation (routes already keep timestamped points, spread over the total ETA), and choosing a landing station or drop point as the route end.

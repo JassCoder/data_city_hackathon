@@ -201,7 +201,7 @@ Typical times on a laptop, measured end to end on real data:
 
 ```bash
 cd backend  && .venv/Scripts/python -m pytest          # 419 tests, external APIs mocked
-cd frontend && npx ng test --watch=false                # 146 tests (Vitest)
+cd frontend && npx ng test --watch=false                # 147 tests (Vitest)
 # Browser checks (Playwright in the backend venv, uses your installed Chrome; servers must be running):
 backend/.venv/bin/python frontend/e2e/ui_check.py --out /tmp/shots   # no overlay overlaps, 1280x720 + 390x844
 backend/.venv/bin/python frontend/e2e/flows.py --out /tmp/shots      # acceptance flows (20 checks)

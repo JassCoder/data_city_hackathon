@@ -88,7 +88,9 @@ const LEG_LABEL: Record<string, string> = { outbound: 'Outbound', return: 'Retur
               </div>
               <p class="small" [class.over]="en.delta !== null && en.delta > 0.02" data-testid="dd-energy-text">
                 Used {{ wh(en.used) }}{{ en.toFinish !== null ? ', about ' + wh(en.toFinish) + ' still needed' : '' }}.
-                @if (en.delta !== null) {
+                @if (en.ended) {
+                  The mission was {{ en.ended }}, so it is not compared with the plan.
+                } @else if (en.delta !== null) {
                   {{ en.delta > 0 ? 'About ' + pct(en.delta) + ' more than planned.' : en.delta < 0 ? 'About ' + pct(-en.delta) + ' less than planned.' : 'As planned.' }}
                 }
                 @if (en.fault > 0) {
@@ -161,7 +163,10 @@ export class DroneDetailsComponent {
 
   protected readonly energy = computed(() => {
     const e = this.detail()?.energy;
+    const status = this.detail()?.mission?.status;
     if (!e) return null;
+    // Planned vs. actual is only a fair comparison while flying the plan or once it is completed.
+    const comparable = e.toFinishWh !== null || status === 'COMPLETED';
     const planned = e.plannedWh;
     const projected = e.projectedWh ?? e.usedWh;
     const scale = Math.max(planned ?? 0, projected, 1e-9);
@@ -176,7 +181,8 @@ export class DroneDetailsComponent {
       plannedPct: ((planned ?? 0) / scale) * 100,
       usedPct: (e.usedWh / scale) * 100,
       neededPct: ((e.toFinishWh ?? 0) / scale) * 100,
-      delta: planned ? Math.round((projected / planned - 1) * 100) / 100 : null, // whole per cent: under 1 % reads "as planned"
+      delta: planned && comparable ? Math.round((projected / planned - 1) * 100) / 100 : null, // whole per cent
+      ended: status === 'ABORTED' || status === 'REJECTED' ? (status === 'ABORTED' ? 'aborted' : 'rejected') : null,
     };
   });
 

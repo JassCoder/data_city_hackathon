@@ -132,6 +132,27 @@ describe('simulation panels', () => {
     expect(el.querySelector('[data-testid="dd-leg-divert"]')).toBeNull();
   });
 
+  it('does not compare an aborted mission with its plan', () => {
+    session.select('d1');
+    const { fixture, el } = render(DroneDetailsComponent);
+    clock.advance(16);
+    http.expectOne(`${BASE}/sess1/drones/d1`).flush({
+      drone: { id: 'd1', name: 'Courier 1', state: 'FAILED', batteryPct: 60, leg: null },
+      missionActive: true,
+      mission: {
+        id: 'm1', status: 'ABORTED', mode: 'NORMAL', routeObjective: 'CORRIDORS', altitudeM: 80, payloadKg: 0.3, afterDelivery: 'NEAREST_STATION',
+        returnTarget: null, plannedEnergyWh: 48, energyUsedWh: 34, faultLossWh: 0, breakdowns: {},
+        start: { label: 'Point A', latitude: 0, longitude: 0, stationId: null }, destination: { label: 'Point B', latitude: 0, longitude: 0, stationId: null },
+      },
+      energy: { missionId: 'm1', current: true, plannedWh: 48, usedWh: 34, faultLossWh: 0, toFinishWh: null, projectedWh: null, batteryWh: 60, reserveWh: 20 },
+      missions: [],
+    });
+    fixture.detectChanges();
+    const text = el.querySelector('[data-testid="dd-energy-text"]')!.textContent!;
+    expect(text).toContain('The mission was aborted, so it is not compared with the plan.');
+    expect(text).not.toContain('less than planned');
+  });
+
   it('says when details are from the newest time while replaying', () => {
     session.setSpeed(60);
     session.play();

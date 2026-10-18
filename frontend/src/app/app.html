@@ -1,30 +1,33 @@
-<mat-toolbar class="topbar">
-  <span class="brand">SkyRoute Warsaw</span>
-  <span class="demo-badge" title="All zones and stations are synthetic, not real legal restrictions">DEMO DATA</span>
+<a class="skip-link" href="#map-region">Skip to map</a>
+
+<header class="topbar">
+  <span class="brand" translate="no">SkyRoute Warsaw</span>
+  <app-demo-badge />
   <span class="spacer"></span>
-  <span class="backend" [class]="'backend ' + backendStatus()" data-testid="backend-status">
-    <span class="dot"></span>
-    Backend {{ backendStatus() }}
-    @if (healthInfo(); as h) {
-      <span class="version">v{{ h.version }}</span>
-    }
+  <span class="backend" [class]="'backend backend-' + backendStatus()" data-testid="backend-status"
+        [attr.title]="backendTitle()" role="status">
+    <span class="dot" aria-hidden="true"></span>
+    <span class="backend-label">{{ backendLabel() }}</span>
   </span>
   @if (backendStatus() === 'offline' || layers.resource.error()) {
-    <button mat-icon-button (click)="retry()" aria-label="Retry backend connection">
-      <mat-icon>refresh</mat-icon>
+    <button type="button" class="icon-btn" (click)="retry()" aria-label="Retry backend connection" title="Retry">
+      <app-icon name="refresh" />
     </button>
   }
-</mat-toolbar>
-@if (layers.resource.isLoading()) {
-  <mat-progress-bar mode="indeterminate" class="loading-bar" />
-}
+</header>
 
-<div class="layout">
-  <aside class="panel left">
-    <app-planner-panel />
+<div class="shell" [class.drawer-open]="drawerOpen()">
+  <aside class="sidebar" [attr.data-sheet]="sheet()" aria-label="Drones">
+    <button type="button" class="sheet-handle" (click)="cycleSheet()" [attr.aria-label]="sheetLabel()"
+            data-testid="sheet-handle">
+      <span class="grip" aria-hidden="true"></span>
+    </button>
+    <div class="sidebar-body">
+      <app-planner-panel />
+    </div>
   </aside>
 
-  <main class="map-area">
+  <main class="map-col" id="map-region" tabindex="-1" aria-label="Map">
     <app-map
       [layers]="layers.data()"
       [start]="planner.start()"
@@ -42,29 +45,17 @@
     />
   </main>
 
-  <aside class="panel right">
-    <app-route-results />
-    <app-airspace-panel />
-
-    <h2 class="section">Data layers</h2>
-    @if (layers.summary(); as s) {
-      <dl class="stats" data-testid="layer-summary">
-        <dt>Landing stations</dt><dd>{{ s.stations }} <span class="tag">DEMO</span></dd>
-        <dt>Coverage</dt><dd>Warsaw, 18 districts</dd>
-        <dt>Buildings (OSM)</dt><dd>{{ s.buildings }}</dd>
-        <dt>&nbsp;&nbsp;≥ {{ tallBuildingM }} m</dt><dd>{{ s.tallBuildings }}</dd>
-        <dt>&nbsp;&nbsp;height estimated</dt><dd>{{ s.estimatedHeights }}</dd>
-        <dt>Parks / green (OSM)</dt><dd>{{ s.parks }}</dd>
-      </dl>
-    } @else if (layers.resource.error()) {
-      <p class="error">Could not load map layers from the backend.</p>
-    } @else {
-      <p class="muted">Loading layers…</p>
-    }
+  <aside class="drawer" aria-label="Route details" [attr.aria-hidden]="!drawerOpen()" [attr.inert]="drawerOpen() ? null : ''"
+         data-testid="drawer">
+    <div class="drawer-head">
+      <h2>Route details</h2>
+      <button type="button" class="icon-btn" (click)="closeDrawer()" aria-label="Close route details">
+        <app-icon name="close" />
+      </button>
+    </div>
+    <div class="drawer-body">
+      <app-route-results />
+      <app-airspace-panel />
+    </div>
   </aside>
 </div>
-
-<footer class="disclaimer">
-  Planning and simulation prototype. Never controls real drones. Airspace zones shown are synthetic DEMO data unless marked official; avoiding them does not confirm legality.
-  Buildings, parks and river &copy; OpenStreetMap contributors.
-</footer>

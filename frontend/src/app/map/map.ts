@@ -14,6 +14,7 @@ import * as L from 'leaflet';
 import { HttpClient } from '@angular/common/http';
 import type { FeatureCollection } from 'geojson';
 import { API_BASE_URL } from '../core/api';
+import { SETTINGS } from '../core/settings';
 import { BoundaryResponse, FALLBACK_VIEW } from '../core/map-data';
 import { AirspaceSource, AirspaceZone, DisplayClass, SOURCE_LABEL, STATUS_LABEL } from '../core/airspace';
 import { BuildingProps, CorridorProps, Layers, StationProps, StationType, TALL_BUILDING_M } from '../core/layers';
@@ -171,10 +172,7 @@ export class MapComponent implements OnDestroy {
     afterNextRender(() => {
       // Starts on an approximate view; fits the official boundary once it loads.
       this.map = L.map(this.mapEl().nativeElement).setView(FALLBACK_VIEW.center, FALLBACK_VIEW.zoom);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; OpenStreetMap contributors',
-      }).addTo(this.map);
+      L.tileLayer(SETTINGS.tileUrl, { maxZoom: 19, attribution: SETTINGS.tileAttribution }).addTo(this.map);
       this.layerControl = L.control.layers(undefined, undefined, { collapsed: false }).addTo(this.map);
       this.legend().addTo(this.map);
       this.airspaceBanner().addTo(this.map);

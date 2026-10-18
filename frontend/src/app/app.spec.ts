@@ -16,10 +16,17 @@ describe('App', () => {
     }).compileComponents();
   });
 
-  it('shows the DEMO DATA label', () => {
+  it('shows one compact demo badge whose popover holds the full disclaimer', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('DEMO DATA');
+    const el = fixture.nativeElement as HTMLElement;
+    const badge = el.querySelector('[data-testid="demo-badge"]')!;
+    expect(badge.textContent).toContain('Demo data');
+    expect(badge.getAttribute('popovertarget')).toBe('demo-disclaimer');
+    const text = el.querySelector('[data-testid="demo-disclaimer"]')?.textContent ?? '';
+    expect(text).toContain('not mean a route is legal or authorized');
+    expect(text).toContain('operation category and the airspace');
+    expect(text).toContain('PANSA DroneMap and DroneTower');
   });
 
   it('loads health, layers, profiles, weather, zones and the Warsaw boundary once', async () => {
@@ -31,6 +38,7 @@ describe('App', () => {
       version: '0.1.0',
       mapCenter: [52.2297, 21.0122],
       coverageAvailable: true,
+      riskDataAvailable: true,
     });
     http.expectOne(`${API_BASE_URL}/layers`).flush(LAYERS);
     http.expectOne(`${API_BASE_URL}/drone-profiles`).flush(PROFILES);
@@ -44,14 +52,11 @@ describe('App', () => {
 
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('[data-testid="backend-status"]')?.textContent).toContain('online');
-    const summary = el.querySelector('[data-testid="layer-summary"]')?.textContent ?? '';
-    expect(summary).toContain('Buildings (OSM)');
     expect(el.querySelectorAll('.station-icon.station-depot').length).toBe(1);
     expect(el.querySelector('[data-testid="route-idle"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="location-start"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="airspace-source"]')?.textContent).toContain('DEMO');
     expect(el.querySelector('.airspace-banner')?.textContent).toContain('not official');
     expect(el.querySelector('[data-testid="show-warsaw"]')).not.toBeNull();
-    expect(summary).toContain('18 districts');
   });
 });

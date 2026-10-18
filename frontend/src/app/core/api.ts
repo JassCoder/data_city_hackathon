@@ -1,7 +1,9 @@
 import { Resource } from '@angular/core';
 import { HttpErrorResponse } from '@angular/common/http';
 
-export const API_BASE_URL = 'http://localhost:8000/api/v1';
+import { SETTINGS } from './settings';
+
+export const API_BASE_URL = SETTINGS.apiBaseUrl;
 
 export interface DemoBbox {
   minLon: number;
@@ -15,6 +17,8 @@ export interface Health {
   version: string;
   mapCenter: [number, number]; // [lat, lon]
   coverageAvailable: boolean;
+  /** OSM risk raster loaded on the backend (needed by the Safest optimisation). */
+  riskDataAvailable?: boolean;
 }
 
 /** A resource's value, or undefined while loading or in error (`value()` throws on error). */

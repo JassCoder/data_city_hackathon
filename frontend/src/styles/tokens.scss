@@ -1,0 +1,125 @@
+// Design tokens: the only place colours, spacing, type, radii, shadows and motion are defined.
+// Neutral, cool base so the airspace and drone colours carry the map.
+
+:root {
+  color-scheme: light;
+
+  // Base palette
+  --c-bg: #f2f4f6; // Overcast
+  --c-surface: #ffffff; // Chart white
+  --c-surface-2: #f7f8fa;
+  --c-text: #1e2a33; // Graphite
+  --c-muted: #5a6773; // Slate
+  --c-line: #d3dae0; // Hairline
+  --c-line-strong: #b4bec7;
+  --c-accent: #0e6b6f; // Runway teal
+  --c-accent-hover: #0a5659;
+  --c-accent-ink: #ffffff;
+  --c-accent-soft: #e2f0f0;
+
+  // Status
+  --c-ok: #1f7a3a;
+  --c-ok-soft: #e5f3e9;
+  --c-warn: #8a5300;
+  --c-warn-soft: #fff3df;
+  --c-danger: #b3261e;
+  --c-danger-soft: #fbeceb;
+
+  // Airspace (evaluation for the selected flight); patterns add a non-colour cue
+  --zone-blocked: #c62828;
+  --zone-conditional: #d97a00;
+  --zone-technical: #b8860b;
+  --zone-unverified: #5f6b76;
+  --zone-info: #2f6fb3;
+  --zone-inactive: #8a949e;
+
+  // Map data
+  --map-river: #4a90c8;
+  --map-park: #5a9e5f;
+  --map-building: #9aa3ab;
+  --map-building-tall: #3d4a55;
+  --map-city: #263238;
+  --map-district: #6b77a8;
+  --map-extent: #455a64;
+
+  // Type
+  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --fs-11: 0.6875rem;
+  --fs-12: 0.75rem;
+  --fs-13: 0.8125rem;
+  --fs-14: 0.875rem;
+  --fs-16: 1rem;
+  --fs-18: 1.125rem;
+  --lh-tight: 1.25;
+  --lh: 1.45;
+  --fw-medium: 550;
+  --fw-bold: 650;
+
+  // Space (4 px scale)
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+
+  // Shape
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 10px;
+  --radius-pill: 999px;
+
+  // Elevation: only floating things (map overlays, popovers, sheets) cast shadows
+  --shadow-float: 0 1px 2px rgb(30 42 51 / 0.14), 0 4px 14px rgb(30 42 51 / 0.12);
+  --shadow-sheet: 0 -2px 16px rgb(30 42 51 / 0.16);
+
+  // Layout
+  --topbar-h: 44px;
+  --sidebar-w: 340px;
+  --drawer-w: 360px;
+  --sheet-peek: 156px;
+  --control-h: 32px;
+  --control-h-s: 26px;
+  --strip-h: 36px;
+
+  // Motion
+  --motion-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
+  --motion: 180ms cubic-bezier(0.2, 0, 0, 1);
+
+  // Layering
+  --z-map-strip: 500;
+  --z-sheet: 1100;
+  --z-drawer-sheet: 1200;
+  --z-toast: 1300;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --c-bg: #11181d;
+    --c-surface: #182128;
+    --c-surface-2: #1d2830;
+    --c-text: #e3e9ee;
+    --c-muted: #9aa8b3;
+    --c-line: #2c3a44;
+    --c-line-strong: #3c4c58;
+    --c-accent: #4fb3b6;
+    --c-accent-hover: #6cc4c6;
+    --c-accent-ink: #0b1f20;
+    --c-accent-soft: #173638;
+    --c-ok: #6fcf8d;
+    --c-ok-soft: #173322;
+    --c-warn: #f2b45a;
+    --c-warn-soft: #3a2a10;
+    --c-danger: #f08a83;
+    --c-danger-soft: #3d1b19;
+    --shadow-float: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 14px rgb(0 0 0 / 0.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion: 0ms;
+  }
+}

@@ -1,6 +1,7 @@
 /** Wire models for the planning API (camelCase, mirrors backend/app/schemas/planning.py). */
 
 import type { AirspaceSource, ZoneConflict } from './airspace';
+import { SETTINGS } from './settings';
 
 export type FlightMode = 'NORMAL' | 'EMERGENCY';
 export type WeatherMode = 'DEMO' | 'LIVE';
@@ -191,7 +192,7 @@ export interface DroneProfilesResponse {
   disclaimer: string;
 }
 
-export const ALTITUDE = { min: 20, max: 120, step: 5, default: 80 } as const;
+export const ALTITUDE = SETTINGS.altitude;
 
 export function isValidAltitude(v: number): boolean {
   return (

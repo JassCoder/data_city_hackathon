@@ -126,7 +126,8 @@ def test_demo_dataset_is_labelled_and_complete():
     ds = make_provider("demo").load()
     assert ds.source_type == SourceType.DEMO and "SYNTHETIC" in ds.disclaimer
     cats = {z.dra_category.value for z in ds.zones}
-    assert {"DRA-P", "DRA-RM", "DRA-RH", "DRA-RL", "DRA-T", "DRA-U", "DRA-I", "UNKNOWN"} <= cats
+    assert {"DRA-P", "DRA-RM", "DRA-RH", "DRA-RL", "DRA-T", "DRA-U", "DRA-I"} <= cats
+    assert "UNKNOWN" not in cats  # the incomplete-metadata demo zone was removed (unknown zones stay blocked)
     for z in ds.zones:
         assert z.source_type == SourceType.DEMO and z.id.startswith("DEMO-") and "DEMO" in z.name
     circles = [z for z in ds.zones if z.circle]

@@ -102,6 +102,5 @@ The dataset covers every category and evaluation path:
 - Three DRA-RH school circles limited to 0–60 m AGL.
 - DRA-T, DRA-U and DRA-I areas.
 - An expired temporary DRA-RL zone.
-- A zone with incomplete metadata.
 
 The locations echo real places so the demo reads naturally. **The boundaries, categories and limits are not the official ones.**

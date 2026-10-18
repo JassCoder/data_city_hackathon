@@ -412,53 +412,6 @@
      ]
     ]
    }
-  },
-  {
-   "type": "Feature",
-   "properties": {
-    "source": "SkyRoute DEMO dataset (synthetic)",
-    "sourceType": "DEMO",
-    "sourceTimestamp": "2026-10-17T00:00:00Z",
-    "verificationStatus": "INSUFFICIENT_DATA",
-    "validityStart": null,
-    "validityEnd": null,
-    "id": "DEMO-X-INCOMPLETE",
-    "name": "DEMO zone with incomplete metadata",
-    "draCategory": "UNKNOWN",
-    "restrictionType": "UNKNOWN",
-    "lowerAltitude": null,
-    "upperAltitude": null,
-    "altitudeReference": "UNKNOWN",
-    "authorizationRequired": null,
-    "operationalConditions": null
-   },
-   "geometry": {
-    "type": "Polygon",
-    "coordinates": [
-     [
-      [
-       20.9962,
-       52.2364
-      ],
-      [
-       20.9988,
-       52.2364
-      ],
-      [
-       20.9988,
-       52.2378
-      ],
-      [
-       20.9962,
-       52.2378
-      ],
-      [
-       20.9962,
-       52.2364
-      ]
-     ]
-    ]
-   }
   }
  ]
 }

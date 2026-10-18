@@ -112,14 +112,6 @@ ZONES = [
         "validityStart": "2026-09-01T00:00:00Z", "validityEnd": "2026-09-30T23:59:59Z",
         "ring": [(21.0085, 52.2400), (21.0140, 52.2400), (21.0140, 52.2430), (21.0085, 52.2430)],
     },
-    {
-        "id": "DEMO-X-INCOMPLETE", "name": "DEMO zone with incomplete metadata",
-        "draCategory": "UNKNOWN", "restrictionType": "UNKNOWN",
-        "lowerAltitude": None, "upperAltitude": None, "altitudeReference": "UNKNOWN",
-        "authorizationRequired": None, "operationalConditions": None,
-        "verificationStatus": "INSUFFICIENT_DATA",
-        "ring": [(20.9962, 52.2364), (20.9988, 52.2364), (20.9988, 52.2378), (20.9962, 52.2378)],
-    },
 ]
 
 # (id, name, station_type, status, capacity, lon, lat)

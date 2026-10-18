@@ -31,6 +31,16 @@ SkyRoute Warsaw is a planning and simulation prototype. **No data in this reposi
   - An entrance is linked to a flat only when its `addr:flats` tag covers that flat.
   - Entrances are for delivery planning, not drone landing sites.
 
+## Open Data Warsaw: city weather stations (live)
+
+- **Dataset:** [Weather](https://dane.um.warszawa.pl/en/catalogue/db8077a8-d0e0-480a-af5d-040fb0ea176f) from the Capital City of Warsaw open data portal (dane.um.warszawa.pl). It is published by the City Cleaning Authority (Zarząd Oczyszczania Miasta), updated every 10 minutes, licence CC BY.
+- **Call:** `POST https://dane.um.warszawa.pl/api/action/get_zom_pogoda` with the user's API token in the `Authorization` header.
+- **Data:** one record per station: name, position, measurement time, air and road temperature, humidity, wind speed and direction, precipitation intensity.
+- **Where it is used:** `app/services/city_weather.py` serves it as `GET /api/v1/city-weather`. The frontend shows it in the "Warsaw now" widget on the map, with the source and licence.
+- **Fetch schedule:** the response is saved to `data/cache/city_weather.json` (git-ignored; `/app/state` in Docker). The API is called again only when the saved data is older than 24 hours (`SKYROUTE_CITY_WEATHER_REFRESH_S`). Restarting the app reuses the saved data. The widget shows LIVE for data under 15 minutes old, otherwise SAVED with its age.
+- **When it fails:** a failed refresh keeps the saved data, labelled CACHED, and is retried after 15 minutes. Saved data older than 7 days is no longer shown (UNAVAILABLE). Values are never invented.
+- **API token:** read only from `SKYROUTE_WARSAW_API_KEY` (environment or the git-ignored `backend/.env`). It is never sent to the browser or committed.
+
 ## Hospitals and restaurants (OpenStreetMap)
 
 - **Import:** `scripts/fetch_pois.py` queries nodes, ways and relations in 16 small Overpass tiles. It pauses between requests and sends a descriptive User-Agent.

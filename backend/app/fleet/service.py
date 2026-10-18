@@ -614,20 +614,31 @@ class FleetService:
 
         # Required landing facilities must be enabled, open and have space before any routing.
         landing = [fid for fid in (o["pickup_facility_id"], o["dest_facility_id"]) if fid]
+        pickup_fid = o["pickup_facility_id"]
+        home_drones = self.db.query("SELECT status FROM drones WHERE home_depot_id = ?", (pickup_fid,)) if pickup_fid else []
         for fid in landing:
             f = self.db.one("SELECT * FROM facilities WHERE id = ?", (fid,))
             if f["kind"] == "DEPOT":
                 continue  # depots receive drones through their own home reservations
+            if fid == pickup_fid and any(d["status"] == "AVAILABLE" for d in home_drones):
+                continue  # the pickup facility's own drone starts there: no landing space needed
             if f["verification"] not in ("SIMULATION_ENABLED", "VERIFIED_BY_OPERATOR") or f["operational_status"] != "OPEN":
                 return fail(OrderStatus.FAILED, f"'{f['name']}' is not enabled for the simulation or is closed "
                                                 f"({f['verification']}, {f['operational_status']}).", [])
             if f["occupied"] + f["reserved"] >= f["capacity"]:
+                if fid == pickup_fid and home_drones:
+                    return fail(OrderStatus.NO_DRONE_AVAILABLE,
+                                f"All {len(home_drones)} drones at '{f['name']}' are busy and it has no free landing "
+                                "space for a drone from a depot. Try again when one returns.", [])
                 return fail(OrderStatus.FAILED, self._facility_full_message(f), [])
 
         rows = self.db.query(
             f"SELECT d.*, f.latitude AS lat, f.longitude AS lon FROM drones d JOIN facilities f ON f.id = d.home_depot_id "
-            f"WHERE d.status = 'AVAILABLE' AND f.verification IN {ENABLED_SQL} AND f.operational_status = 'OPEN'"
-            + (" AND d.profile_id = ?" if o["profile_id"] else ""), (o["profile_id"],) if o["profile_id"] else ())
+            f"WHERE d.status = 'AVAILABLE' AND f.verification IN {ENABLED_SQL} AND f.operational_status = 'OPEN' "
+            # Depot drones serve any order; a hospital's drones serve only orders picked up at that hospital.
+            f"AND (f.kind = 'DEPOT' OR f.id = ?)"
+            + (" AND d.profile_id = ?" if o["profile_id"] else ""),
+            (pickup_fid or "", o["profile_id"]) if o["profile_id"] else (pickup_fid or "",))
         candidates: list[AssignmentCandidate] = []
         if not rows:
             return fail(OrderStatus.NO_DRONE_AVAILABLE, "No available drone at any enabled, open depot.", candidates)
@@ -692,6 +703,8 @@ class FleetService:
                                  "WHERE id = ? AND status = 'AVAILABLE'", (oid, now_iso(), r["id"])).rowcount != 1:
                         raise _Taken()
                     for fid in landing:
+                        if fid == r["home_depot_id"]:
+                            continue  # the drone is already based here
                         if c.execute("SELECT kind FROM facilities WHERE id = ?", (fid,)).fetchone()["kind"] == "DEPOT":
                             continue
                         n = c.execute(f"UPDATE facilities SET reserved = reserved + 1, updated_at = ? WHERE id = ? "

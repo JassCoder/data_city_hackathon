@@ -2,7 +2,7 @@
   <span class="brand">SkyRoute Warsaw</span>
   <span class="spacer"></span>
   <button mat-stroked-button class="fleet-toggle" data-testid="fleet-toggle" [attr.aria-pressed]="fleet.dashboardOpen()"
-          (click)="fleet.dashboardOpen.set(!fleet.dashboardOpen())">
+          (click)="toggleFleetDashboard()">
     <mat-icon>local_shipping</mat-icon> <span class="label">Fleet dashboard</span>
   </button>
   @if (backendStatus() === 'offline' || layers.resource.error()) {
@@ -55,6 +55,9 @@
     @if (sim.message(); as m) {
       <div class="overlay sim-toast" role="status" data-testid="sim-toast">{{ m }}</div>
     }
+    <div class="overlay bottom-left">
+      <app-city-weather />
+    </div>
     <div class="overlay bottom-right">
       <app-airspace-legend />
     </div>

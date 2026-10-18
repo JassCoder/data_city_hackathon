@@ -15,6 +15,10 @@ services:
       # Optional: load a permitted official airspace file (see DATA_SOURCES.md).
       SKYROUTE_AIRSPACE_PROVIDER: ${SKYROUTE_AIRSPACE_PROVIDER:-none}
       SKYROUTE_PLANNING_CONSTRAINTS: ${SKYROUTE_PLANNING_CONSTRAINTS:-on}
+    # Secrets such as SKYROUTE_WARSAW_API_KEY (Open Data Warsaw) come from the git-ignored backend/.env.
+    env_file:
+      - path: backend/.env
+        required: false
     volumes:
       - fleet-state:/app/state
     restart: unless-stopped

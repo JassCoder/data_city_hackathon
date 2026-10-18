@@ -11,6 +11,7 @@ from app.services.drone_profiles import DroneProfileRegistry
 from app.services.geocoding import GeocodingService
 from app.services.route_service import RouteService
 from app.services.weather import WeatherService
+from app.services.city_weather import CityWeatherService
 
 
 def get_geocoder(request: Request) -> GeocodingService:
@@ -23,6 +24,10 @@ def get_entrances(request: Request):
 
 def get_weather(request: Request) -> WeatherService:
     return request.app.state.weather
+
+
+def get_city_weather(request: Request) -> CityWeatherService:
+    return request.app.state.city_weather
 
 
 def get_profiles(request: Request) -> DroneProfileRegistry:

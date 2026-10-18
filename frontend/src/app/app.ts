@@ -17,6 +17,7 @@ import { PlannerPanelComponent } from './planner/planner-panel';
 import { RouteDetailsPanelComponent } from './planner/route-details-panel';
 import { MapLayersControlComponent } from './map/layers-control';
 import { AirspaceLegendComponent } from './map/airspace-legend';
+import { CityWeatherComponent } from './map/city-weather';
 import { FleetPanelComponent } from './planner/fleet-panel';
 import { FleetService } from './core/fleet';
 import { FacilityAction } from './map/fleet-layers';
@@ -32,6 +33,7 @@ import { FacilityAction } from './map/fleet-layers';
     RouteDetailsPanelComponent,
     MapLayersControlComponent,
     AirspaceLegendComponent,
+    CityWeatherComponent,
     FleetPanelComponent,
   ],
   selector: 'app-root',
@@ -60,6 +62,15 @@ export class App {
     if (this.health.error()) return 'offline';
     return this.healthInfo()?.status === 'ok' ? 'online' : 'offline';
   });
+
+  /** Opening or closing the Fleet dashboard starts fresh: no old addresses, route, simulation or form input. */
+  protected toggleFleetDashboard(): void {
+    this.sim.stop();
+    this.flight.clear();
+    this.planner.reset(); // also clears the planner's address fields (resetCount)
+    this.fleet.resetForm();
+    this.fleet.dashboardOpen.set(!this.fleet.dashboardOpen());
+  }
 
   /** A fleet "Select on map" field takes the click; otherwise the planner does. */
   protected onMapClick(c: Coordinate): void {

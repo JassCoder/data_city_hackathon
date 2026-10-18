@@ -59,11 +59,15 @@ describe('FleetFlightService', () => {
     expect(flight.frame()).toMatchObject({ lat: 52.20, lng: 21.0 }); // back at the depot
   });
 
-  it('a step without a flown leg shows no drone', () => {
+  it('shows no drone before dispatch, and a hospital drone waiting at its own hospital (no flight to pickup)', () => {
     flight.show(order('ASSIGNED'));
     expect(flight.frame()).toBeNull();
-    flight.show({ ...order('TO_PICKUP'), legs: [{ ...LEGS[0], geometry: null, distanceM: 0 }] });
-    expect(flight.frame()).toBeNull();
-    expect(flight.orderId()).toBeNull();
+    const own = { ...order('TO_PICKUP'), legs: [{ ...LEGS[0], geometry: null, distanceM: 0 }, ...LEGS.slice(1)] };
+    flight.show(own);
+    expect(flight.flying()).toBe(false);
+    expect(sched.pending.size).toBe(0);
+    expect(flight.frame()).toMatchObject({ lat: own.pickup.latitude, lng: own.pickup.longitude });
+    flight.show({ ...own, status: 'IN_DELIVERY' }); // then it flies the delivery leg as usual
+    expect(flight.flying()).toBe(true);
   });
 });

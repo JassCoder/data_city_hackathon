@@ -1,5 +1,7 @@
 # SkyRoute Warsaw
 
+Done by Team: data_city, Afzal, Fizan, Agron Kicina, Abdullah, Saspreet
+
 A "Google Maps for drones" prototype covering the **whole City of Warsaw** (all 18 districts). Enter two addresses anywhere in the city, choose a flight profile and what to optimise, and the backend plans a drone route that:
 - avoids blocked UAS geographical zones (Polish DRA categories, evaluated for your flight's altitude and time),
 - avoids buildings taller than the flight altitude,
@@ -8,6 +10,11 @@ A "Google Maps for drones" prototype covering the **whole City of Warsaw** (all 
 > **Planning and simulation prototype.** It never controls real drones. **No airspace zones are loaded by default**, so routes are explicitly unverified and do not confirm real-world flight legality. The bundled landing stations and drone profiles are synthetic sample data, not real facilities or manufacturer data. No documented, permitted machine-readable source of official Polish zones was found; see [DATA_SOURCES.md](DATA_SOURCES.md). Check PAŻP DroneTower or DroneMap before any real flight.
 
 ## Quick start
+
+**Open Data Warsaw API key (for the "Warsaw now" weather widget):**
+- Copy `backend/.env.example` to `backend/.env` and set `SKYROUTE_WARSAW_API_KEY` to your token from [dane.um.warszawa.pl](https://dane.um.warszawa.pl/key-api).
+- `backend/.env` is git-ignored and never baked into the Docker image (Compose passes it to the container at runtime).
+- Without a key the app still works; the widget just says the data is unavailable.
 
 ### Option 1: one command (Windows)
 

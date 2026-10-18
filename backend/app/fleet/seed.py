@@ -5,6 +5,8 @@
 - The existing Vistula depot (data/landing_stations.geojson, id st-depot) is kept,
   plus planned depots from app/fleet/planning.py (p-median over simulated demand).
 - Drones per depot; demo restaurant partners (fictional agreements) with proposed pads.
+- HOSPITAL_DRONES_PER_STATION simulated drones at every hospital station (`ensure_hospital_drones`,
+  also run at every start), so medical orders use the hospital's own drone.
 
 `sync_pois` runs at every start: new hospitals get a PROPOSED station; existing
 simulated records are never deleted or overwritten by a POI re-import.
@@ -28,6 +30,7 @@ from app.config import (
     DEPOT_TARGET_COUNT,
     DRONES_PER_HIGH_DEMAND_DEPOT,
     DRONES_PER_STANDARD_DEPOT,
+    HOSPITAL_DRONES_PER_STATION,
     HOSPITAL_STATION_CAPACITY,
     MAP_CENTER,
     PAD_CAPACITY_DEFAULT,
@@ -44,6 +47,8 @@ DEMO_HOSPITAL_NOTE = ("DEMO: enabled for the simulation only. The real hospital 
                       "no landing infrastructure is assumed.")
 DEMO_PARTNER_NOTE = ("DEMO partner (fictional subscription). Pad = the mapped restaurant point, review required: "
                      "surface, clearance, ownership and permissions are not verified.")
+HOSPITAL_DRONE_NOTE = ("SIMULATION: hospital-based drones for medical orders picked up here. The real hospital has "
+                       "not agreed to host drones and no landing infrastructure is assumed.")
 PLANNER_SOURCE = "SkyRoute depot planner (greedy p-median over simulated demand)"
 
 
@@ -85,6 +90,38 @@ def sync_pois(db: FleetDB, pois: Pois, capacity: int = HOSPITAL_STATION_CAPACITY
     return added
 
 
+def ensure_hospital_drones(db: FleetDB, profiles: DroneProfileRegistry,
+                           per_station: int = HOSPITAL_DRONES_PER_STATION) -> int:
+    """Gives every hospital station without drones `per_station` simulated drones and enables it for the
+    simulation. Runs at every start; stations that already host drones, or that an admin DISABLED, are left
+    alone. Returns the number of drones added."""
+    if per_station <= 0:
+        return 0
+    ids = profiles.ids
+    pid = "DEMO_DRONE_02" if "DEMO_DRONE_02" in ids else (ids[0] if ids else "UNKNOWN")  # medical cargo box
+    prof = profiles.get(pid)
+    added = 0
+    with db.tx() as c:
+        n = c.execute("SELECT COUNT(*) AS n FROM drones WHERE id LIKE '%-hdrone-%'").fetchone()["n"]
+        stations = c.execute(
+            "SELECT * FROM facilities f WHERE f.kind = 'HOSPITAL_STATION' AND f.verification != 'DISABLED' "
+            "AND NOT EXISTS (SELECT 1 FROM drones d WHERE d.home_depot_id = f.id) ORDER BY f.id").fetchall()
+        for f in stations:
+            # The drones get their own docks on top of the station's landing spaces for visiting drones.
+            occupied = f["occupied"] + per_station
+            capacity = f["capacity"] + per_station
+            c.execute("UPDATE facilities SET verification = 'SIMULATION_ENABLED', capacity = ?, occupied = ?, "
+                      "notes = ?, updated_at = ? WHERE id = ?", (capacity, occupied, HOSPITAL_DRONE_NOTE, now_iso(), f["id"]))
+            for _ in range(per_station):
+                n += 1
+                c.execute("INSERT INTO drones (id, name, profile_id, status, home_depot_id, current_facility_id, "
+                          "battery_pct, max_range_m, current_order_id, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                          (f"{f['id']}-hdrone-{n}", f"SR-H{n:03d}", pid, "AVAILABLE", f["id"], f["id"], 100.0,
+                           (prof.max_range_km if prof else 10.0) * 1000, None, now_iso()))
+                added += 1
+    return added
+
+
 def _vistula_depot() -> dict | None:
     path = DATA_DIR / DATA_FILES["stations"]
     if not path.is_file():
@@ -113,9 +150,12 @@ def _spread(points: list, k: int, start_xy: tuple[float, float]) -> list:
 
 
 def seed(db: FleetDB, pois: Pois, planner: RoutePlanner, profiles: DroneProfileRegistry,
-         demo_hospitals: int = DEMO_HOSPITAL_STATIONS_ENABLED, partners: int = DEMO_RESTAURANT_PARTNERS) -> dict:
+         demo_hospitals: int = DEMO_HOSPITAL_STATIONS_ENABLED, partners: int = DEMO_RESTAURANT_PARTNERS,
+         hospital_drones: int = HOSPITAL_DRONES_PER_STATION) -> dict:
     if db.meta("seeded_at"):
-        return {"seeded": False, "hospitalStationsAdded": sync_pois(db, pois)}
+        added = sync_pois(db, pois)
+        return {"seeded": False, "hospitalStationsAdded": added,
+                "hospitalDronesAdded": ensure_hospital_drones(db, profiles, hospital_drones)}
     sync_pois(db, pois)
     centre = lonlat_to_xy(MAP_CENTER[1], MAP_CENTER[0])
 
@@ -198,6 +238,7 @@ def seed(db: FleetDB, pois: Pois, planner: RoutePlanner, profiles: DroneProfileR
                 "demoHospitalStations": len(demo_hospitals), "demoPartners": len(chosen)}
         c.execute("INSERT INTO meta (key, value) VALUES ('seeded_at', ?)", (info["seededAt"],))
         c.execute("INSERT INTO meta (key, value) VALUES ('plan', ?)", (json.dumps(info),))
+    info["hospitalDronesAdded"] = ensure_hospital_drones(db, profiles, hospital_drones)
     return {"seeded": True, **info}
 
 

@@ -14,6 +14,11 @@ const PARKED_AT: Partial<Record<OrderStatus, RouteLeg['leg']>> = {
   LOADING: 'TO_PICKUP', DELIVERED: 'DELIVERY', COMPLETED: 'RETURN',
 };
 
+/** A drone standing at one point (no flight). */
+function standingLeg(lat: number, lng: number): Leg {
+  return { coords: [[lat, lng], [lat, lng]], cum: [0, 0], lengthM: 0, distanceM: 0, etaS: 1 };
+}
+
 /**
  * Shows a fleet order's simulated drone on the map: each "Advance simulation" step that is a
  * flight animates the drone along that leg's exact backend route; ground steps park it at the
@@ -48,12 +53,22 @@ export class FleetFlightService {
     const flight = FLIGHT_OF[order.status];
     const parked = PARKED_AT[order.status];
     const routeLeg = order.legs.find((l) => l.leg === (flight ?? parked));
-    const leg = legFromLine(routeLeg?.geometry?.coordinates, routeLeg?.distanceM, routeLeg?.etaS);
+    let leg = legFromLine(routeLeg?.geometry?.coordinates, routeLeg?.distanceM, routeLeg?.etaS);
+    if (!leg && routeLeg && !routeLeg.geometry) {
+      // Zero-length leg: e.g. a hospital's own drone is already at the pickup. Show it waiting there.
+      const at = routeLeg.leg === 'TO_PICKUP' ? order.pickup : routeLeg.leg === 'DELIVERY' ? order.destination : null;
+      leg = at ? standingLeg(at.latitude, at.longitude) : null;
+    }
     this.cancel();
     this.orderId.set(order.id);
     this.leg.set(leg);
     if (!leg) {
-      this.clear(); // ASSIGNED, or a zero-length leg (drone already at that point)
+      this.clear(); // ASSIGNED: no drone shown yet
+      return;
+    }
+    if (leg.lengthM === 0) {
+      this.distance.set(0);
+      this.flying.set(false);
       return;
     }
     if (flight) {

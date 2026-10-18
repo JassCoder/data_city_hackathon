@@ -321,6 +321,14 @@ export class FleetService {
     return obs.pipe(tap({ next: () => this.refresh(), error: () => this.refresh() }));
   }
 
+  /** Clears the order form, its messages and the district filter (orders already created stay). */
+  resetForm(): void {
+    this.draft.set(EMPTY_DRAFT);
+    this.pickTarget.set(null);
+    this.lastMessage.set(null);
+    this.district.set(null);
+  }
+
   /** Shows the layers that matter for an order type (hiding only changes the map, never routing). */
   showLayersFor(type: OrderType): void {
     const preset = ORDER_LAYERS[MEDICAL_ORDER_TYPES.has(type) ? 'MEDICAL' : 'FOOD'];

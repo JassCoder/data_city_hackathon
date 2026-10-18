@@ -31,7 +31,7 @@ from app.fleet.db import FleetDB
 from app.fleet.pois import load_pois
 from app.fleet.seed import seed as seed_fleet
 from app.fleet.service import FleetService
-from app.routers import data, fleet, geocoding, geodata, health, map, planning, zones
+from app.routers import data, fleet, geocoding, geodata, health, map, planning, zones, city_weather
 from app.routing.constraints import build_constraints
 from app.routing.grid import load_city_grid
 from app.routing.planner import RoutePlanner
@@ -41,6 +41,7 @@ from app.services.address import AddressGeocoder, GugikAddressProvider
 from app.services.entrances import load_entrances
 from app.services.geocoding import GeocodingService, NominatimProvider, RateLimiter, TTLCache
 from app.services.weather import WeatherService
+from app.services.city_weather import CityWeatherService
 
 
 @asynccontextmanager
@@ -68,6 +69,7 @@ async def lifespan(app: FastAPI):
         viewbox = f"{w - 0.01:.4f},{n + 0.01:.4f},{e + 0.01:.4f},{s - 0.01:.4f}"
     async with httpx.AsyncClient() as client:
         app.state.weather = WeatherService(client)
+        app.state.city_weather = CityWeatherService(client)  # Open Data Warsaw (token from the environment)
         # Building numbers: official GUGiK PRG address points; places/fallback: Nominatim (1 req/s).
         app.state.geocoder = GeocodingService(
             AddressGeocoder(
@@ -110,3 +112,4 @@ app.include_router(planning.router, prefix=API_PREFIX)
 app.include_router(zones.router, prefix=API_PREFIX)
 app.include_router(zones.status_router, prefix=API_PREFIX)
 app.include_router(map.router, prefix=API_PREFIX)
+app.include_router(city_weather.router, prefix=API_PREFIX)

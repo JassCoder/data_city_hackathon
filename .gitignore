@@ -16,3 +16,11 @@ CLAUDE.md
 CLAUDE.local.md
 .claude/
 SKYROUTE_PROMPT.md
+
+# Secrets (API keys) - never commit
+.env
+*.env
+!*.env.example
+
+# Saved Open Data Warsaw snapshot (runtime cache)
+data/cache/

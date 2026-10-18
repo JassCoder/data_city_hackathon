@@ -5,7 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     # Simulated fleet state lives in a volume, not in the image.
-    SKYROUTE_FLEET_DB=/app/state/fleet.sqlite
+    SKYROUTE_FLEET_DB=/app/state/fleet.sqlite \
+    # The saved Open Data Warsaw snapshot survives restarts (re-fetched every 24 h).
+    SKYROUTE_CITY_WEATHER_FILE=/app/state/city_weather.json
 
 WORKDIR /app
 COPY backend/requirements.txt backend/requirements.txt

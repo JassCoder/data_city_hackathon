@@ -12,3 +12,6 @@ data/fleet
 *.pptx
 *.md
 logs
+.env
+*.env
+data/cache

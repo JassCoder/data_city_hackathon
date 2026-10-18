@@ -8,7 +8,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { App } from './app';
 import { API_BASE_URL } from './core/api';
-import { BOUNDARY, COVERAGE, _WEATHER, LAYERS, PROFILES, SCENARIOS, ZONES } from '../testing/fixtures';
+import { BOUNDARY, CITY_WEATHER, COVERAGE, _WEATHER, LAYERS, PROFILES, SCENARIOS, ZONES } from '../testing/fixtures';
 import { stubCanvas } from '../testing/canvas-stub';
 
 describe('App', () => {
@@ -48,6 +48,7 @@ describe('App', () => {
     http.expectOne(`${API_BASE_URL}/map/warsaw-boundary`).flush(BOUNDARY);
     http.expectOne(`${API_BASE_URL}/map/coverage`).flush(COVERAGE);
     http.expectOne(`${API_BASE_URL}/zones?altitudeM=80`).flush(ZONES);
+    http.expectOne(`${API_BASE_URL}/city-weather`).flush(CITY_WEATHER); // Open Data Warsaw widget
     flushFleet(http);
     await fixture.whenStable();
     http.verify();
@@ -89,6 +90,38 @@ describe('App', () => {
     expect(store.destination()?.label).toBe('Szpital');
     store.selectScenario('EMERGENCY'); // scenario selection never moves the points
     expect(store.start()?.coordinate).toEqual({ latitude: PAD.latitude, longitude: PAD.longitude });
+  });
+
+  it('the Fleet dashboard button starts fresh: planner addresses, route and fleet form are cleared', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    await settle(http, fixture);
+    const store = TestBed.inject(PlannerStore);
+    const fleet = TestBed.inject(FleetService);
+    store.setLocation('start', { coordinate: { latitude: 52.2297, longitude: 21.0122 }, label: 'Old A', source: 'SEARCH' });
+    store.setAltitude(100);
+    fleet.draft.update((d) => ({ ...d, orderType: 'AED_DELIVERY',
+      delivery: { coordinate: { latitude: 52.22, longitude: 21.0 }, label: 'Old delivery' } }));
+    fleet.district.set('Mokotów');
+    fleet.lastMessage.set({ ok: true, text: 'old message' });
+    const button = (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('[data-testid="fleet-toggle"]')!;
+    button.click();
+    fixture.detectChanges();
+    expect(fleet.dashboardOpen()).toBe(true);
+    expect(store.start()).toBeNull();
+    expect(store.destination()).toBeNull();
+    expect(store.altitude()).toBe(80);
+    expect(store.route().phase).toBe('idle');
+    expect(fleet.draft()).toMatchObject({ orderType: 'FOOD_DELIVERY', pickup: null, delivery: null });
+    expect(fleet.district()).toBeNull();
+    expect(fleet.lastMessage()).toBeNull();
+    store.setLocation('destination', { coordinate: { latitude: 52.2297, longitude: 21.0122 }, label: 'B', source: 'SEARCH' });
+    button.click(); // closing starts fresh too
+    fixture.detectChanges();
+    expect(fleet.dashboardOpen()).toBe(false);
+    expect(store.destination()).toBeNull();
+    await settle(http, fixture);
   });
 
   it('a map click fills the armed fleet field instead of the planner (and never outside Warsaw)', async () => {

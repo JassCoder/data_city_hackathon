@@ -9,6 +9,34 @@ APP_VERSION = "0.1.0"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
 
+
+def _load_dotenv(path: Path) -> None:
+    """Reads KEY=VALUE lines from a local, git-ignored .env file. Real environment variables win."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_dotenv(REPO_ROOT / "backend" / ".env")
+
+# Open Data Warsaw (dane.um.warszawa.pl): live weather from the City Cleaning Authority (ZOM)
+# stations, CC BY. The API token comes only from the environment / backend/.env, never from code.
+WARSAW_WEATHER_URL = "https://dane.um.warszawa.pl/api/action/get_zom_pogoda"
+WARSAW_API_KEY = os.environ.get("SKYROUTE_WARSAW_API_KEY") or None
+# The station data is saved to a file and re-fetched only when it is older than the refresh
+# interval (default 24 h), so restarting the app does not call the API again.
+CITY_WEATHER_FILE = Path(os.environ.get("SKYROUTE_CITY_WEATHER_FILE", str(DATA_DIR / "cache" / "city_weather.json")))
+CITY_WEATHER_REFRESH_S = int(os.environ.get("SKYROUTE_CITY_WEATHER_REFRESH_S", str(24 * 3600)))
+CITY_WEATHER_RETRY_S = 15 * 60  # after a failed refresh, wait this long before trying again
+CITY_WEATHER_LIVE_S = 15 * 60  # data younger than this is labelled LIVE, older SAVED
+CITY_WEATHER_STALE_MAX_S = 7 * 24 * 3600  # after failures, keep showing saved data (labelled) at most this old
+
 # Angular dev server origins.
 CORS_ORIGINS = [
     "http://localhost:4200",
@@ -126,6 +154,8 @@ LAYERS_COORD_DECIMALS = 6  # ~0.1 m
 # SIMULATED stations, depots, pads, drones and orders stored in this SQLite file.
 FLEET_DB_FILE = Path(os.environ.get("SKYROUTE_FLEET_DB", str(DATA_DIR / "fleet" / "fleet.sqlite")))
 HOSPITAL_STATION_CAPACITY = int(os.environ.get("SKYROUTE_HOSPITAL_STATION_CAPACITY", "2"))
+# Simulated drones based at every hospital station; they serve orders picked up at their own hospital.
+HOSPITAL_DRONES_PER_STATION = int(os.environ.get("SKYROUTE_HOSPITAL_DRONES", "2"))
 DEPOT_CAPACITY_STANDARD = 6
 DEPOT_CAPACITY_HIGH_DEMAND = 12
 PAD_CAPACITY_DEFAULT = 1

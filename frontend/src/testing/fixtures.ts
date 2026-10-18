@@ -298,7 +298,25 @@ export function routeResponse(req: RouteRequest, over: Partial<RouteResponse> = 
 }
 
 /** Answers the app-wide startup requests that are not under test. */
+/** Open Data Warsaw weather as served by GET /city-weather (two real station records). */
+export const CITY_WEATHER = {
+  status: 'LIVE' as const, message: 'Live data from the Open Data Warsaw API.', fetchedAt: '2026-10-18T08:10:30+00:00', ageS: 30,
+  nextRefreshAt: '2026-10-19T08:10:30+00:00', refreshIntervalS: 86400,
+  summary: { stations: 2, airTempC: 7.1, minAirTempC: 6.1, maxAirTempC: 8.1, humidityPct: 98, maxWindSpeedMs: 1.9,
+    rainingStations: 1, latestMeasurement: '2026-10-18 10:10:00' },
+  stations: [
+    { name: 'Stacja Bielany', latitude: 52.29241, longitude: 20.97288, measuredAt: '2026-10-18 10:00:00', airTempC: 6.1,
+      roadTempC: 10.6, humidityPct: 99.8, windSpeedMs: 0.5, windDirectionDeg: 225, precipitation: 0 },
+    { name: 'Stacja Krakowska', latitude: 52.1752, longitude: 20.94439, measuredAt: '2026-10-18 10:10:00', airTempC: 8.1,
+      roadTempC: 12.8, humidityPct: 96, windSpeedMs: 1.9, windDirectionDeg: 121, precipitation: 0.4 },
+  ],
+  source: 'Open Data Warsaw (dane.um.warszawa.pl): weather stations of the City Cleaning Authority (ZOM)',
+  license: 'CC BY: Capital City of Warsaw',
+  datasetUrl: 'https://dane.um.warszawa.pl/en/catalogue/db8077a8-d0e0-480a-af5d-040fb0ea176f',
+};
+
 export function flushStartup(http: HttpTestingController): void {
+  for (const req of http.match(`${API_BASE_URL}/city-weather`)) req.flush(CITY_WEATHER);
   for (const req of http.match(`${API_BASE_URL}/layers`)) req.flush(LAYERS);
   for (const req of http.match(`${API_BASE_URL}/drone-profiles`)) req.flush(PROFILES);
   for (const req of http.match(`${API_BASE_URL}/scenarios`)) req.flush(SCENARIOS);

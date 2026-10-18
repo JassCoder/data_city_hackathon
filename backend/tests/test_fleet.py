@@ -25,7 +25,8 @@ from app.fleet.models import (
     Verification,
 )
 from app.fleet.pois import Poi, PoiLayer, Pois, load_layer
-from app.fleet.seed import VISTULA_DEPOT_ID, pad_id, seed, station_id
+from app.fleet.seed import VISTULA_DEPOT_ID, ensure_hospital_drones, pad_id, seed, station_id
+from app.config import HOSPITAL_DRONES_PER_STATION
 from app.fleet.service import Conflict, FleetService, Invalid
 from app.routing.planner import RoutePlanner
 from app.schemas.planning import Coordinate
@@ -156,15 +157,14 @@ def test_missing_poi_file_is_reported_not_fatal(tmp_path):
 
 # --- seeded infrastructure ----------------------------------------------------------------
 
-def test_every_hospital_gets_a_proposed_station_with_capacity_2(fleet):
+def test_every_hospital_station_hosts_two_drones_plus_two_landing_spaces(fleet):
     stations = fleet.facilities(FacilityKind.HOSPITAL_STATION)
     assert {s.ref_id for s in stations} == {h.id for h in HOSPITALS}
-    assert all(s.capacity == 2 and s.occupied == 0 and s.available == 2 for s in stations)
+    for s in stations:  # 2 docks for its own drones + 2 landing spaces for visiting drones
+        assert (s.capacity, s.occupied, s.available) == (2 + HOSPITAL_DRONES_PER_STATION, HOSPITAL_DRONES_PER_STATION, 2)
+        assert s.dispatch_enabled and s.assigned_drones == HOSPITAL_DRONES_PER_STATION and "SIMULATION" in s.notes
     unnamed = next(s for s in stations if s.ref_id == "osm:node/4")
     assert "unnamed hospital" in unnamed.name
-    enabled = [s for s in stations if s.dispatch_enabled]
-    assert enabled and all("DEMO" in s.notes for s in enabled)
-    assert any(s.verification == Verification.PROPOSED and not s.dispatch_enabled for s in stations) or len(HOSPITALS) <= 6
 
 
 def test_vistula_depot_is_preserved_and_not_duplicated(fleet):
@@ -278,6 +278,7 @@ def test_full_lifecycle_updates_drone_and_parking(fleet):
     enable(fleet, dest_station)
     pad = pad_id(next(r.id for r in fleet.restaurants().items if r.pad and r.pad.dispatch_enabled))
     p = fleet.facility(pad)
+    dest0 = fleet.facility(dest_station)  # already hosts its own drones
     o = order(fleet, pickup=(p.latitude, p.longitude), dest=(52.2250, 21.0010), pickup_facility_id=pad,
               destination_facility_id=dest_station, order_type=OrderType.MEDICAL_SUPPLIES)
     res = fleet.assign(o.id, WEATHER)
@@ -297,8 +298,8 @@ def test_full_lifecycle_updates_drone_and_parking(fleet):
     assert (h.occupied, h.reserved) == (home0.occupied - 1, home0.reserved + 1)  # return space held
     assert steps[OrderStatus.LOADING][2].occupied == 1 and steps[OrderStatus.LOADING][2].reserved == 0
     assert steps[OrderStatus.IN_DELIVERY][2].occupied == 0
-    assert steps[OrderStatus.DELIVERED][3].occupied == 1 and steps[OrderStatus.DELIVERED][3].reserved == 0
-    assert steps[OrderStatus.RETURNING][3].occupied == 0
+    assert steps[OrderStatus.DELIVERED][3].occupied == dest0.occupied + 1 and steps[OrderStatus.DELIVERED][3].reserved == 0
+    assert steps[OrderStatus.RETURNING][3].occupied == dest0.occupied
     status, home, *_ = steps[OrderStatus.COMPLETED]
     assert status == DroneStatus.CHARGING and (home.occupied, home.reserved) == (home0.occupied, home0.reserved)
     assert fleet.drone(drone.id).battery_percent < 100
@@ -333,10 +334,79 @@ def test_closed_destination_station_fails(fleet):
     assert not res.assigned and "closed" in res.message.lower()
 
 
-def test_proposed_station_is_not_used_for_dispatch(fleet):
-    proposed = next(s for s in fleet.facilities(FacilityKind.HOSPITAL_STATION) if not s.dispatch_enabled)
-    res = fleet.assign(order(fleet, destination_facility_id=proposed.id).id, WEATHER)
+def test_disabled_station_is_not_used_for_dispatch(fleet):
+    station = fleet.facilities(FacilityKind.HOSPITAL_STATION)[0]
+    fleet.patch_facility(station.id, FacilityPatch(verification="DISABLED"))
+    res = fleet.assign(order(fleet, destination_facility_id=station.id).id, WEATHER)
     assert not res.assigned and "not enabled" in res.message
+
+
+def hospital_order(fleet, hospital_name="Szpital Testowy Mokotów", dest=(52.2050, 21.0420)):
+    h = next(h for h in HOSPITALS if h.name == hospital_name)
+    st = fleet.hospital(h.id).station
+    o = fleet.create_order(OrderCreate(order_type=OrderType.BLOOD_DELIVERY, pickup=C(st.latitude, st.longitude),
+                                       pickup_facility_id=st.id, destination=C(*dest)))
+    return st, o
+
+
+def test_medical_order_uses_the_hospitals_own_drone_without_a_flight_to_pickup(fleet):
+    st, o = hospital_order(fleet)
+    res = fleet.assign(o.id, WEATHER)
+    assert res.assigned, res.message
+    drone = fleet.drone(res.order.drone_id)
+    assert drone.home_depot_id == st.id  # not a depot drone
+    legs = {leg.leg: leg for leg in res.order.legs}
+    assert legs["TO_PICKUP"].distance_m == 0  # already at the hospital
+    assert legs["RETURN"].geometry["coordinates"][-1] == [st.longitude, st.latitude]  # back to its hospital
+    assert fleet.facility(st.id).reserved == 0  # no landing space taken at its own station
+    for _ in range(6):
+        fleet.advance(o.id)
+    after = fleet.facility(st.id)
+    assert (after.occupied, after.reserved) == (st.occupied, st.reserved)  # back in its dock
+
+
+def test_nearest_hospital_pickup_uses_its_station_and_drone(fleet):
+    dest = C(52.1990, 21.0280)
+    near = fleet.nearest_hospital(dest.latitude, dest.longitude)
+    assert near.pickup_facility_id == near.hospital.station.id
+    o = fleet.create_order(OrderCreate(order_type=OrderType.AED_DELIVERY, destination=dest))
+    res = fleet.assign(o.id, WEATHER)
+    assert res.assigned and fleet.drone(res.order.drone_id).home_depot_id == near.pickup_facility_id
+
+
+def test_food_orders_never_take_hospital_drones(fleet):
+    res = fleet.assign(order(fleet).id, WEATHER)
+    assert res.assigned
+    assert fleet.facility(fleet.drone(res.order.drone_id).home_depot_id).kind == FacilityKind.DEPOT
+    assert all(fleet.facility(c.depot_id).kind == FacilityKind.DEPOT for c in res.candidates)
+
+
+def test_busy_hospital_drones_fall_back_to_a_depot_drone_landing_at_the_hospital(fleet):
+    st, _ = hospital_order(fleet)
+    taken = [hospital_order(fleet)[1] for _ in range(HOSPITAL_DRONES_PER_STATION)]
+    for o in taken:
+        assert fleet.drone(fleet.assign(o.id, WEATHER).order.drone_id).home_depot_id == st.id
+    _, extra = hospital_order(fleet)
+    res = fleet.assign(extra.id, WEATHER)  # both hospital drones busy: a depot drone flies in
+    assert res.assigned, res.message
+    assert fleet.facility(fleet.drone(res.order.drone_id).home_depot_id).kind == FacilityKind.DEPOT
+    assert fleet.facility(st.id).reserved == 1  # it lands in one of the station's spare spaces
+
+
+def test_hospital_drone_seeding_is_idempotent_and_respects_disabled_stations(fleet, client):
+    station = fleet.facilities(FacilityKind.HOSPITAL_STATION)[0]
+    before = len(fleet.drones())
+    assert ensure_hospital_drones(fleet.db, client.app.state.profiles) == 0  # nothing to add twice
+    with fleet.db.tx() as c:  # a new hospital station appears (e.g. after a POI re-import), disabled by an admin
+        c.execute("UPDATE drones SET home_depot_id = 'st-depot', current_facility_id = 'st-depot' WHERE home_depot_id = ?",
+                  (station.id,))
+        c.execute("UPDATE facilities SET verification = 'DISABLED', occupied = 0, capacity = 2 WHERE id = ?", (station.id,))
+    assert ensure_hospital_drones(fleet.db, client.app.state.profiles) == 0
+    with fleet.db.tx() as c:
+        c.execute("UPDATE facilities SET verification = 'PROPOSED' WHERE id = ?", (station.id,))
+    assert ensure_hospital_drones(fleet.db, client.app.state.profiles) == HOSPITAL_DRONES_PER_STATION
+    assert len(fleet.drones()) == before + HOSPITAL_DRONES_PER_STATION
+    assert fleet.facility(station.id).dispatch_enabled
 
 
 def test_insufficient_battery_or_range(fleet):
@@ -464,7 +534,7 @@ def test_api_lists_and_admin_protection(client):
     s = client.get(f"{API}/fleet/summary").json()
     assert s["depots"] >= 8 and s["drones"] > 0 and "SIMULATION" in s["notice"]
     h = client.get(f"{API}/hospitals").json()
-    assert h["total"] >= 30 and h["items"][0]["station"]["capacity"] == 2
+    assert h["total"] >= 30 and h["items"][0]["station"]["capacity"] == 2 + HOSPITAL_DRONES_PER_STATION
     one = client.get(f"{API}/hospitals/{h['items'][0]['id']}").json()
     assert one["id"] == h["items"][0]["id"]
     depot = client.get(f"{API}/depots").json()[0]

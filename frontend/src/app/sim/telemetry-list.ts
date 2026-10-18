@@ -41,6 +41,10 @@ export function formatEta(s: number | null): string {
                 [title]="sim.selectedId() ? 'Keep the selected drone in view' : 'Select a drone first'">
           <app-icon name="target" />Follow
         </button>
+        <button type="button" class="btn btn-s" [attr.aria-pressed]="sim.drive()" (click)="toggleDrive()" data-testid="drive-toggle"
+                title="Street-level view that chases the selected drone">
+          <app-icon name="drive" />Drive
+        </button>
         <button type="button" class="btn btn-s" [disabled]="!sim.selectedId()" (click)="details.emit()" data-testid="details-open">
           <app-icon name="info" />Details
         </button>
@@ -110,6 +114,11 @@ export class TelemetryListComponent {
     if (this.flying(d)) parts.push(`${p.speedMps.toFixed(1)} m/s`, `${p.altitudeM.toFixed(0)} m`);
     if (d.etaS !== null) parts.push(`arrives in ${formatEta(d.etaS)}`);
     return parts.join(', ');
+  }
+
+  protected toggleDrive(): void {
+    this.sim.toggleDrive();
+    if (this.sim.drive()) this.picked.emit(this.sim.selectedId()!);
   }
 
   protected pick(d: DroneTelemetry): void {

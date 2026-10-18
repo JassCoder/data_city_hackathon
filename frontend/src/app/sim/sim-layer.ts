@@ -3,7 +3,7 @@ import * as L from 'leaflet';
 
 import { SETTINGS } from '../core/settings';
 import { esc } from '../map/map';
-import { zonePathStyle, zoneTickStyle } from '../map/map-style';
+import { MAP_COLORS, zonePathStyle, zoneTickStyle } from '../map/map-style';
 import { STATE_LABEL } from './event-feed';
 import { DronePose, splitRoute } from './interpolation';
 import { busyStations } from './sim-geo';
@@ -22,16 +22,33 @@ const GLYPH: Partial<Record<SimState, string>> = {
   CHARGING: 'M13 3L6 14h5l-1 7 7-11h-5z',
 };
 const toLatLngs = (pts: [number, number][]) => pts.map(([lon, lat]) => L.latLng(lat, lon));
+/** Route line weights (px): a white casing under each line keeps it readable on the busy basemap. */
+const LINE = {
+  trail: { weight: 9, opacity: 0.3 },
+  flown: { weight: 4.5, opacity: 0.9, casing: 7.5 },
+  ahead: { weight: 5, opacity: 0.95, casing: 8, dash: '10 8' },
+  selectedExtra: 2,
+} as const;
+/** Top-down quadcopter, nose up (heading 0 = north); rotated as a whole to the heading. */
+const CRAFT_SVG = `
+  <svg class="sd-craft" viewBox="0 0 34 34" aria-hidden="true">
+    <path class="sd-frame" d="M9 9L25 25M25 9L9 25"/>
+    ${[[9, 9], [25, 9], [9, 25], [25, 25]]
+      .map(([x, y]) => `<g class="sd-rotor"><circle cx="${x}" cy="${y}" r="6.2"/><path class="sd-blade" d="M${x - 5} ${y}h10"/></g>`)
+      .join('')}
+    <rect class="sd-body" x="12.5" y="12" width="9" height="11" rx="3"/>
+    <path class="sd-nose" d="M17 6.5l3.2 4.5h-6.4z"/>
+  </svg>`;
 
 function prefersReducedMotion(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-/** One drone on the map: a heading arrow in its colour, a state glyph and a name tag. */
+/** One drone on the map: a quadcopter in its colour turned to its heading, a state glyph and a name tag. */
 class DroneMarker {
   readonly marker: L.Marker;
   private root?: HTMLElement;
-  private arrow?: SVGElement;
+  private craft?: SVGElement;
   private glyph?: HTMLElement;
   private stateEl?: HTMLElement;
   private bar?: HTMLElement;
@@ -49,12 +66,12 @@ class DroneMarker {
     const html = `
       <div class="sim-drone" style="--drone:${esc(info.color)}">
         <div class="sd-icon"><span class="sd-ring"></span>
-          <svg class="sd-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l7.5 18-7.5-4.5-7.5 4.5z"/></svg>
+          ${CRAFT_SVG}
           <span class="sd-glyph" aria-hidden="true"></span></div>
         <div class="sd-tag"><span class="sd-name">${esc(info.name)}</span><span class="sd-state"></span>
           <span class="sd-bat" aria-hidden="true"><i></i></span></div>
       </div>`;
-    const icon = L.divIcon({ className: 'sim-drone-icon', html, iconSize: [28, 28], iconAnchor: [14, 14] });
+    const icon = L.divIcon({ className: 'sim-drone-icon', html, iconSize: [34, 34], iconAnchor: [17, 17] });
     this.marker = L.marker([pose.latitude, pose.longitude], { icon, pane: 'simDronePane', keyboard: true, riseOnHover: true });
     this.marker.on('click', onClick);
     this.marker.on('add', () => this.bind(pose));
@@ -64,7 +81,7 @@ class DroneMarker {
     const el = this.marker.getElement();
     if (!el) return;
     this.root = el.querySelector<HTMLElement>('.sim-drone')!;
-    this.arrow = el.querySelector<SVGElement>('.sd-arrow')!;
+    this.craft = el.querySelector<SVGElement>('.sd-craft')!;
     this.glyph = el.querySelector<HTMLElement>('.sd-glyph')!;
     this.stateEl = el.querySelector<HTMLElement>('.sd-state')!;
     this.barBox = el.querySelector<HTMLElement>('.sd-bat')!;
@@ -83,7 +100,7 @@ class DroneMarker {
     if (!this.root) return;
     if (!(Math.abs(p.headingDeg - this.heading) < 0.5)) {
       this.heading = p.headingDeg;
-      this.arrow!.style.transform = `rotate(${p.headingDeg.toFixed(1)}deg)`;
+      this.craft!.style.transform = `rotate(${p.headingDeg.toFixed(1)}deg)`;
     }
     const battery = Math.round(p.batteryPct);
     if (p.state !== this.state) {
@@ -112,6 +129,8 @@ class DroneMarker {
 
 interface DroneLines {
   trail: L.Polyline;
+  flownCasing: L.Polyline;
+  aheadCasing: L.Polyline;
   flown: L.Polyline;
   ahead: L.Polyline;
 }
@@ -153,7 +172,11 @@ export class SimLayerComponent implements OnDestroy {
   private pendingFocus: FocusRequest | null = null;
   private readonly reducedMotion = prefersReducedMotion();
   private readonly onZoom = () => this.syncZoomClass();
-  private readonly onDrag = () => this.sim.follow.set(false);
+  private fittedSession?: string;
+  private readonly onDrag = () => {
+    this.sim.follow.set(false);
+    this.sim.drive.set(false);
+  };
   private readonly onDblClick = () => {
     if (this.draft?.active()) void this.draft.finish();
   };
@@ -172,6 +195,11 @@ export class SimLayerComponent implements OnDestroy {
     effect(() => {
       const id = this.sim.selectedId();
       untracked(() => this.markSelected(id));
+    });
+    effect(() => {
+      const on = this.sim.drive();
+      const id = this.sim.selectedId();
+      untracked(() => on && this.driveTo(id));
     });
     effect(() => {
       const f = this.sim.focus();
@@ -198,14 +226,17 @@ export class SimLayerComponent implements OnDestroy {
     this.clearStations();
     if (!info) return;
     const poses = this.sim.posesAt(this.sim.clockT);
-    info.drones.forEach((d, i) => {
-      const pose = poses?.[i];
+    const base = { renderer: this.lineRenderer, interactive: false };
+    const casing = (weight: number) => L.polyline([], { ...base, color: MAP_COLORS.halo, weight, opacity: 0.9 });
+    info.drones.forEach((d) => {
       const lines: DroneLines = {
-        trail: L.polyline([], { renderer: this.lineRenderer, color: d.color, weight: 6, opacity: 0.28, lineCap: 'round', interactive: false }),
-        flown: L.polyline([], { renderer: this.lineRenderer, color: d.color, weight: 2.5, opacity: 0.55, interactive: false }),
-        ahead: L.polyline([], { renderer: this.lineRenderer, color: d.color, weight: 3, opacity: 0.9, dashArray: '7 6', interactive: false }),
+        trail: L.polyline([], { ...base, color: d.color, ...LINE.trail, lineCap: 'round', lineJoin: 'round' }),
+        flownCasing: casing(LINE.flown.casing),
+        aheadCasing: casing(LINE.ahead.casing),
+        flown: L.polyline([], { ...base, color: d.color, weight: LINE.flown.weight, opacity: LINE.flown.opacity }),
+        ahead: L.polyline([], { ...base, color: d.color, weight: LINE.ahead.weight, opacity: LINE.ahead.opacity, dashArray: LINE.ahead.dash }),
       };
-      this.lineGroup.addLayer(lines.trail).addLayer(lines.flown).addLayer(lines.ahead);
+      for (const l of [lines.trail, lines.flownCasing, lines.aheadCasing, lines.flown, lines.ahead]) this.lineGroup.addLayer(l);
       this.lines.push(lines);
     });
     if (poses) this.ensureMarkers(poses);
@@ -266,6 +297,7 @@ export class SimLayerComponent implements OnDestroy {
       this.markerGroup.addLayer(m.marker);
     });
     this.markSelected(this.sim.selectedId());
+    if (info.id !== this.fittedSession) this.fitDrones(poses, info.id); // not again on reset
   }
 
   private onFrame(f: PlaybackFrame): void {
@@ -292,14 +324,13 @@ export class SimLayerComponent implements OnDestroy {
       const lines = this.lines[i];
       if (!lines) return;
       const route = p.route >= 0 && p.state !== 'FAILED' ? this.sim.routes[p.route] : undefined;
-      if (route) {
-        const { flown, ahead } = splitRoute(route, p.progressM);
-        lines.flown.setLatLngs(toLatLngs(flown));
-        lines.ahead.setLatLngs(toLatLngs(ahead));
-      } else {
-        lines.flown.setLatLngs([]);
-        lines.ahead.setLatLngs([]);
-      }
+      const parts = route ? splitRoute(route, p.progressM) : { flown: [], ahead: [] };
+      const flown = toLatLngs(parts.flown);
+      const ahead = toLatLngs(parts.ahead);
+      lines.flownCasing.setLatLngs(flown);
+      lines.flown.setLatLngs(flown);
+      lines.aheadCasing.setLatLngs(ahead);
+      lines.ahead.setLatLngs(ahead);
       const trail = trailFrames.map((fr) => L.latLng(fr.d[i][F.latitude], fr.d[i][F.longitude]));
       trail.push(L.latLng(p.latitude, p.longitude));
       lines.trail.setLatLngs(p.state === 'IDLE' || p.state === 'CHARGING' ? [] : trail);
@@ -316,13 +347,12 @@ export class SimLayerComponent implements OnDestroy {
       this.markers[i]?.setSelected(on);
       const lines = this.lines[i];
       if (!lines) return;
-      lines.ahead.setStyle({ weight: on ? 4.5 : 3 });
-      lines.flown.setStyle({ weight: on ? 3.5 : 2.5 });
-      if (on) {
-        lines.trail.bringToFront();
-        lines.flown.bringToFront();
-        lines.ahead.bringToFront();
-      }
+      const extra = on ? LINE.selectedExtra : 0;
+      lines.aheadCasing.setStyle({ weight: LINE.ahead.casing + extra });
+      lines.flownCasing.setStyle({ weight: LINE.flown.casing + extra });
+      lines.ahead.setStyle({ weight: LINE.ahead.weight + extra });
+      lines.flown.setStyle({ weight: LINE.flown.weight + extra });
+      if (on) for (const l of [lines.trail, lines.flownCasing, lines.aheadCasing, lines.flown, lines.ahead]) l.bringToFront();
     });
   }
 
@@ -338,6 +368,35 @@ export class SimLayerComponent implements OnDestroy {
     if (offset < 2) return;
     if (this.reducedMotion) map.panTo(target, { animate: false });
     else map.panTo(target, { animate: true, duration: (CFG.lineRefreshMs / 1000) * 1.2, easeLinearity: 1, noMoveStart: true });
+  }
+
+  /** A new session: show all its drones (not the whole city). */
+  private fitDrones(poses: DronePose[], sessionId: string): void {
+    const map = this.attached;
+    if (!map || !poses.length || map.getSize().x === 0 || map.getSize().y === 0) return;
+    this.fittedSession = sessionId;
+    const points = poses.map((p) => L.latLng(p.latitude, p.longitude));
+    const fit = () => {
+      const bounds = L.latLngBounds(points);
+      if (points.length === 1 || bounds.getNorthEast().equals(bounds.getSouthWest())) {
+        map.setView(points[0], CFG.startMaxZoom, { animate: false });
+      } else {
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: CFG.startMaxZoom, animate: false });
+      }
+    };
+    // A zoom animation still running (e.g. the city fit) would restore its own target when it ends.
+    if ((map as L.Map & { _animatingZoom?: boolean })._animatingZoom) map.once('zoomend', fit);
+    else fit();
+  }
+
+  /** Drive view: street level on the selected drone; follow keeps it centred from then on. */
+  private driveTo(id: string | null): void {
+    const map = this.attached;
+    const info = this.session;
+    if (!map || !info || !id) return;
+    const i = info.drones.findIndex((d) => d.id === id);
+    const p = this.sim.posesAt(this.sim.clockT)?.[i];
+    if (p) map.setView([p.latitude, p.longitude], CFG.driveZoom, { animate: !this.reducedMotion });
   }
 
   private applyFocus(f: FocusRequest | null): void {

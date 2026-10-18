@@ -168,6 +168,8 @@ export class MapComponent implements OnDestroy {
   readonly boundary = input<BoundaryResponse | undefined>();
   /** Which display layers are on (Layers panel). */
   readonly layerVisibility = input<Record<LayerKey, boolean>>(DEFAULT_LAYERS);
+  /** Fit the whole city when the boundary loads; off while another view owns the camera (a running simulation). */
+  readonly fitCity = input(true);
   /** Whose evaluation the zones show, used in zone popups. */
   readonly flightLabel = input('the planned flight');
   readonly mapClick = output<Coordinate>();
@@ -260,7 +262,7 @@ export class MapComponent implements OnDestroy {
           map.invalidateSize(refit ? { pan: false } : true);
           if (refit && map.getSize().x > 0) map.fitBounds(this.lastFit!, { padding: [48, 48], maxZoom: 16, animate: false });
           // First real layout after a zero-size start: fit the city now.
-          if (this.cityBounds && this.map && this.map.getZoom() === FALLBACK_VIEW.zoom && this.fittedCity) this.showEntireWarsaw();
+          if (this.cityBounds && this.map && this.map.getZoom() === FALLBACK_VIEW.zoom && this.fittedCity && this.fitCity()) this.showEntireWarsaw();
         });
         this.resizeObserver.observe(host);
       }
@@ -379,7 +381,7 @@ export class MapComponent implements OnDestroy {
     this.cityBounds = city.getBounds();
     if (!this.fittedCity) {
       this.fittedCity = true;
-      this.showEntireWarsaw();
+      if (this.fitCity()) this.showEntireWarsaw();
     }
   }
 

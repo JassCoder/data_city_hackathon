@@ -9,6 +9,7 @@ import { eventPlace } from './event-feed';
 import { DronePose, interpolateFrame } from './interpolation';
 import {
   DroneDetail,
+  AIRBORNE,
   FRAME_FIELDS,
   HistoryRange,
   HistoryResponse,
@@ -113,6 +114,8 @@ export class SimSession implements OnDestroy {
   readonly telemetry = signal<DroneTelemetry[]>([]);
   readonly selectedId = signal<string | null>(null);
   readonly follow = signal(false);
+  /** Drive view: street-level camera chasing the selected drone (implies follow). */
+  readonly drive = signal(false);
   readonly detail = signal<DroneDetail | null>(null);
   readonly focus = signal<FocusRequest | null>(null);
 
@@ -345,7 +348,26 @@ export class SimSession implements OnDestroy {
     this.selectedId.set(id);
     this.detail.set(null);
     this.lastDetail = -Infinity;
-    if (!id) this.follow.set(false);
+    if (!id) {
+      this.follow.set(false);
+      this.drive.set(false);
+    }
+  }
+
+  /** Drive view on/off. With no drone selected it picks the first one in the air (else the first). */
+  toggleDrive(): void {
+    if (this.drive()) {
+      this.drive.set(false);
+      return;
+    }
+    if (!this.selectedId()) {
+      const t = this.telemetry();
+      const flying = t.find((d) => AIRBORNE.has(d.pose.state)) ?? t[0];
+      if (!flying) return;
+      this.select(flying.id);
+    }
+    this.follow.set(true);
+    this.drive.set(true);
   }
 
   /** Jumps to an event's time and centres the map on where it happened. */

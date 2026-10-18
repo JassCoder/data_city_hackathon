@@ -187,7 +187,9 @@ button {
     width: 100%;
   }
 
-  &[aria-pressed='true'] {
+  // Pressed toggles keep their look while hovered (the hover rule above is more specific).
+  &[aria-pressed='true'],
+  &[aria-pressed='true']:hover:not(:disabled) {
     border-color: var(--c-accent);
     background: var(--c-accent-soft);
     color: var(--c-accent);
@@ -223,7 +225,8 @@ button {
     height: var(--control-h-s);
   }
 
-  &[aria-pressed='true'] {
+  &[aria-pressed='true'],
+  &[aria-pressed='true']:hover:not(:disabled) {
     background: var(--c-accent-soft);
     color: var(--c-accent);
   }

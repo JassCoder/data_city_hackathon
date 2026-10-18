@@ -18,8 +18,8 @@
 
 .sim-drone {
   position: relative;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   font-family: var(--font);
 }
 
@@ -30,14 +30,58 @@
   place-items: center;
 }
 
-.sd-arrow {
-  width: 24px;
-  height: 24px;
+// Top-down quadcopter in the drone's colour; the whole SVG turns to the heading.
+.sd-craft {
+  width: 34px;
+  height: 34px;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.4));
+}
+
+.sd-frame {
+  fill: none;
+  stroke: #263238;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+
+.sd-rotor circle {
+  fill: color-mix(in srgb, var(--drone) 22%, rgb(255 255 255 / 0.75));
+  stroke: var(--drone);
+  stroke-width: 1.6;
+}
+
+.sd-blade {
+  fill: none;
+  stroke: #263238;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.sd-body {
   fill: var(--drone);
   stroke: #fff;
   stroke-width: 1.6;
+}
+
+.sd-nose {
+  fill: #fff;
+  stroke: var(--drone);
+  stroke-width: 1.4;
   stroke-linejoin: round;
-  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35));
+}
+
+// Rotors spin while the drone is in the air.
+.sim-drone:not(.ground) .sd-blade {
+  animation: sd-rotor 0.35s linear infinite;
+}
+
+@keyframes sd-rotor {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sd-ring {
@@ -49,8 +93,8 @@
 
 .sd-glyph {
   position: absolute;
-  top: -7px;
-  right: -7px;
+  top: -6px;
+  right: -6px;
   display: none;
   place-items: center;
   width: 16px;
@@ -75,7 +119,7 @@
 .sd-tag {
   position: absolute;
   top: 50%;
-  left: 27px;
+  left: 33px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -146,7 +190,7 @@
 .sim-drone.selected .sd-icon::before {
   content: '';
   position: absolute;
-  inset: -7px;
+  inset: -5px;
   border: 2px solid var(--drone);
   border-radius: 50%;
   background: color-mix(in srgb, var(--drone) 18%, transparent);
@@ -175,7 +219,7 @@
     display: block;
     inset: -6px;
     background: repeating-conic-gradient(#f2b600 0deg 22.5deg, #1e2a33 22.5deg 45deg);
-    mask: radial-gradient(circle, transparent 13px, #000 13.5px);
+    mask: radial-gradient(circle, transparent 18px, #000 18.5px);
   }
 
   .sd-glyph {
@@ -190,8 +234,14 @@
 
 // FAILED: grey arrow, dotted outline, cross glyph.
 .sim-drone[data-state='FAILED'] {
-  .sd-arrow {
+  .sd-body,
+  .sd-rotor circle {
     fill: #8a949e;
+    stroke: #5f6b76;
+  }
+
+  .sd-nose {
+    stroke: #5f6b76;
   }
 
   .sd-ring {
@@ -269,6 +319,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .sim-drone:not(.ground) .sd-blade,
   .sim-drone[data-state='HOLDING'] .sd-ring,
   .sim-station.sim-station-landing {
     animation: none;

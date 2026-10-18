@@ -78,7 +78,8 @@ def desktop(browser, out: Path) -> None:
     t_live = page.get_by_test_id("sim-clock").inner_text()
     check("T+" in t_live and "T+0:00" not in t_live, f"desktop: Space plays and pauses ({t_live.splitlines()[-1]})")
     check(page.locator(".sim-drone").count() == 10, "desktop: one marker per drone")
-    check(page.locator(".sim-drone .sd-arrow[style*='rotate']").count() == 10, "desktop: markers rotated to heading")
+    check(page.locator(".sim-drone .sd-craft[style*='rotate']").count() == 10, "desktop: drone icons turned to their heading")
+    check(page.locator(".sim-drone .sd-craft .sd-rotor").count() == 40, "desktop: drones are quadcopter icons")
 
     # Draw a zone around a cruising drone; drones react in the feed.
     for _ in range(2):
@@ -129,6 +130,16 @@ def desktop(browser, out: Path) -> None:
     expect(page.get_by_test_id("dd-energy")).to_be_visible()
     check(True, "desktop: drawer shows planned vs actual energy")
     page.screenshot(path=str(out / "sim-desktop-live.png"))
+
+    # Drive view: street level on the selected drone.
+    page.get_by_test_id("drive-toggle").click()
+    page.wait_for_timeout(800)
+    zoom = page.evaluate("""() => { const z = [...document.querySelectorAll('.leaflet-tile-container')]
+        .map(el => el.querySelector('img')?.src.match(/\\/(\\d+)\\/\\d+\\/\\d+\\.png/)?.[1]).filter(Boolean);
+        return Math.max(...z.map(Number)); }""")
+    check(zoom >= 16, f"desktop: Drive view zooms to street level (zoom {zoom})")
+    page.screenshot(path=str(out / "sim-desktop-drive.png"))
+    page.get_by_test_id("drive-toggle").click()
 
     # Replay: scrub back, then Go live.
     page.get_by_test_id("sim-scrubber").focus()

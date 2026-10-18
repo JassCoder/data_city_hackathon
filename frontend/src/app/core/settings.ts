@@ -46,6 +46,10 @@ export const SETTINGS = {
     retryDelaysMs: [1000, 2000, 4000, 8000],
     /** Battery bars and state badges are hidden below this zoom. */
     detailZoom: 13,
+    /** A new simulation zooms to fit its drones, at most this close. */
+    startMaxZoom: 15,
+    /** Drive view: street level on the selected drone. */
+    driveZoom: 17,
     /** Events listed in the feed at most (newest first). */
     feedLimit: 200,
     /** Defaults for a drawn zone. */

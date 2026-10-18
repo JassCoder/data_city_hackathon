@@ -292,6 +292,21 @@ describe('SimSession', () => {
     http.expectOne(`${BASE}/sess1/events`).flush({ scheduled: [], zone: null, tick: 102, timeS: 102, simTime: '', finished: false, history: { fromS: 0, toS: 102 } });
   });
 
+  it('turns drive view on with a drone in the air and off when nothing is selected', () => {
+    started();
+    session.toggleDrive();
+    expect(session.selectedId()).toBe('d1');
+    expect(session.drive()).toBe(true);
+    expect(session.follow()).toBe(true);
+    session.toggleDrive();
+    expect(session.drive()).toBe(false);
+    expect(session.follow()).toBe(true);
+    session.toggleDrive();
+    session.select(null);
+    expect(session.drive()).toBe(false);
+    expect(session.follow()).toBe(false);
+  });
+
   it('jumps to an event: selects its drone, seeks to its time and asks the map to centre', () => {
     started();
     session.setSpeed(60);

@@ -56,6 +56,11 @@ describe('simulation panels', () => {
     expect(row.getAttribute('aria-pressed')).toBe('true');
     el.querySelector<HTMLButtonElement>('[data-testid="follow-toggle"]')!.click();
     expect(session.follow()).toBe(false);
+    const drive = el.querySelector<HTMLButtonElement>('[data-testid="drive-toggle"]')!;
+    drive.click();
+    fixture.detectChanges();
+    expect(drive.getAttribute('aria-pressed')).toBe('true');
+    expect(session.follow()).toBe(true);
   });
 
   it('shows events up to the playhead, filters them and jumps on click', () => {

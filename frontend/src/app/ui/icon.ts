@@ -33,6 +33,7 @@ export const ICON_PATHS = {
   zap: 'M13 2L4 14h7l-1 8 9-12h-7z',
   battery: 'M3 8h15v8H3zM21 11v2',
   stop: 'M6 6h12v12H6z',
+  drive: 'M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M12 10a2 2 0 1 0 0 4a2 2 0 1 0 0-4M3.5 10.5l6.6 1M13.9 11.5l6.6-1M12 14v7',
   drone: 'M5 5a2 2 0 1 0 0 .01M19 5a2 2 0 1 0 0 .01M5 19a2 2 0 1 0 0 .01M19 19a2 2 0 1 0 0 .01M7 7l3 3M17 7l-3 3M7 17l3-3M17 17l-3-3M10 10h4v4h-4z',
 } as const;
 

@@ -6,6 +6,8 @@ import * as L from 'leaflet';
 import { stubCanvas } from '../../testing/canvas-stub';
 import { ManualScheduler, code, cruiseFrame, frame, row, sessionInfo, simEvent, stepResponse } from '../../testing/sim-fixtures';
 import { API_BASE_URL } from '../core/api';
+import { SETTINGS } from '../core/settings';
+import { MAP_COLORS } from '../map/map-style';
 import { SimLayerComponent } from './sim-layer';
 import { FRAME_SCHEDULER, SimSession } from './sim-session';
 
@@ -66,7 +68,8 @@ describe('SimLayerComponent', () => {
     start();
     expect(host.querySelectorAll('.sim-drone').length).toBe(2);
     expect(drone(0).dataset['state']).toBe('CRUISE');
-    expect(drone(0).querySelector<SVGElement>('.sd-arrow')!.style.transform).toBe('rotate(90.0deg)');
+    expect(drone(0).querySelector<SVGElement>('.sd-craft')!.style.transform).toBe('rotate(90.0deg)');
+    expect(drone(0).querySelectorAll('.sd-craft .sd-rotor').length).toBe(4); // a quadcopter, not an arrow
     expect(drone(0).querySelector('.sd-name')!.textContent).toBe('Courier 1');
     expect(drone(0).querySelector('.sd-state')!.textContent).toBe('Cruising');
     expect(drone(1).classList.contains('ground')).toBe(true);
@@ -142,6 +145,51 @@ describe('SimLayerComponent', () => {
     const paths = map.getPane('zonePane')!.querySelectorAll('path');
     expect(paths.length).toBe(2); // the zone and its ticked border
     expect(paths[0].getAttribute('fill')).toBe('url(#zp-conditional)');
+  });
+
+  it('zooms to the drones when a simulation starts', () => {
+    map.getSize = () => L.point(800, 600);
+    map.setView([52.0, 20.0], 8, { animate: false });
+    start();
+    const c = map.getCenter();
+    expect(c.lat).toBeCloseTo(52.235, 2);
+    expect(c.lng).toBeCloseTo(21.01, 2);
+    expect(map.getZoom()).toBeGreaterThan(8);
+    expect(map.getZoom()).toBeLessThanOrEqual(SETTINGS.sim.startMaxZoom);
+    map.setView([52.0, 20.0], 8, { animate: false });
+    session.reset();
+    http.expectOne(`${BASE}/sess1/reset`).flush(sessionInfo());
+    fixture.detectChanges();
+    expect(map.getZoom()).toBe(8); // a reset of the same session keeps the view
+  });
+
+  it('drive view goes to street level on the selected drone and stops when the map is dragged', () => {
+    map.getSize = () => L.point(800, 600);
+    start();
+    session.toggleDrive();
+    fixture.detectChanges();
+    expect(session.selectedId()).toBe('d1'); // the drone in the air
+    expect(session.follow()).toBe(true);
+    expect(map.getZoom()).toBe(SETTINGS.sim.driveZoom);
+    expect(map.getCenter().lng).toBeCloseTo(21.0, 3);
+    map.fire('dragstart');
+    expect(session.drive()).toBe(false);
+    expect(session.follow()).toBe(false);
+  });
+
+  it('draws routes with a white casing and widens the selected drone\'s lines', () => {
+    start();
+    const lines: L.Polyline[] = [];
+    map.eachLayer((l) => {
+      if (l instanceof L.Polyline && !(l instanceof L.Polygon)) lines.push(l);
+    });
+    const casings = lines.filter((l) => l.options.color === MAP_COLORS.halo);
+    expect(casings.length).toBe(4); // flown + remaining, per drone
+    const dashed = lines.filter((l) => l.options.dashArray);
+    expect(dashed.map((l) => l.options.weight)).toEqual([5, 5]);
+    session.select('d1');
+    fixture.detectChanges();
+    expect(dashed.map((l) => l.options.weight).sort()).toEqual([5, 7]);
   });
 
   it('collapses name tags at low zoom', () => {

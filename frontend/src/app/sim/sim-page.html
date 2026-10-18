@@ -59,6 +59,7 @@
       <app-layers-panel mapTopRight />
       <app-map-legend mapBottomRight [flightLabel]="flightLabel()" />
     </app-map>
+    <app-sim-layer [map]="map()" (droneClick)="openDrone($event)" />
     @if (sim.info()) {
       <app-playback-bar />
     }

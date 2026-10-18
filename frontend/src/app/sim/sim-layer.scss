@@ -1,0 +1,287 @@
+// Simulation layer on the Leaflet map (global: Leaflet builds this DOM). Loaded with the
+// simulation view only. Drone states differ by shape and pattern, not only by colour.
+
+.sim-drone-icon {
+  background: none;
+  border: 0;
+
+  &:focus-visible {
+    outline: none;
+
+    .sd-icon {
+      outline: 2px solid var(--c-accent);
+      outline-offset: 3px;
+      border-radius: 50%;
+    }
+  }
+}
+
+.sim-drone {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  font-family: var(--font);
+}
+
+.sd-icon {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.sd-arrow {
+  width: 24px;
+  height: 24px;
+  fill: var(--drone);
+  stroke: #fff;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.35));
+}
+
+.sd-ring {
+  position: absolute;
+  inset: -4px;
+  display: none;
+  border-radius: 50%;
+}
+
+.sd-glyph {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  display: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #fff;
+  border-radius: 50%;
+  background: var(--drone);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+
+  svg {
+    width: 11px;
+    height: 11px;
+    fill: none;
+    stroke: #fff;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}
+
+// Name tag with state and battery; collapses at low zoom (except for the selected drone).
+.sd-tag {
+  position: absolute;
+  top: 50%;
+  left: 27px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border-radius: var(--radius-s);
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: 0 1px 2px rgb(30 42 51 / 0.25);
+  color: #1e2a33;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.sd-state {
+  color: #5a6773;
+  font-weight: 500;
+}
+
+.sd-bat {
+  position: relative;
+  width: 18px;
+  height: 7px;
+  border: 1px solid #5a6773;
+  border-radius: 2px;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    right: -3px;
+    width: 2px;
+    height: 3px;
+    background: #5a6773;
+  }
+
+  i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: #1f7a3a;
+  }
+
+  &[data-level='low'] i {
+    background: #b46d00;
+  }
+
+  &[data-level='critical'] i {
+    background: #b3261e;
+  }
+}
+
+.sim-zoom-low .sim-drone:not(.selected) .sd-tag {
+  display: none;
+}
+
+.sim-zoom-low .sim-drone .sd-state {
+  display: none;
+}
+
+// On the ground: smaller and quieter.
+.sim-drone.ground .sd-icon {
+  transform: scale(0.78);
+  opacity: 0.85;
+}
+
+.sim-drone.selected .sd-icon::before {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border: 2px solid var(--drone);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--drone) 18%, transparent);
+}
+
+.sim-drone.selected .sd-tag {
+  outline: 2px solid var(--drone);
+}
+
+// HOLDING: dashed ring (slowly turning) and a pause glyph.
+.sim-drone[data-state='HOLDING'] {
+  .sd-ring {
+    display: block;
+    border: 2.5px dashed var(--drone);
+    animation: sd-spin 6s linear infinite;
+  }
+
+  .sd-glyph {
+    display: grid;
+  }
+}
+
+// EMERGENCY_LANDING: hazard-striped ring and a warning triangle (amber/black, not red: red means zones).
+.sim-drone[data-state='EMERGENCY_LANDING'] {
+  .sd-ring {
+    display: block;
+    inset: -6px;
+    background: repeating-conic-gradient(#f2b600 0deg 22.5deg, #1e2a33 22.5deg 45deg);
+    mask: radial-gradient(circle, transparent 13px, #000 13.5px);
+  }
+
+  .sd-glyph {
+    display: grid;
+    background: #f2b600;
+
+    svg {
+      stroke: #1e2a33;
+    }
+  }
+}
+
+// FAILED: grey arrow, dotted outline, cross glyph.
+.sim-drone[data-state='FAILED'] {
+  .sd-arrow {
+    fill: #8a949e;
+  }
+
+  .sd-ring {
+    display: block;
+    border: 2px dotted #5f6b76;
+  }
+
+  .sd-glyph {
+    display: grid;
+    background: #5f6b76;
+  }
+
+  .sd-tag {
+    color: #5a6773;
+    text-decoration: line-through;
+  }
+}
+
+.sim-drone[data-state='CHARGING'] .sd-glyph {
+  display: grid;
+  background: #1f7a3a;
+}
+
+@keyframes sd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// --- busy landing stations -----------------------------------------------------------------
+
+.sim-station-icon {
+  background: none;
+  border: 0;
+}
+
+.sim-station {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border: 3px solid #0e6b6f;
+  border-radius: 50%;
+  background: rgb(14 107 111 / 0.14);
+
+  &.sim-station-landing {
+    border-style: dashed;
+    animation: ss-pulse 1.4s ease-in-out infinite;
+  }
+
+  &.sim-station-charging {
+    border-color: #1f7a3a;
+    background: rgb(31 122 58 / 0.14);
+  }
+}
+
+.ss-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+
+  svg {
+    width: 16px;
+    height: 16px;
+    padding: 2px;
+    border-radius: 50%;
+    background: #1f7a3a;
+    fill: #fff;
+  }
+}
+
+@keyframes ss-pulse {
+  50% {
+    transform: scale(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sim-drone[data-state='HOLDING'] .sd-ring,
+  .sim-station.sim-station-landing {
+    animation: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .sd-tag {
+    background: rgb(24 33 40 / 0.94);
+    color: #e3e9ee;
+  }
+
+  .sd-state {
+    color: #9aa8b3;
+  }
+}

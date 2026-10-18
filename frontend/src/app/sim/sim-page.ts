@@ -14,6 +14,7 @@ import { MapLegendComponent } from '../map/map-legend';
 import { IconComponent } from '../ui/icon';
 import { fleetToScenario } from './fleet-scenario';
 import { PlaybackBarComponent } from './playback-bar';
+import { SimLayerComponent } from './sim-layer';
 import { SimSession } from './sim-session';
 import { SimStartComponent, StartChoice } from './sim-start';
 
@@ -25,7 +26,7 @@ const ACTIVATES_ON_SPACE = 'button, a[href], summary, [role="button"], input[typ
 /** The simulation view: scenario picker or live panels, the map with drones, the playback bar. */
 @Component({
   selector: 'app-sim-page',
-  imports: [MapComponent, LayersPanelComponent, MapLegendComponent, IconComponent, PlaybackBarComponent, SimStartComponent],
+  imports: [MapComponent, LayersPanelComponent, MapLegendComponent, IconComponent, PlaybackBarComponent, SimStartComponent, SimLayerComponent],
   providers: [SimSession],
   host: { '(document:keydown)': 'onKey($event)' },
   styleUrl: './sim-page.scss',
@@ -45,7 +46,7 @@ export class SimPage implements OnDestroy {
   protected readonly drawerOpen = signal(false);
   protected readonly flightLabel = computed(() => `a flight at ${this.airspace.altitude()} m AGL`);
   protected readonly sheetLabel = computed(() => (this.sheet() === 'full' ? 'Collapse the panel' : 'Expand the panel'));
-  protected map?: L.Map;
+  protected readonly map = signal<L.Map | undefined>(undefined);
 
   constructor() {
     // Small screens: lower the sheet once a simulation runs, so the map shows.
@@ -74,7 +75,13 @@ export class SimPage implements OnDestroy {
   }
 
   protected onMapReady(map: L.Map): void {
-    this.map = map;
+    this.map.set(map);
+  }
+
+  /** A drone marker was clicked: select it and show its details. */
+  protected openDrone(id: string): void {
+    this.sim.select(id);
+    if (!isSmallScreen()) this.drawerOpen.set(true);
   }
 
   protected cycleSheet(): void {
@@ -97,6 +104,6 @@ export class SimPage implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.map = undefined;
+    this.map.set(undefined);
   }
 }

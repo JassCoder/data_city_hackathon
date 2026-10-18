@@ -126,3 +126,23 @@ def client():
 def overrides():
     yield app.dependency_overrides
     app.dependency_overrides.clear()
+
+
+# --- simulation ------------------------------------------------------------------------------
+
+from app.config import SIM_CONFIG_FILE  # noqa: E402
+from app.services.drone_profiles import DroneProfileRegistry  # noqa: E402
+from app.sim.config import load_sim_config  # noqa: E402
+from app.sim.world import SimWorld, Station  # noqa: E402
+
+# Two landing pads inside TEST_BBOX: one at WEST, one near EAST.
+SIM_STATIONS = [
+    Station("st-west", "West pad", WEST[0], WEST[1], 2, True),
+    Station("st-east", "East pad", 21.0085, 52.2345, 2, True),
+]
+
+
+def make_sim_world(profile=PROFILE, stations=SIM_STATIONS, config_update=None, **planner_kw) -> SimWorld:
+    """Synthetic simulation world: make_planner() + one profile + the two test pads."""
+    config = load_sim_config(SIM_CONFIG_FILE).model_copy(update={"default_profile_id": profile.id, **(config_update or {})})
+    return SimWorld(make_planner(**planner_kw), DroneProfileRegistry([profile], ""), list(stations), config)

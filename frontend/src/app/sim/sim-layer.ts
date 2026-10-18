@@ -9,6 +9,8 @@ import { DronePose, splitRoute } from './interpolation';
 import { busyStations } from './sim-geo';
 import { F, SessionInfo, SimDroneInfo, SimState, SimZone } from './sim-models';
 import { FocusRequest, PlaybackFrame, SimSession } from './sim-session';
+import { ZoneDraft } from './zone-draft';
+import { Coordinate } from '../core/models';
 
 const CFG = SETTINGS.sim;
 const ZONE_KIND = 'conditional'; // scenario and drawn zones are DRA-R: authorization required, routes go around
@@ -131,6 +133,8 @@ export class SimLayerComponent implements OnDestroy {
   readonly droneClick = output<string>();
 
   private readonly sim = inject(SimSession);
+  private readonly draft = inject(ZoneDraft, { optional: true });
+  private readonly draftGroup = L.layerGroup();
   private attached?: L.Map;
   private session?: SessionInfo;
   private markers: DroneMarker[] = [];
@@ -150,6 +154,9 @@ export class SimLayerComponent implements OnDestroy {
   private readonly reducedMotion = prefersReducedMotion();
   private readonly onZoom = () => this.syncZoomClass();
   private readonly onDrag = () => this.sim.follow.set(false);
+  private readonly onDblClick = () => {
+    if (this.draft?.active()) void this.draft.finish();
+  };
 
   constructor() {
     effect(() => {
@@ -169,6 +176,11 @@ export class SimLayerComponent implements OnDestroy {
     effect(() => {
       const f = this.sim.focus();
       untracked(() => this.applyFocus(f));
+    });
+    effect(() => {
+      const active = this.draft?.active() ?? false;
+      const points = this.draft?.points() ?? [];
+      untracked(() => this.drawDraft(active, points));
     });
   }
 
@@ -214,8 +226,10 @@ export class SimLayerComponent implements OnDestroy {
     this.lineGroup.addTo(map);
     this.stationGroup.addTo(map);
     this.markerGroup.addTo(map);
+    this.draftGroup.addTo(map);
     map.on('zoomend', this.onZoom);
     map.on('dragstart', this.onDrag);
+    map.on('dblclick', this.onDblClick);
     this.syncZoomClass();
     this.unsubscribe = this.sim.onFrame((f) => this.onFrame(f));
   }
@@ -229,7 +243,9 @@ export class SimLayerComponent implements OnDestroy {
     if (!map) return;
     map.off('zoomend', this.onZoom);
     map.off('dragstart', this.onDrag);
-    for (const g of [this.zoneGroup, this.lineGroup, this.stationGroup, this.markerGroup]) g.remove();
+    map.off('dblclick', this.onDblClick);
+    map.doubleClickZoom.enable();
+    for (const g of [this.zoneGroup, this.lineGroup, this.stationGroup, this.markerGroup, this.draftGroup]) g.remove();
     map.getContainer().classList.remove('sim-zoom-low');
     this.attached = undefined;
     this.session = undefined;
@@ -372,6 +388,25 @@ export class SimLayerComponent implements OnDestroy {
         const poly = l as L.Polygon;
         this.zoneGroup.addLayer(L.polygon(poly.getLatLngs() as L.LatLngExpression[][], { renderer: this.zoneRenderer, ...zoneTickStyle(ZONE_KIND) }));
       });
+    }
+  }
+
+  /** The zone being drawn: dashed outline and corner dots; double-click zoom is off meanwhile. */
+  private drawDraft(active: boolean, points: Coordinate[]): void {
+    const map = this.attached;
+    this.draftGroup.clearLayers();
+    if (!map) return;
+    if (active) map.doubleClickZoom.disable();
+    else map.doubleClickZoom.enable();
+    if (!active || !points.length) return;
+    const latlngs = points.map((p) => L.latLng(p.latitude, p.longitude));
+    const style = zonePathStyle(ZONE_KIND);
+    const shape = latlngs.length >= 3
+      ? L.polygon(latlngs, { renderer: this.zoneRenderer, color: style.color, weight: 2, dashArray: '6 5', fillColor: style.color, fillOpacity: 0.12, interactive: false })
+      : L.polyline(latlngs, { renderer: this.zoneRenderer, color: style.color, weight: 2, dashArray: '6 5', interactive: false });
+    this.draftGroup.addLayer(shape);
+    for (const ll of latlngs) {
+      this.draftGroup.addLayer(L.circleMarker(ll, { renderer: this.zoneRenderer, radius: 4, color: '#fff', weight: 2, fillColor: style.color, fillOpacity: 1, interactive: false }));
     }
   }
 

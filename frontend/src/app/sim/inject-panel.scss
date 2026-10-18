@@ -1,0 +1,102 @@
+:host {
+  display: block;
+}
+
+.inj {
+  display: grid;
+  gap: var(--sp-3);
+
+  h3 {
+    margin: 0;
+    font-size: var(--fs-13);
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.inj-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-m);
+  background: var(--c-warn-soft);
+  color: var(--c-warn);
+  font-size: var(--fs-12);
+}
+
+.inj-group {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-m);
+
+  &:disabled {
+    opacity: 0.6;
+  }
+
+  legend {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 0 var(--sp-1);
+    font-size: var(--fs-12);
+    font-weight: var(--fw-bold);
+  }
+
+  > .btn {
+    justify-self: start;
+  }
+}
+
+.inj-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2);
+}
+
+.inj-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.inj-dir {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+
+  .input {
+    flex: 1;
+  }
+}
+
+.inj-compass {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 3.4em;
+  font-size: var(--fs-12);
+  color: var(--c-muted);
+
+  svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+}
+
+.inj-ok {
+  font-size: var(--fs-12);
+  color: var(--c-ok);
+}

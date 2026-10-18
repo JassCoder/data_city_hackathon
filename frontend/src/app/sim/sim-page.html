@@ -17,6 +17,7 @@
         </header>
         <app-telemetry-list (picked)="onPicked()" (details)="drawerOpen.set(true)" />
         <app-event-panel (jumped)="onJumped()" />
+        <app-inject-panel (drawing)="onDrawing()" />
       } @else {
         <app-sim-start [starting]="sim.phase() === 'starting'" (start)="start($event)" />
       }
@@ -24,6 +25,20 @@
   </aside>
 
   <main class="map-col" id="map-region" tabindex="-1" aria-label="Map">
+    @if (draft.active()) {
+      <div class="map-strip strip-pick" role="status" data-testid="draw-hint">
+        <app-icon name="polygon" />
+        <span>
+          Click the map to add corners ({{ draft.points().length }}). Double-click or <kbd>Enter</kbd> to send,
+          <kbd>Backspace</kbd> removes the last one.
+        </span>
+        <button type="button" class="btn btn-s btn-primary" [disabled]="!draft.canFinish()" (click)="draft.finish()">Send</button>
+        <button type="button" class="btn btn-s btn-ghost" (click)="draft.cancel()">Cancel <kbd>Esc</kbd></button>
+      </div>
+      @if (draft.error(); as e) {
+        <div class="map-strip strip-error" role="alert"><app-icon name="alert" /><span>{{ e }}</span></div>
+      }
+    }
     @if (sim.phase() === 'starting') {
       <div class="map-strip strip-info" role="status" data-testid="sim-starting">
         <span class="spinner" aria-hidden="true"></span><span>Starting the simulation…</span>
@@ -56,7 +71,9 @@
       [boundary]="mapData.boundaryData()"
       [layerVisibility]="mapLayers.visible()"
       [flightLabel]="flightLabel()"
+      [picking]="draft.active()"
       (ready)="onMapReady($event)"
+      (mapClick)="onMapClick($event)"
     >
       <app-layers-panel mapTopRight />
       <app-map-legend mapBottomRight [flightLabel]="flightLabel()" />

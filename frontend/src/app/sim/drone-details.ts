@@ -176,7 +176,7 @@ export class DroneDetailsComponent {
       plannedPct: ((planned ?? 0) / scale) * 100,
       usedPct: (e.usedWh / scale) * 100,
       neededPct: ((e.toFinishWh ?? 0) / scale) * 100,
-      delta: planned ? projected / planned - 1 : null,
+      delta: planned ? Math.round((projected / planned - 1) * 100) / 100 : null, // whole per cent: under 1 % reads "as planned"
     };
   });
 

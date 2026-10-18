@@ -18,6 +18,9 @@ import { SimLayerComponent } from './sim-layer';
 import { TelemetryListComponent } from './telemetry-list';
 import { EventPanelComponent } from './event-panel';
 import { DroneDetailsComponent } from './drone-details';
+import { InjectPanelComponent } from './inject-panel';
+import { ZoneDraft } from './zone-draft';
+import { Coordinate } from '../core/models';
 import { SimSession } from './sim-session';
 import { SimStartComponent, StartChoice } from './sim-start';
 
@@ -29,14 +32,15 @@ const ACTIVATES_ON_SPACE = 'button, a[href], summary, [role="button"], input[typ
 /** The simulation view: scenario picker or live panels, the map with drones, the playback bar. */
 @Component({
   selector: 'app-sim-page',
-  imports: [MapComponent, LayersPanelComponent, MapLegendComponent, IconComponent, PlaybackBarComponent, SimStartComponent, SimLayerComponent, TelemetryListComponent, EventPanelComponent, DroneDetailsComponent],
-  providers: [SimSession],
+  imports: [MapComponent, LayersPanelComponent, MapLegendComponent, IconComponent, PlaybackBarComponent, SimStartComponent, SimLayerComponent, TelemetryListComponent, EventPanelComponent, DroneDetailsComponent, InjectPanelComponent],
+  providers: [SimSession, ZoneDraft],
   host: { '(document:keydown)': 'onKey($event)' },
   styleUrl: './sim-page.scss',
   templateUrl: './sim-page.html',
 })
 export class SimPage implements OnDestroy {
   protected readonly sim = inject(SimSession);
+  protected readonly draft = inject(ZoneDraft);
   protected readonly layers = inject(LayersService);
   protected readonly airspace = inject(AirspaceService);
   protected readonly mapData = inject(MapDataService);
@@ -102,9 +106,36 @@ export class SimPage implements OnDestroy {
     this.sheet.update((s) => NEXT_SHEET[s]);
   }
 
+  /** Map clicks add zone corners while drawing. */
+  protected onMapClick(c: Coordinate): void {
+    if (this.draft.active()) this.draft.add(c);
+  }
+
+  /** Drawing started: show the map on phones. */
+  protected onDrawing(): void {
+    if (isSmallScreen()) this.sheet.set('peek');
+  }
+
   protected onKey(e: KeyboardEvent): void {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || this.sim.phase() !== 'ready') return;
     const target = e.target instanceof Element ? e.target : null;
+    if (this.draft.active()) {
+      if (e.key === 'Escape') {
+        this.draft.cancel();
+        return;
+      }
+      if (target?.closest(TYPING)) return;
+      if (e.key === 'Enter' && !target?.closest(ACTIVATES_ON_SPACE)) {
+        e.preventDefault();
+        void this.draft.finish();
+        return;
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        this.draft.undo();
+        return;
+      }
+    }
     if (target?.closest(TYPING)) return;
     if (e.key === ' ') {
       if (target?.closest(ACTIVATES_ON_SPACE)) return; // the focused control handles Space itself

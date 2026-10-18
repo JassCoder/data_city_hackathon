@@ -437,7 +437,8 @@ export class SimSession implements OnDestroy {
       this.lastUi = now;
       this.refreshUi(false);
     }
-    if (this.selectedId() && now - this.lastDetail >= CFG.detailRefreshMs && (this.playing() || !this.detail())) {
+    const stale = this.lastDetail === -Infinity;
+    if (this.selectedId() && now - this.lastDetail >= CFG.detailRefreshMs && (this.playing() || !this.detail() || stale)) {
       this.lastDetail = now;
       this.loadDetail();
     }
@@ -512,6 +513,8 @@ export class SimSession implements OnDestroy {
       const fresh = res.events.filter((e) => e.seq >= known.length);
       if (fresh.length && fresh[0].seq === known.length) this.events.set([...known, ...fresh]);
       else if (fresh.length) this.resyncEvents(known.length);
+      // Something happened to the selected drone: reload its details on the next frame.
+      if (fresh.some((e) => e.droneId === this.selectedId())) this.lastDetail = -Infinity;
     }
     this.applyClock(res);
     if (epoch === this.epoch && this.mode() === 'LIVE') this.buffer.push(res.frames);

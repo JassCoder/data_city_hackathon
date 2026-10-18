@@ -1,0 +1,378 @@
+{
+  "name": "Ten couriers, one hour",
+  "description": "Performance and smoke scenario: 10 DEMO drones, two missions each, across central Warsaw. Synthetic airspace; simulation only.",
+  "seed": 2026,
+  "startTime": "2026-10-18T09:00:00+02:00",
+  "wind": {
+    "speedKmh": 14,
+    "directionDeg": 250
+  },
+  "drones": [
+    {
+      "id": "d01",
+      "name": "Courier 1",
+      "position": {
+        "stationId": "st-hospital"
+      }
+    },
+    {
+      "id": "d02",
+      "name": "Courier 2",
+      "position": {
+        "stationId": "st-hospital"
+      }
+    },
+    {
+      "id": "d03",
+      "name": "Courier 3",
+      "position": {
+        "stationId": "st-rooftop"
+      }
+    },
+    {
+      "id": "d04",
+      "name": "Courier 4",
+      "position": {
+        "stationId": "st-park"
+      }
+    },
+    {
+      "id": "d05",
+      "name": "Courier 5",
+      "position": {
+        "stationId": "st-park"
+      }
+    },
+    {
+      "id": "d06",
+      "name": "Courier 6",
+      "position": {
+        "stationId": "st-depot"
+      }
+    },
+    {
+      "id": "d07",
+      "name": "Courier 7",
+      "position": {
+        "stationId": "st-depot"
+      }
+    },
+    {
+      "id": "d08",
+      "name": "Courier 8",
+      "position": {
+        "latitude": 52.22882,
+        "longitude": 21.00316
+      }
+    },
+    {
+      "id": "d09",
+      "name": "Courier 9",
+      "position": {
+        "latitude": 52.2447,
+        "longitude": 20.9939
+      }
+    },
+    {
+      "id": "d10",
+      "name": "Courier 10",
+      "position": {
+        "latitude": 52.212,
+        "longitude": 20.9795
+      }
+    }
+  ],
+  "missions": [
+    {
+      "id": "d01-m1",
+      "droneId": "d01",
+      "destination": {
+        "latitude": 52.22882,
+        "longitude": 21.00316
+      },
+      "mode": "NORMAL",
+      "routeObjective": "CORRIDORS",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 0
+    },
+    {
+      "id": "d01-m2",
+      "droneId": "d01",
+      "destination": {
+        "latitude": 52.2447,
+        "longitude": 20.9939
+      },
+      "mode": "NORMAL",
+      "routeObjective": "FASTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 1800
+    },
+    {
+      "id": "d02-m1",
+      "droneId": "d02",
+      "destination": {
+        "latitude": 52.2153,
+        "longitude": 21.0351
+      },
+      "mode": "EMERGENCY",
+      "routeObjective": "FASTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 30
+    },
+    {
+      "id": "d02-m2",
+      "droneId": "d02",
+      "destination": {
+        "latitude": 52.193,
+        "longitude": 21.025
+      },
+      "mode": "EMERGENCY",
+      "routeObjective": "SAFEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 1830
+    },
+    {
+      "id": "d03-m1",
+      "droneId": "d03",
+      "destination": {
+        "latitude": 52.212,
+        "longitude": 20.9795
+      },
+      "mode": "NORMAL",
+      "routeObjective": "SAFEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 60
+    },
+    {
+      "id": "d03-m2",
+      "droneId": "d03",
+      "destination": {
+        "latitude": 52.24178,
+        "longitude": 21.0286
+      },
+      "mode": "NORMAL",
+      "routeObjective": "LOWEST_ENERGY",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 1860
+    },
+    {
+      "id": "d04-m1",
+      "droneId": "d04",
+      "destination": {
+        "latitude": 52.233,
+        "longitude": 20.96
+      },
+      "mode": "NORMAL",
+      "routeObjective": "LOWEST_ENERGY",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 90
+    },
+    {
+      "id": "d04-m2",
+      "droneId": "d04",
+      "destination": {
+        "latitude": 52.2196,
+        "longitude": 21.0177
+      },
+      "mode": "NORMAL",
+      "routeObjective": "SHORTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 1890
+    },
+    {
+      "id": "d05-m1",
+      "droneId": "d05",
+      "destination": {
+        "latitude": 52.23977,
+        "longitude": 21.04544
+      },
+      "mode": "NORMAL",
+      "routeObjective": "SHORTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 120
+    },
+    {
+      "id": "d05-m2",
+      "droneId": "d05",
+      "destination": {
+        "latitude": 52.254,
+        "longitude": 21.035
+      },
+      "mode": "NORMAL",
+      "routeObjective": "CORRIDORS",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 1920
+    },
+    {
+      "id": "d06-m1",
+      "droneId": "d06",
+      "destination": {
+        "latitude": 52.2447,
+        "longitude": 20.9939
+      },
+      "mode": "EMERGENCY",
+      "routeObjective": "CORRIDORS",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 150
+    },
+    {
+      "id": "d06-m2",
+      "droneId": "d06",
+      "destination": {
+        "latitude": 52.22882,
+        "longitude": 21.00316
+      },
+      "mode": "EMERGENCY",
+      "routeObjective": "FASTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 1950
+    },
+    {
+      "id": "d07-m1",
+      "droneId": "d07",
+      "destination": {
+        "latitude": 52.193,
+        "longitude": 21.025
+      },
+      "mode": "NORMAL",
+      "routeObjective": "FASTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 180
+    },
+    {
+      "id": "d07-m2",
+      "droneId": "d07",
+      "destination": {
+        "latitude": 52.2153,
+        "longitude": 21.0351
+      },
+      "mode": "NORMAL",
+      "routeObjective": "SAFEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 1980
+    },
+    {
+      "id": "d08-m1",
+      "droneId": "d08",
+      "destination": {
+        "latitude": 52.24178,
+        "longitude": 21.0286
+      },
+      "mode": "NORMAL",
+      "routeObjective": "SAFEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 210,
+      "afterDelivery": "RETURN_TO_START"
+    },
+    {
+      "id": "d08-m2",
+      "droneId": "d08",
+      "destination": {
+        "latitude": 52.212,
+        "longitude": 20.9795
+      },
+      "mode": "NORMAL",
+      "routeObjective": "LOWEST_ENERGY",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 2010,
+      "afterDelivery": "STAY_AT_DESTINATION"
+    },
+    {
+      "id": "d09-m1",
+      "droneId": "d09",
+      "destination": {
+        "latitude": 52.2196,
+        "longitude": 21.0177
+      },
+      "mode": "NORMAL",
+      "routeObjective": "LOWEST_ENERGY",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 240,
+      "afterDelivery": "RETURN_TO_START"
+    },
+    {
+      "id": "d09-m2",
+      "droneId": "d09",
+      "destination": {
+        "latitude": 52.233,
+        "longitude": 20.96
+      },
+      "mode": "NORMAL",
+      "routeObjective": "SHORTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 2040,
+      "afterDelivery": "STAY_AT_DESTINATION"
+    },
+    {
+      "id": "d10-m1",
+      "droneId": "d10",
+      "destination": {
+        "latitude": 52.254,
+        "longitude": 21.035
+      },
+      "mode": "EMERGENCY",
+      "routeObjective": "SHORTEST",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 270,
+      "afterDelivery": "RETURN_TO_START"
+    },
+    {
+      "id": "d10-m2",
+      "droneId": "d10",
+      "destination": {
+        "latitude": 52.23977,
+        "longitude": 21.04544
+      },
+      "mode": "EMERGENCY",
+      "routeObjective": "CORRIDORS",
+      "flightAltitudeMeters": 80,
+      "payloadKg": 0.3,
+      "departAtS": 2070,
+      "afterDelivery": "STAY_AT_DESTINATION"
+    }
+  ],
+  "events": [
+    {
+      "atS": 900,
+      "type": "wind_change",
+      "speedKmh": 22,
+      "directionDeg": 270
+    },
+    {
+      "atS": 1200,
+      "type": "zone_activate",
+      "zoneId": "incident-1",
+      "name": "Temporary incident area (synthetic)",
+      "circle": {
+        "longitude": 21.0122,
+        "latitude": 52.2297,
+        "radiusM": 300
+      },
+      "upperM": 150
+    },
+    {
+      "atS": 2400,
+      "type": "zone_deactivate",
+      "zoneId": "incident-1"
+    }
+  ]
+}

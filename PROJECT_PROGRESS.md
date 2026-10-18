@@ -393,6 +393,14 @@ At weight 5 the route takes 85 % less crowd exposure for 8 % more distance and 6
 
 **Follow-up (user request, 2026-10-18):** flight mode reduced to Normal / Emergency with no mission sub-options; zone avoidance shown as a fixed rule (every request already avoids prohibited and restricted zones); one drone profile (Standard) for every drone, with profile and payload removed from the UI. Requests now always send `mode` + `routeObjective` without a scenario; saved fleets are migrated. `ng test` 78 passed, `flows.py` 20/20, `ui_check.py` 0 overlaps.
 
+## Phase 9: Headless drone simulation engine (done, 2026-10-18, branch `simulation`)
+
+**Decisions** (approved): new DEMO profile fields and the battery reserve moved into the profile; the planner's battery check includes take-off and landing; safe emergency landings end IDLE (grounded), FAILED only without a safe site / empty battery; cruise speed in both modes; JSON scenarios; scenario drones may name a profile (default Standard).
+
+**Built** (`backend/app/sim/`): config and scenario models with validation; explicit state machine; drone object; append-only event log; movement along planner legs with the shared energy model (climb/descent/hover added to `energy.py`); engine with fixed ticks, seeded RNG, mission lifecycle, pre-flight energy check, station capacity; per-tick reserve monitoring and emergency landings (station → open space → in place); temporary zones with re-plan / hold / divert; `scripts/run_simulation.py`; example scenarios `demo_city.json` and `ten_drones_hour.json`.
+
+**Verified:** pytest 391 passed (new: config/scenarios 25, state machine/log 14, kinematics/energy 8, engine 13, safety 10, performance 3). Simulated cruise energy is within 1 % of the planner's and flight time within 1 s. Headwind costs more energy than tailwind over the same route. A low battery leads to an emergency landing, and the battery never goes below 0. Same seed → identical logs (synthetic and real data). **10 drones × 1 simulated hour: 1.9 s** engine time on the development laptop (+0.6 s loading the world), 82 route plans, 19 of 20 missions delivered (one correctly rejected by the pre-flight check).
+
 ## Next
 - Obtain a permitted official zone export from PAŻP and validate the ED-269 mapping against it (see DATA_SOURCES.md).
 - Spec phase 4 remainder: `/routes/compare`.

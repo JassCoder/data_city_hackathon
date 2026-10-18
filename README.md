@@ -70,6 +70,23 @@ Zones are drawn by what they mean **for the selected drone's flight** (its altit
 
 Click a zone for a popover with its name, DRA category, what it means for the selected flight, its altitude band and validity, and further details. Points inside a blocked zone are refused (never moved), and that zone is shown.
 
+## Drone simulation (headless)
+
+A deterministic simulation runs DEMO drones through their missions on the same planner, without a UI or network:
+
+```bash
+backend/.venv/bin/python scripts/run_simulation.py data/sim_scenarios/demo_city.json
+backend/.venv/bin/python scripts/run_simulation.py data/sim_scenarios/ten_drones_hour.json --log run.jsonl --state final.json
+```
+
+- **Drones** follow IDLE → LOADING → TAKEOFF → CRUISE → DELIVERING → RETURNING → LANDING → CHARGING → IDLE, plus HOLDING, EMERGENCY_LANDING and FAILED. Illegal transitions are rejected.
+- **Missions** use the planner's fields (A, B, mode, optimisation, altitude, payload) plus a departure time and what happens after delivery (nearest station by default, return to A, or stay at B).
+- **Energy** depends on speed, payload, climb/descent/hover and the wind relative to the heading, using the planner's own model, so planned and simulated energy agree.
+- **Safety:** a pre-flight energy check, a reserve check every tick, and emergency landings at the nearest reachable station, else open green space. Temporary zones make drones re-plan, hold or divert.
+- **Repeatable:** the same scenario and seed give the same event log. Parameters live in `data/sim_config.json` and `data/drone_profiles.json`; scenarios in `data/sim_scenarios/`.
+- **Speed:** 10 drones for one simulated hour take about 2 seconds.
+- Airspace is synthetic DEMO data: a simulated flight says nothing about real-world legality.
+
 ## API
 
 All endpoints are under `/api/v1`. JSON fields are camelCase.
@@ -170,7 +187,7 @@ Typical times on a laptop, measured end to end on real data:
 ## Tests
 
 ```bash
-cd backend  && .venv/Scripts/python -m pytest          # 318 tests, external APIs mocked
+cd backend  && .venv/Scripts/python -m pytest          # 391 tests, external APIs mocked
 cd frontend && npx ng test --watch=false                # 79 tests (Vitest)
 # Browser checks (Playwright in the backend venv, uses your installed Chrome; servers must be running):
 backend/.venv/bin/python frontend/e2e/ui_check.py --out /tmp/shots   # no overlay overlaps, 1280x720 + 390x844

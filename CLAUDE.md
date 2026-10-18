@@ -57,6 +57,7 @@ backend/.venv/Scripts/python scripts/fetch_osm.py         # citywide OSM: raster
 backend/.venv/Scripts/python scripts/build_demo_data.py   # synthetic zones + stations (edit the tables in this file)
 backend/.venv/Scripts/python scripts/fetch_risk_layers.py # SAFEST risk raster: Overpass land use/POIs + floor area from tiles (~25 min)
 backend/.venv/Scripts/python scripts/sweep_crowd_weight.py --out sweep.csv  # crowd-weight trade-off CSV (real planner)
+backend/.venv/Scripts/python scripts/run_simulation.py data/sim_scenarios/demo_city.json --log run.jsonl  # headless simulation
 ```
 
 Backend tests use `tests/conftest.py`:
@@ -186,6 +187,16 @@ Schemas are in `app/schemas/layers.py`.
 - `cost_model.json`: SAFEST weights and parameters (DEMO values), default cruise altitude and legal ceiling, battery reserve.
 - `osm/risk_warsaw_25m.npz`: built by `scripts/fetch_risk_layers.py` on exactly the routing grid's cells: residential/other floor area, residential, open space (no forests, ≥ 2,000 m²), sensitive sites, transit stops. Facts only; density and costs are computed at runtime from `cost_model.json`. A missing or misaligned file does **not** stop the app: it starts with `grid_only_providers` (logged warning, `/health` `riskDataAvailable: false`), SAFEST returns `RISK_DATA_UNAVAILABLE`, other objectives work and their breakdown note says the crowd/noise/sensitive terms are not loaded. The fetch caches tiles in `scripts/.cache/overpass` (gitignored), so a rerun after an Overpass outage resumes.
 
+### Simulation engine (`app/sim/`, headless, no UI, no network)
+- **Config:** `data/sim_config.json` (`SimConfig`: tick size, loading/delivering/charging durations, after-delivery default = nearest station, battery warning levels, holding retry/max, seeded jitter, emergency open-space search, pickup tolerance). Drone parameters are in `drone_profiles.json` (incl. `maxSpeedMps`, climb/descent rates and powers, `hoverPowerW`, `minReservePct`; the reserve moved there from `cost_model.json` and the planner uses it too).
+- **Scenarios:** JSON in `data/sim_scenarios/` (`Scenario`: seed, optional tick, aware `startTime`, wind, drones, missions with the UI's fields + `departAtS` + `afterDelivery`, events `wind_change` / `zone_activate` / `zone_deactivate` / `battery_fault`). Structure is validated on load (`ScenarioError`); world checks (profiles, station ids and capacity, points inside Warsaw, payload) in `SimulationEngine._validate`. Not the same thing as `app/routing/scenarios.py`.
+- **State machine** (`states.py`): `TRANSITIONS` is the only source of allowed changes; `Drone.transition()` checks and logs. EMERGENCY_LANDING ends IDLE (grounded) when the site was safe, FAILED otherwise; FAILED is terminal.
+- **Engine** (`engine.py`): `SimulationEngine.create(scenario, seed, world)`, `step(n)`, `run_until(t, stop_when_finished)`, `reset()`, `get_state()`, `get_event_log()`. Integer tick counter (`time_s = tick × tick_s`), drones in sorted id order, events in (time, file order), one `random.Random(seed)`. Same scenario + seed = identical `log.to_jsonl()`.
+- **Planning and energy:** every leg comes from the shared `RoutePlanner` (`world.planner`); `kinematics.Leg` moves by ground speed × dt along the polyline in EPSG:2180; cruise energy uses the planner's `ground_speed`/`power_w`, so simulated cruise energy matches the plan (tested within 1 %). Take-off/landing/hover energy are in `app/routing/risk/energy.py`, and the planner's battery check includes take-off and landing.
+- **Safety:** the pre-flight check (end of LOADING) plans both legs and needs the whole mission above the reserve, else `MISSION_REJECTED`. Every airborne tick `_monitor` compares the energy still needed with battery minus reserve; if short → emergency landing at the nearest reachable station (within the battery), else open green space (`sites.open_space_sites`, risk raster), else in place → FAILED. The battery is clamped at 0 (empty = FAILED).
+- **Temporary zones:** `airspace.ScenarioZoneProvider` wraps the planner's provider (content-hash versions); drones whose remaining leg crosses a new zone re-plan, or HOLD (retry every `retryS`) and divert to a station after `maxS`. An engine re-syncs its zones before every plan, so engines can share a world.
+- **World** (`world.py`): `load_world()` = real data (~0.6 s); tests use `make_sim_world()` (synthetic `make_planner()` + two pads). Performance (2026-10-18): `ten_drones_hour.json`, 10 drones × 1 h ≈ 1.9 s engine time (`tests/test_sim_performance.py`).
+
 ### Frontend structure
 No component library (Angular Material was removed in the redesign): shared styles are design tokens in `src/styles/tokens.scss` and base components in `src/styles/base.scss` (button, input, segmented radio group, badge, native `[popover]`, tabs, toast, states). Icons are inline SVG (`ui/icon.ts`). Endpoints come from `src/environments/environment.ts`; UI thresholds from `core/settings.ts` (`SETTINGS`). No web fonts (system stack; B612 was rejected because it lacks Polish diacritics).
 - **`core/models.ts`:** wire types, `ALTITUDE` (= `SETTINGS.altitude`) and validators. **`core/api.ts`:** `API_BASE_URL`, `safeValue`, `describeHttpError`. **`core/health.ts`:** `/health` (status, `riskDataMissing`).
@@ -208,7 +219,7 @@ No component library (Angular Material was removed in the redesign): shared styl
   - Citywide view, building tiles (z14 from zoom 15) and the zone-data extent work as before; layers are keyed by `LayerKey` and toggled from `layerVisibility`.
 
 ### Not built yet (original spec phases 4–6)
-- Drone animation and the bottom bar.
+- Drone animation in the UI and the bottom bar (the backend simulation engine exists; there is no API or UI for it yet).
 - `/routes/compare`.
 - Choosing a landing station or drop point as the route end, and the "Holding position" state.
 - Wind sliders: the demo wind is fixed in `config.DEMO_WEATHER`.

@@ -1,0 +1,47 @@
+:host {
+  display: contents;
+}
+
+.sim-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px solid var(--c-line);
+
+  h2 {
+    margin: 0;
+    font-size: var(--fs-14);
+  }
+
+  p {
+    margin: 2px 0 0;
+    line-height: var(--lh-tight);
+  }
+}
+
+.sim-title {
+  flex: 1;
+  min-width: 0;
+}
+
+// Mobile: the sheet takes space from the map instead of covering it, so the playback bar
+// (under the map) stays visible and usable in every sheet position.
+@media (max-width: 767px) {
+  .shell {
+    --sheet-h: var(--sheet-peek);
+    grid-template-rows: minmax(0, 1fr) var(--sheet-h);
+
+    &[data-sheet='half'] {
+      --sheet-h: 45dvh;
+    }
+
+    &[data-sheet='full'] {
+      --sheet-h: calc(100dvh - var(--topbar-h) - var(--sim-bar-h, 132px));
+    }
+  }
+
+  .sidebar[data-sheet] {
+    height: var(--sheet-h);
+  }
+}

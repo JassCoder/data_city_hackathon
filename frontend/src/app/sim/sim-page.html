@@ -1,0 +1,76 @@
+<div class="shell" [class.drawer-open]="drawerOpen()" [attr.data-sheet]="sheet()">
+  <aside class="sidebar" [attr.data-sheet]="sheet()" aria-label="Simulation">
+    <button type="button" class="sheet-handle" (click)="cycleSheet()" [attr.aria-label]="sheetLabel()"
+            [attr.aria-expanded]="sheet() !== 'peek'" data-testid="sheet-handle">
+      <span class="grip" aria-hidden="true"></span>
+    </button>
+    <div class="sidebar-body">
+      @if (sim.info(); as info) {
+        <header class="sim-head">
+          <div class="sim-title">
+            <h2>{{ info.scenario.name }}</h2>
+            <p class="small muted">Seed {{ info.seed }}. {{ info.note }}</p>
+          </div>
+          <button type="button" class="btn btn-s btn-ghost" (click)="sim.close()" data-testid="sim-close">
+            <app-icon name="close" /> End
+          </button>
+        </header>
+      } @else {
+        <app-sim-start [starting]="sim.phase() === 'starting'" (start)="start($event)" />
+      }
+    </div>
+  </aside>
+
+  <main class="map-col" id="map-region" tabindex="-1" aria-label="Map">
+    @if (sim.phase() === 'starting') {
+      <div class="map-strip strip-info" role="status" data-testid="sim-starting">
+        <span class="spinner" aria-hidden="true"></span><span>Starting the simulation…</span>
+      </div>
+    }
+    @if (sim.phase() === 'error') {
+      <div class="map-strip strip-error" role="alert" data-testid="sim-error">
+        <app-icon name="alert" /><span>{{ sim.error() }}</span>
+        <button type="button" class="btn btn-s" (click)="startAgain()">Start again</button>
+      </div>
+    } @else if (sim.connection() === 'disconnected') {
+      <div class="map-strip strip-error" role="alert" data-testid="sim-disconnected">
+        <app-icon name="alert" /><span>Disconnected from the simulation backend. Playback continues when it is back.</span>
+        <button type="button" class="btn btn-s" (click)="sim.retryNow()">Retry now</button>
+      </div>
+    } @else if (sim.connection() === 'reconnecting') {
+      <div class="map-strip strip-warn" role="status" data-testid="sim-reconnecting">
+        <span class="spinner" aria-hidden="true"></span><span>Connection to the simulation lost. Reconnecting…</span>
+      </div>
+    } @else if (sim.error()) {
+      <div class="map-strip strip-error" role="alert">
+        <app-icon name="alert" /><span>{{ sim.error() }}</span>
+        <button type="button" class="btn btn-s btn-ghost" (click)="sim.error.set(null)">Dismiss</button>
+      </div>
+    }
+    <app-map
+      [layers]="layers.data()"
+      [zones]="airspace.visibleZones()"
+      [airspaceSource]="airspace.source()"
+      [boundary]="mapData.boundaryData()"
+      [layerVisibility]="mapLayers.visible()"
+      [flightLabel]="flightLabel()"
+      (ready)="onMapReady($event)"
+    >
+      <app-layers-panel mapTopRight />
+      <app-map-legend mapBottomRight [flightLabel]="flightLabel()" />
+    </app-map>
+    @if (sim.info()) {
+      <app-playback-bar />
+    }
+  </main>
+
+  <aside class="drawer" aria-label="Drone details" [attr.inert]="drawerOpen() ? null : ''" data-testid="drawer">
+    <div class="drawer-head">
+      <h2 class="drawer-title">Drone details</h2>
+      <button type="button" class="icon-btn" (click)="drawerOpen.set(false)" aria-label="Close drone details">
+        <app-icon name="close" />
+      </button>
+    </div>
+    <div class="drawer-body"></div>
+  </aside>
+</div>

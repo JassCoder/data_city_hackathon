@@ -92,8 +92,15 @@ export class SimSession implements OnDestroy {
   readonly playing = signal(false);
   readonly speed = signal<number>(CFG.defaultSpeed);
   readonly mode = signal<PlaybackMode>('LIVE');
-  /** Newest simulated time on the server. */
+  /** Newest simulated time on the server (the client buffers ahead of the playhead). */
   readonly headT = signal(0);
+  /** Newest time the playhead has shown: the end of the timeline (frames buffered beyond it stay hidden). */
+  readonly seenT = signal(0);
+  /** What the scrubber spans: stored history up to the newest time shown. */
+  readonly timeline = computed<HistoryRange>(() => {
+    const h = this.history();
+    return { fromS: h.fromS, toS: Math.max(h.fromS, Math.min(this.seenT(), h.toS)) };
+  });
   readonly history = signal<HistoryRange>({ fromS: 0, toS: 0 });
   readonly finished = signal(false);
   /** The playhead, refreshed for panels (the exact value is `clockT`). */
@@ -218,6 +225,7 @@ export class SimSession implements OnDestroy {
     this.buffer.clear();
     this.buffer.push([info.frame]);
     this.clockT = info.timeS;
+    this.seenT.set(info.timeS);
     this.trailWanted = info.timeS > info.history.fromS;
     this.mode.set('LIVE');
     this.failures = 0;
@@ -277,7 +285,11 @@ export class SimSession implements OnDestroy {
     this.pause();
     const next = this.clockT + info.tickS;
     if (next <= this.headT() + 1e-9) {
-      this.seek(next);
+      if (this.mode() === 'LIVE') {
+        this.clockT = next; // already buffered
+        this.dirty = true;
+        this.refreshUi(true);
+      } else this.seek(next);
       return;
     }
     if (this.inFlight) {
@@ -298,8 +310,8 @@ export class SimSession implements OnDestroy {
   seek(t: number): void {
     const info = this.info();
     if (!info) return;
-    const target = clampTime(t, this.history());
-    const mode = modeAt(target, this.headT(), info.tickS);
+    const target = clampTime(t, this.timeline());
+    const mode = modeAt(target, this.seenT(), info.tickS);
     if (mode === 'LIVE') {
       this.goLive();
       return;
@@ -319,7 +331,7 @@ export class SimSession implements OnDestroy {
     const info = this.info();
     if (!info) return;
     this.mode.set('LIVE');
-    this.clockT = this.headT();
+    this.clockT = Math.max(this.clockT, this.seenT());
     if (!this.buffer.covers(this.clockT)) {
       this.epoch++;
       this.buffer.clear(); // fill() loads the last stretch before stepping on
@@ -407,7 +419,7 @@ export class SimSession implements OnDestroy {
         this.clockT = next;
         this.dirty = true;
       }
-      if (this.mode() === 'REPLAY' && this.clockT >= this.history().toS - info.tickS / 2) this.mode.set('LIVE');
+      if (this.mode() === 'REPLAY' && this.clockT >= this.seenT() - info.tickS / 2) this.mode.set('LIVE');
       if (this.mode() === 'LIVE' && this.finished() && this.clockT >= this.headT() - 1e-9) this.playing.set(false);
     } else {
       this.buffering.set(false);
@@ -460,7 +472,7 @@ export class SimSession implements OnDestroy {
       });
     } else {
       const until = this.bufferedUntil();
-      const end = this.history().toS;
+      const end = this.timeline().toS;
       if (until >= end - 1e-9 || until - this.clockT >= lead) return;
       this.loadHistory(until, Math.min(until + CFG.replayAheadWallS * speed, end), this.historyStride());
     }
@@ -593,6 +605,7 @@ export class SimSession implements OnDestroy {
     if (!info) return;
     if (!force && this.playT() === this.clockT && !this.dirty && this.telemetry().length) return;
     this.playT.set(this.clockT);
+    if (this.mode() === 'LIVE' && this.clockT > this.seenT()) this.seenT.set(this.clockT);
     const poses = this.posesAt(this.clockT);
     if (!poses) return;
     this.telemetry.set(

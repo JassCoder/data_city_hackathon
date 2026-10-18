@@ -1,0 +1,88 @@
+<div class="shell" [class.drawer-open]="ui.drawerOpen()">
+  <aside class="sidebar" [attr.data-sheet]="ui.sheet()" aria-label="Drones">
+    <button type="button" class="sheet-handle" (click)="cycleSheet()" [attr.aria-label]="sheetLabel()"
+            [attr.aria-expanded]="ui.sheet() !== 'peek'" data-testid="sheet-handle">
+      <span class="grip" aria-hidden="true"></span>
+    </button>
+    <div class="sidebar-body">
+      <app-drone-list />
+    </div>
+  </aside>
+
+  <main class="map-col" id="map-region" tabindex="-1" aria-label="Map">
+    @if (pickHint(); as hint) {
+      <div class="map-strip strip-pick" role="status" data-testid="pick-hint">
+        <app-icon name="crosshair" />
+        <span>{{ hint }}</span>
+        <button type="button" class="btn btn-s btn-ghost" (click)="cancelPick()">Cancel <kbd>Esc</kbd></button>
+      </div>
+    }
+    @if (mapData.boundaryMissing()) {
+      <div class="map-strip strip-error" role="alert" data-testid="coverage-banner">
+        <app-icon name="alert" />
+        <span>Warsaw boundary data unavailable. Showing an approximate view; routing coverage cannot be checked.</span>
+      </div>
+    }
+    <app-map
+      [layers]="layers.data()"
+      [drones]="fleet.drones()"
+      [selectedId]="fleet.selectedId()"
+      [crossings]="fleet.crossings()"
+      [focusRequest]="ui.focusRequest()"
+      [picking]="fleet.pickTarget() !== null"
+      [zones]="airspace.visibleZones()"
+      [airspaceSource]="airspace.source()"
+      [highlightZoneIds]="airspace.highlightZoneIds()"
+      [focusZoneId]="airspace.focusZoneId()"
+      [boundary]="mapData.boundaryData()"
+      [layerVisibility]="mapLayers.visible()"
+      [flightLabel]="flightLabel()"
+      (mapClick)="fleet.handleMapClick($event)"
+      (markerDrag)="fleet.handleMarkerDrag($event.droneId, $event.role, $event.coordinate)"
+      (routeClick)="selectFromMap($event)"
+      (focusDone)="airspace.focusZoneId.set(null)"
+    >
+      <app-layers-panel mapTopRight />
+      <app-map-legend mapBottomRight [flightLabel]="flightLabel()" />
+    </app-map>
+  </main>
+
+  <aside class="drawer" aria-label="Route details" [attr.inert]="ui.drawerOpen() ? null : ''" data-testid="drawer">
+    <div class="drawer-head">
+      @if (fleet.selected(); as d) {
+        <span class="drawer-dot" [style.background]="d.color" aria-hidden="true"></span>
+        <h2 class="drawer-title">{{ d.name }}</h2>
+      } @else {
+        <h2 class="drawer-title">Route details</h2>
+      }
+      <button type="button" class="icon-btn" (click)="closeDrawer()" aria-label="Close route details" data-testid="drawer-close">
+        <app-icon name="close" />
+      </button>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Details">
+      <button type="button" role="tab" id="tab-route" aria-controls="panel-route" [attr.aria-selected]="ui.drawerTab() === 'route'"
+              [attr.tabindex]="ui.drawerTab() === 'route' ? 0 : -1" (click)="ui.drawerTab.set('route')"
+              (keydown.arrowRight)="ui.drawerTab.set('airspace')" data-testid="tab-route">Route</button>
+      <button type="button" role="tab" id="tab-airspace" aria-controls="panel-airspace"
+              [attr.aria-selected]="ui.drawerTab() === 'airspace'" [attr.tabindex]="ui.drawerTab() === 'airspace' ? 0 : -1"
+              (click)="ui.drawerTab.set('airspace')" (keydown.arrowLeft)="ui.drawerTab.set('route')"
+              data-testid="tab-airspace">Airspace</button>
+    </div>
+    <div class="drawer-body">
+      @if (ui.drawerTab() === 'route') {
+        <div role="tabpanel" id="panel-route" aria-labelledby="tab-route"><app-route-details /></div>
+      } @else {
+        <div role="tabpanel" id="panel-airspace" aria-labelledby="tab-airspace"><app-airspace-tab /></div>
+      }
+    </div>
+  </aside>
+</div>
+
+<div class="toasts" aria-live="polite">
+  @if (fleet.lastDeleted(); as del) {
+    <div class="toast" role="status" data-testid="undo-toast">
+      <span>Deleted {{ del.drone.name }}.</span>
+      <button type="button" class="btn btn-s" (click)="fleet.undoRemove()" data-testid="undo">Undo</button>
+    </div>
+  }
+</div>

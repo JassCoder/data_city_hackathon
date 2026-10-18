@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, ElementRef, effect, inject, signal, untracked } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, untracked } from '@angular/core';
+import { Router } from '@angular/router';
 import { Drone, STATUS_TEXT, droneIssues, droneStatus, shortLabel } from '../core/fleet';
 import { FleetStore } from '../core/fleet.store';
 import { WeatherMode } from '../core/models';
@@ -7,6 +8,7 @@ import { IconComponent } from '../ui/icon';
 import { formatDistance, formatDuration } from '../ui/format';
 import { DroneEditorComponent } from './drone-editor';
 import { isSmallScreen } from '../map/layers-panel';
+import { plannedDrones } from '../sim/fleet-scenario';
 
 const STATUS_BADGE = {
   draft: 'badge-neutral',
@@ -117,6 +119,10 @@ const STATUS_BADGE = {
           } @else {
             Calculate all ({{ fleet.calculableCount() }})
           }
+        </button>
+        <button type="button" class="btn btn-block" (click)="simulate()" [disabled]="!plannedCount()" data-testid="simulate-fleet"
+                [title]="plannedCount() ? 'Fly these drones in the simulation view' : 'Give a drone Point A and B first'">
+          <app-icon name="play" />Simulate ({{ plannedCount() }})
         </button>
         <div class="foot-row">
           <div class="segmented wind" role="radiogroup" aria-label="Wind data">
@@ -303,6 +309,8 @@ const STATUS_BADGE = {
 export class DroneListComponent {
   protected readonly fleet = inject(FleetStore);
   private readonly ui = inject(UiState);
+  private readonly router = inject(Router);
+  protected readonly plannedCount = computed(() => plannedDrones(this.fleet.drones()).length);
   private readonly host = inject(ElementRef<HTMLElement>);
 
   protected readonly statusText = STATUS_TEXT;
@@ -315,6 +323,11 @@ export class DroneListComponent {
   /** Screen readers hear when a drone's status changes (e.g. "Drone 2: Route ready"). */
   protected readonly announcement = signal('');
   private lastStatus = new Map<string, string>();
+
+  /** Opens the simulation view with these drones (one mission each, from A to B). */
+  protected simulate(): void {
+    void this.router.navigate(['/simulate'], { queryParams: { from: 'plan' } });
+  }
 
   constructor() {
     effect(() => {

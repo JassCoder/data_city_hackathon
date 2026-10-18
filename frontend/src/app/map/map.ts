@@ -174,6 +174,8 @@ export class MapComponent implements OnDestroy {
   readonly markerDrag = output<MarkerDrag>();
   readonly routeClick = output<string>();
   readonly focusDone = output<void>();
+  /** The Leaflet map once it exists, for views that add their own layers (the simulation). */
+  readonly ready = output<L.Map>();
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
   private readonly topRight = viewChild.required<ElementRef<HTMLDivElement>>('topRight');
@@ -279,6 +281,7 @@ export class MapComponent implements OnDestroy {
       this.syncSource(this.airspaceSource());
       this.syncBoundary(this.boundary());
       this.applyVisibility(this.layerVisibility());
+      this.ready.emit(this.map);
     });
 
     effect(() => this.render(this.layers()));

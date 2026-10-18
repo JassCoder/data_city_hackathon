@@ -35,6 +35,14 @@ describe('SimSession', () => {
     req.flush(sessionInfo(over));
   }
 
+  /** As if live playback had reached t (paused there): the timeline now ends at t. */
+  function playedTo(t: number): void {
+    session.pause();
+    session.clockT = t;
+    clock.advance(300);
+    expect(session.timeline().toS).toBe(t);
+  }
+
   /** Runs animation frames for `ms` of wall time in 16 ms steps. */
   function run(ms: number): void {
     for (let t = 0; t < ms; t += 16) clock.advance(16);
@@ -135,17 +143,16 @@ describe('SimSession', () => {
     session.play();
     clock.advance(16);
     http.expectOne(STEP).flush(stepResponse(0, 200, 1, { history: { fromS: 0, toS: 200 } }));
-    session.pause();
+    playedTo(200);
     session.seek(199.6);
     expect(session.mode()).toBe('LIVE'); // within half a tick of the newest time
-    session.seek(20);
+    session.seek(150);
     expect(session.mode()).toBe('REPLAY');
-    expect(session.clockT).toBe(20);
-    // Buffered frames still cover t = 20: no reload needed.
+    expect(session.clockT).toBe(150);
+    // The trail kept behind the playhead (110..200) covers t = 150: no reload needed.
     clock.advance(16);
-    http.expectNone(HISTORY);
+    http.expectNone((r) => r.url === HISTORY);
 
-    session.buffer.trimBefore(190); // as if the trail had moved on
     session.seek(50);
     clock.advance(16);
     const req = http.expectOne((r) => r.url === HISTORY);
@@ -166,7 +173,7 @@ describe('SimSession', () => {
     session.play();
     clock.advance(16);
     http.expectOne(STEP).flush(stepResponse(0, 30, 1));
-    session.pause();
+    playedTo(30);
     session.seek(28);
     expect(session.mode()).toBe('REPLAY');
     session.play();
@@ -274,7 +281,7 @@ describe('SimSession', () => {
     session.play();
     clock.advance(16);
     http.expectOne(STEP).flush(stepResponse(0, 120, 1, { history: { fromS: 0, toS: 120 } }));
-    session.pause();
+    playedTo(120);
     session.jumpTo(simEvent(3, 40, 'STATE_CHANGED', { position: [52.23, 21.005, 80] }, 'd1'));
     expect(session.selectedId()).toBe('d1');
     expect(session.mode()).toBe('REPLAY');

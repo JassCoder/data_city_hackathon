@@ -57,202 +57,45 @@
   }
 }
 
-// --- desktop shell: sidebar | map | drawer ----------------------------------------
-
-.shell {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr) 0;
-  min-height: 0;
-
-  &.drawer-open {
-    grid-template-columns: var(--sidebar-w) minmax(0, 1fr) var(--drawer-w);
-  }
-}
-
-.sidebar,
-.drawer {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--c-surface);
-  overscroll-behavior: contain;
-}
-
-.sidebar {
-  border-right: 1px solid var(--c-line);
-}
-
-.sidebar-body,
-.drawer-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--sp-4);
-}
-
-.sheet-handle {
+// The routed page renders next to the outlet; the outlet element itself takes no space.
+router-outlet {
   display: none;
 }
 
-.map-col {
-  position: relative;
+// --- Plan | Simulate ------------------------------------------------------------------
+
+.view-switch {
   display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  outline: none;
-}
+  padding: 2px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-m);
+  background: var(--c-surface-2);
 
-.map-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-height: var(--strip-h);
-  padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-3);
-  border-bottom: 1px solid var(--c-line);
-  font-size: var(--fs-13);
-
-  span {
-    flex: 1;
-    min-width: 0;
-  }
-
-  kbd {
-    padding: 0 4px;
-    border: 1px solid var(--c-line-strong);
+  a {
+    display: inline-flex;
+    align-items: center;
+    min-height: calc(var(--control-h-s) - 2px);
+    padding: 0 var(--sp-3);
     border-radius: var(--radius-s);
-    font: inherit;
-    font-size: var(--fs-11);
-  }
-
-  &.strip-pick {
-    background: var(--c-accent-soft);
-    color: var(--c-accent);
+    color: var(--c-muted);
+    font-size: var(--fs-12);
     font-weight: var(--fw-medium);
-  }
+    text-decoration: none;
 
-  &.strip-error {
-    background: var(--c-danger-soft);
-    color: var(--c-danger);
-  }
-}
-
-.drawer {
-  overflow: hidden;
-  border-left: 1px solid var(--c-line);
-
-  .shell:not(.drawer-open) & {
-    visibility: hidden;
-  }
-}
-
-.drawer-head {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-height: 44px;
-  padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-4);
-}
-
-.drawer-dot {
-  flex: none;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.drawer-title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.toasts {
-  position: fixed;
-  left: 50%;
-  bottom: var(--sp-6);
-  z-index: var(--z-toast);
-  transform: translateX(-50%);
-
-  @media (max-width: 767px) {
-    bottom: calc(var(--sheet-peek) + var(--sp-3));
-  }
-}
-
-// --- mobile: map full width, sidebar = bottom sheet, drawer = full-height sheet ---------
-
-@media (max-width: 767px) {
-  .shell,
-  .shell.drawer-open {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) var(--sheet-peek);
-  }
-
-  .map-col {
-    grid-row: 1;
-  }
-
-  .sidebar {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: var(--z-sheet);
-    height: var(--sheet-peek);
-    border-right: 0;
-    border-top: 1px solid var(--c-line);
-    border-radius: var(--radius-l) var(--radius-l) 0 0;
-    box-shadow: var(--shadow-sheet);
-    padding-bottom: env(safe-area-inset-bottom);
-    transition: height var(--motion);
-
-    &[data-sheet='half'] {
-      height: 55dvh;
+    &:hover {
+      color: var(--c-text);
     }
 
-    &[data-sheet='full'] {
-      height: calc(100dvh - var(--topbar-h));
+    &.active {
+      background: var(--c-surface);
+      color: var(--c-text);
+      box-shadow: 0 0 0 1px var(--c-line-strong);
     }
   }
+}
 
-  .sheet-handle {
-    display: grid;
-    place-items: center;
-    flex: none;
-    height: 22px;
-    border: 0;
-    background: transparent;
-
-    .grip {
-      width: 36px;
-      height: 4px;
-      border-radius: var(--radius-pill);
-      background: var(--c-line-strong);
-    }
-  }
-
-  .sidebar-body {
-    padding-top: 0;
-  }
-
-  .drawer {
-    position: fixed;
-    top: var(--topbar-h);
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: var(--z-drawer-sheet);
-    border-left: 0;
-    transform: translateY(100%);
-    transition:
-      transform var(--motion),
-      visibility 0s linear 180ms;
-
-    .shell.drawer-open & {
-      transform: none;
-      transition: transform var(--motion);
-    }
+@media (max-width: 480px) {
+  .brand {
+    display: none;
   }
 }

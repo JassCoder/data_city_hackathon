@@ -1,9 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Router, provideRouter } from '@angular/router';
 import { App } from './app';
+import { routes } from './app.routes';
 import { API_BASE_URL } from './core/api';
-import { BOUNDARY, COVERAGE, LAYERS, ZONES } from '../testing/fixtures';
+import { BOUNDARY, COVERAGE, LAYERS, ZONES, settle } from '../testing/fixtures';
 import { stubCanvas } from '../testing/canvas-stub';
 
 describe('App', () => {
@@ -12,7 +14,7 @@ describe('App', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [App],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter(routes)],
     }).compileComponents();
   });
 
@@ -29,8 +31,29 @@ describe('App', () => {
     expect(text).toContain('PANSA DroneMap and DroneTower');
   });
 
+  it('switches between Plan and Simulate in the top bar', async () => {
+    const fixture = TestBed.createComponent(App);
+    const router = TestBed.inject(Router);
+    const http = TestBed.inject(HttpTestingController);
+    await router.navigateByUrl('/');
+    await settle(http, fixture);
+    const el = fixture.nativeElement as HTMLElement;
+    const plan = el.querySelector('[data-testid="nav-plan"]')!;
+    const simulate = el.querySelector('[data-testid="nav-simulate"]')!;
+    expect(plan.getAttribute('aria-current')).toBe('page');
+    expect(simulate.getAttribute('href')).toBe('/simulate');
+    expect(el.querySelector('app-drone-list')).not.toBeNull();
+    await router.navigateByUrl('/simulate'); // lazy chunk
+    await settle(http, fixture);
+    expect(simulate.getAttribute('aria-current')).toBe('page');
+    expect(plan.getAttribute('aria-current')).toBeNull();
+    expect(el.querySelector('[data-testid="sim-start"]')).not.toBeNull();
+    expect(el.querySelector('app-drone-list')).toBeNull();
+  });
+
   it('loads health, layers, zones and the Warsaw boundary once', async () => {
     const fixture = TestBed.createComponent(App);
+    await TestBed.inject(Router).navigateByUrl('/');
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
     http.expectOne(`${API_BASE_URL}/health`).flush({

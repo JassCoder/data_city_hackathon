@@ -1,0 +1,275 @@
+:host {
+  display: block;
+  flex: none;
+  border-top: 1px solid var(--c-line);
+  background: var(--c-surface);
+}
+
+.pb {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2);
+}
+
+.pb-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.pb-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pb-play {
+  border-color: var(--c-accent);
+  background: var(--c-accent);
+  color: var(--c-accent-ink);
+
+  &:hover:not(:disabled) {
+    background: var(--c-accent-hover);
+    color: var(--c-accent-ink);
+  }
+}
+
+.pb-speed {
+  flex: none;
+
+  span {
+    min-width: 3.2ch;
+  }
+}
+
+.pb-clock {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  white-space: nowrap;
+}
+
+.pb-time {
+  font-size: var(--fs-16);
+  font-weight: var(--fw-bold);
+}
+
+.pb-elapsed {
+  font-size: var(--fs-12);
+}
+
+.pb-status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+// LIVE and REPLAY differ in colour, shape (dot vs. rewind icon) and text.
+.pb-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-s);
+  font-size: var(--fs-12);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+
+  &.pb-live {
+    background: var(--c-ok-soft);
+    color: var(--c-ok);
+  }
+
+  &.pb-replay {
+    background: var(--c-warn-soft);
+    color: var(--c-warn);
+
+    .icon {
+      width: 14px;
+      height: 14px;
+    }
+  }
+}
+
+.pb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+
+  &.pulse {
+    animation: pb-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes pb-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pb-dot.pulse {
+    animation: none;
+  }
+}
+
+.pb-note {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-12);
+}
+
+.pb-keys {
+  margin: 0 0 0 auto;
+  font-size: var(--fs-11);
+  color: var(--c-muted);
+  white-space: nowrap;
+
+  kbd {
+    padding: 0 4px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--radius-s);
+    font: inherit;
+  }
+
+  kbd:not(:first-child) {
+    margin-left: var(--sp-2);
+  }
+}
+
+.pb-confirm {
+  max-width: 300px;
+
+  p {
+    margin: 0 0 var(--sp-3);
+  }
+}
+
+.pb-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+// --- timeline -------------------------------------------------------------------------
+
+.pb-timeline {
+  position: relative;
+  padding-top: 6px;
+}
+
+.pb-scrub {
+  display: block;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  accent-color: var(--c-accent);
+  cursor: pointer;
+  appearance: none;
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  &::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(to right, var(--c-accent) var(--played, 0%), var(--c-line) var(--played, 0%));
+  }
+
+  &::-moz-range-track {
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--c-line);
+  }
+
+  &::-moz-range-progress {
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: var(--c-accent);
+  }
+
+  &::-webkit-slider-thumb {
+    width: 16px;
+    height: 16px;
+    margin-top: -5px;
+    border: 2px solid var(--c-surface);
+    border-radius: 50%;
+    background: var(--c-accent);
+    box-shadow: 0 0 0 1px var(--c-accent);
+    appearance: none;
+  }
+
+  &::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--c-surface);
+    border-radius: 50%;
+    background: var(--c-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--c-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-s);
+  }
+}
+
+// Event ticks above the track: thumb width (16 px) inset on both sides so ticks line up with it.
+.pb-marks {
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 8px;
+  pointer-events: none;
+}
+
+.pb-mark {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 8px;
+  margin-left: -1px;
+  border-radius: 1px;
+
+  &.pb-mark-critical {
+    background: var(--c-danger);
+  }
+
+  &.pb-mark-warning {
+    height: 5px;
+    margin-top: 3px;
+    background: var(--c-warn);
+  }
+}
+
+// --- narrow: two compact rows ---------------------------------------------------------
+
+@media (max-width: 767px) {
+  .pb {
+    padding: var(--sp-1) var(--sp-2) var(--sp-2);
+  }
+
+  .pb-row {
+    gap: var(--sp-1) var(--sp-2);
+  }
+
+  .pb-keys {
+    display: none;
+  }
+
+  .pb-time {
+    font-size: var(--fs-14);
+  }
+
+  .pb-elapsed {
+    display: none;
+  }
+}

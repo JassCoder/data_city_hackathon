@@ -270,6 +270,7 @@ export function flushStartup(http: HttpTestingController): void {
   for (const req of http.match((r) => r.url.startsWith(`${API_BASE_URL}/zones`))) req.flush(ZONES);
   for (const req of http.match(`${API_BASE_URL}/map/warsaw-boundary`)) req.flush(BOUNDARY);
   for (const req of http.match(`${API_BASE_URL}/map/coverage`)) req.flush(COVERAGE);
+  for (const req of http.match(`${API_BASE_URL}/simulations/scenarios`)) req.flush([]);
 }
 
 /**

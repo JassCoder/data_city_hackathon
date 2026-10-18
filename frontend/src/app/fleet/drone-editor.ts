@@ -3,7 +3,7 @@ import { FleetStore } from '../core/fleet.store';
 import { droneIssues } from '../core/fleet';
 import { HealthService } from '../core/health';
 import { FlightMode } from '../core/models';
-import { MODE_HELP, MODE_LABEL, OPTIMISATIONS, OptimisationId, ZONE_RULE, optimisation } from '../core/routing-options';
+import { MODE_LABEL, OPTIMISATIONS, OptimisationId } from '../core/routing-options';
 import { IconComponent } from '../ui/icon';
 import { AltitudeInputComponent } from './altitude-input';
 import { PointFieldComponent } from './point-field';
@@ -37,7 +37,6 @@ let seq = 0;
                     [disabled]="!d.start && !d.destination" data-testid="clear-points">Clear points</button>
           </div>
           <app-point-field [droneId]="d.id" role="destination" [color]="d.color" />
-          <p class="rule" data-testid="zone-rule"><app-icon name="check" />{{ zoneRule }}</p>
         </fieldset>
 
         <fieldset class="group">
@@ -48,10 +47,9 @@ let seq = 0;
                             (change)="setMode(m)" /><span>{{ modeLabel[m] }}</span></label>
             }
           </div>
-          <p class="field-hint" data-testid="mode-help">{{ modeHelp[d.mode] }}</p>
         </fieldset>
 
-        <fieldset class="group" [attr.aria-describedby]="ids + '-opt-help'">
+        <fieldset class="group">
           <legend class="field-label">Route optimisation</legend>
           <div class="segmented grid-2" role="radiogroup" aria-label="Route optimisation" data-testid="optimisation">
             @for (o of optimisations; track o.id) {
@@ -59,7 +57,6 @@ let seq = 0;
                             (change)="setOptimisation(o.id)" /><span>{{ o.label }}</span></label>
             }
           </div>
-          <p class="field-hint" [id]="ids + '-opt-help'" data-testid="optimisation-help">{{ optimisationHelp() }}</p>
           @if (safestUnavailable()) {
             <p class="field-error" role="alert">Safest is unavailable: the server has not loaded the risk layers.</p>
           }
@@ -115,17 +112,6 @@ let seq = 0;
       gap: var(--sp-1);
       margin-left: 22px;
     }
-    .rule {
-      display: flex;
-      align-items: flex-start;
-      gap: var(--sp-2);
-      font-size: var(--fs-12);
-      color: var(--c-muted);
-    }
-    .rule .icon {
-      margin-top: 1px;
-      color: var(--c-ok);
-    }
     .segmented.grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -157,12 +143,9 @@ export class DroneEditorComponent {
   protected readonly ids = `ed-${++seq}`;
   protected readonly modes: FlightMode[] = ['NORMAL', 'EMERGENCY'];
   protected readonly modeLabel = MODE_LABEL;
-  protected readonly modeHelp = MODE_HELP;
   protected readonly optimisations = OPTIMISATIONS;
-  protected readonly zoneRule = ZONE_RULE;
 
   protected readonly drone = computed(() => this.fleet.drones().find((d) => d.id === this.droneId()));
-  protected readonly optimisationHelp = computed(() => optimisation(this.drone()?.optimisation ?? 'BALANCED').help);
   protected readonly safestUnavailable = computed(
     () => this.drone()?.optimisation === 'SAFEST' && this.health.riskDataMissing(),
   );

@@ -1,4 +1,4 @@
-import { MODE_HELP, OPTIMISATIONS, ZONE_RULE } from './routing-options';
+import { OPTIMISATIONS } from './routing-options';
 
 describe('routing options', () => {
   it('names one backend objective per optimisation (weights stay in backend config)', () => {
@@ -8,10 +8,5 @@ describe('routing options', () => {
       ['SAFEST', 'SAFEST'],
       ['LOWEST_ENERGY', 'LOWEST_ENERGY'],
     ]);
-  });
-
-  it('says emergency grants no airspace permission and that zones are always avoided', () => {
-    expect(MODE_HELP.EMERGENCY).toContain('grants no airspace permission');
-    expect(ZONE_RULE).toContain('always avoided');
   });
 });

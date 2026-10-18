@@ -56,7 +56,6 @@ describe('DroneEditorComponent', () => {
     radio('mode', 'EMERGENCY').click();
     await render();
     expect(q('mission')).toBeNull();
-    expect(q('mode-help')!.textContent).toContain('grants no airspace permission');
     expect(fleet.drones()[0].mode).toBe('EMERGENCY');
   });
 
@@ -67,12 +66,10 @@ describe('DroneEditorComponent', () => {
     radio('optimisation', 'LOWEST_ENERGY').click();
     await render();
     expect(fleet.drones()[0]).toMatchObject({ mode: 'EMERGENCY', optimisation: 'LOWEST_ENERGY' });
-    expect(q('optimisation-help')!.textContent).toContain('Least battery use');
   });
 
-  it('states that zones are always avoided and shows no drone profile or payload', () => {
-    expect(q('zone-rule')!.textContent).toContain('always avoided');
-    expect(q('profile')).toBeNull();
-    expect(el.textContent).not.toMatch(/profile|payload/i);
+  it('shows no explanatory texts, drone profile or payload', () => {
+    for (const id of ['zone-rule', 'mode-help', 'optimisation-help', 'profile']) expect(q(id)).toBeNull();
+    expect(el.textContent).not.toMatch(/always avoided|Standard flight with|Prefers the Vistula|profile|payload/i);
   });
 });

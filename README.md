@@ -1,6 +1,8 @@
 # SkyRoute Warsaw
 
-Done by Team: data_city, Afzal, Fizan, Agron Kicina, Abdullah, Saspreet
+The project name - SkyRoute Warsaw
+The team name and number: Data_city - 3
+Team member: Afzal, Fizan, Agron Kicina, Abdullah, Jaspreet
 
 A "Google Maps for drones" prototype covering the **whole City of Warsaw** (all 18 districts). Enter two addresses anywhere in the city, choose a flight profile and what to optimise, and the backend plans a drone route that:
 - avoids blocked UAS geographical zones (Polish DRA categories, evaluated for your flight's altitude and time),

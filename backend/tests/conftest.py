@@ -33,7 +33,8 @@ NOW = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
 PROFILE = DroneProfile(
     id="TEST", name="Test drone", description="", cruise_speed_mps=10, max_wind_kmh=40,
     vertical_clearance_m=10, max_range_km=50, max_payload_kg=1, cruise_power_w=200, payload_power_w_per_kg=50,
-    battery_wh=500, source="DEMO",
+    battery_wh=500, min_reserve_pct=20, max_speed_mps=14, climb_rate_mps=3, descent_rate_mps=2,
+    climb_extra_power_w=120, descent_power_w=150, hover_power_w=230, source="DEMO",
 )
 COST_MODEL = load_cost_model(COST_MODEL_FILE)
 # No per-location samples: the planner then uses the top-level wind values.

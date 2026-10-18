@@ -73,7 +73,7 @@ class NoiseParams(CamelModel):
 
 class EnergyParams(CamelModel):
     default_payload_kg: NonNegativeFloat  # used when a request omits payloadKg (clipped to the profile maximum)
-    battery_reserve_fraction: float = Field(ge=0.0, lt=1.0)  # share of battery that must remain on landing
+    # The battery reserve is a drone property: DroneProfile.minReservePct (data/drone_profiles.json).
 
 
 class ObjectivePresets(CamelModel):

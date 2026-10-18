@@ -1,0 +1,24 @@
+{
+  "description": "Headless drone simulation parameters (DEMO values). Drone performance lives in drone_profiles.json.",
+  "tickS": 1.0,
+  "defaultProfileId": "DEMO_DRONE_01",
+  "afterDelivery": "NEAREST_STATION",
+  "durations": {
+    "loadingS": 60,
+    "deliveringS": 30,
+    "chargingS": 1800
+  },
+  "batteryWarningPct": [40, 30],
+  "holding": {
+    "retryS": 30,
+    "maxS": 300
+  },
+  "randomness": {
+    "loadingJitterS": 0,
+    "gustStdKmh": 0
+  },
+  "emergency": {
+    "openSpaceSearchRadiusM": 3000
+  },
+  "positionToleranceM": 50
+}

@@ -258,7 +258,7 @@ class RoutePlanner:
         surface = self.risk.surface(CostContext(at, altitude_m, payload), drone, weights=risk_weights,
                                     wind=self.wind_provider(weather))
         energy_info = {"payload_kg": payload, "local_hour": surface.ctx.local_hour(self.risk.cfg.timezone),
-                       "battery_usable_wh": drone.usable_wh(self.risk.cfg.energy.battery_reserve_fraction)}
+                       "battery_usable_wh": drone.usable_wh(profile.reserve_fraction)}
 
         ceiling = altitude_m - profile.vertical_clearance_m
         base, cost = self._costs(mode, altitude_m, profile.vertical_clearance_m, state, obstacles, objective, surface)
@@ -317,7 +317,7 @@ class RoutePlanner:
 
         breakdown = surface.breakdown(list(line.coords))
         if breakdown.energy_wh > energy_info["battery_usable_wh"]:
-            reserve = self.risk.cfg.energy.battery_reserve_fraction
+            reserve = profile.reserve_fraction
             return result(
                 RouteStatus.INSUFFICIENT_BATTERY,
                 f"The route ({breakdown.length_m / 1000:.1f} km) needs about {breakdown.energy_wh:.0f} Wh, but the "

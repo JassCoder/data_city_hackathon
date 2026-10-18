@@ -14,7 +14,7 @@ from app.routing.risk.surface import CELL_TERMS, CostModel
 from app.routing.risk.synthetic import synthetic_world
 
 CFG = load_cost_model(COST_MODEL_FILE)
-RESERVE = CFG.energy.battery_reserve_fraction
+RESERVE = 0.2  # DroneProfile.minReservePct / 100 in production
 NOON = datetime(2026, 10, 17, 10, 0, tzinfo=timezone.utc)  # 12:00 in Warsaw
 CTX = CostContext(NOON, altitude_m=80, payload_kg=0.0)
 DRONE = DroneEnergy(cruise_speed_mps=15, cruise_power_w=250, payload_power_w_per_kg=60, battery_wh=100,

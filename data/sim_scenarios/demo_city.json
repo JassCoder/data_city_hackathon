@@ -1,0 +1,34 @@
+{
+  "name": "Demo city deliveries",
+  "description": "Three DEMO drones in central Warsaw: an urgent depot-to-hospital flight, a flight around the synthetic Sejm zone, and a rooftop-to-park hop. Airspace is synthetic; this is a simulation, not a flight authorization.",
+  "seed": 42,
+  "startTime": "2026-10-18T10:00:00+02:00",
+  "wind": { "speedKmh": 14, "directionDeg": 250 },
+  "drones": [
+    { "id": "d1", "name": "Urgent courier", "color": "#0072b2", "position": { "stationId": "st-depot" } },
+    { "id": "d2", "name": "Sejm detour", "color": "#009e73", "position": { "latitude": 52.2255, "longitude": 21.0205 } },
+    { "id": "d3", "name": "Rooftop hop", "color": "#b05fa0", "position": { "stationId": "st-rooftop" }, "batteryPct": 80 }
+  ],
+  "missions": [
+    {
+      "id": "m1", "droneId": "d1",
+      "destination": { "stationId": "st-hospital" },
+      "mode": "EMERGENCY", "routeObjective": "FASTEST", "flightAltitudeMeters": 80, "payloadKg": 0.4
+    },
+    {
+      "id": "m2", "droneId": "d2",
+      "destination": { "latitude": 52.2250, "longitude": 21.0370 },
+      "routeObjective": "CORRIDORS", "flightAltitudeMeters": 80, "payloadKg": 0.3,
+      "afterDelivery": "RETURN_TO_START", "departAtS": 30
+    },
+    {
+      "id": "m3", "droneId": "d3",
+      "destination": { "stationId": "st-park" },
+      "routeObjective": "LOWEST_ENERGY", "flightAltitudeMeters": 60,
+      "afterDelivery": "STAY_AT_DESTINATION", "departAtS": 60
+    }
+  ],
+  "events": [
+    { "atS": 300, "type": "wind_change", "speedKmh": 20, "directionDeg": 270 }
+  ]
+}

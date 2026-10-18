@@ -35,6 +35,9 @@ DATA_FILES = {
 DRONE_PROFILES_FILE = "drone_profiles.json"
 # Weights and parameters of the multi-criteria SAFEST objective (app/routing/risk).
 COST_MODEL_FILE = DATA_DIR / "cost_model.json"
+# Headless drone simulation (app/sim): engine parameters and example scenarios.
+SIM_CONFIG_FILE = DATA_DIR / "sim_config.json"
+SIM_SCENARIOS_DIR = DATA_DIR / "sim_scenarios"
 
 # Citywide coverage: the official Warsaw boundary (GUGiK PRG, TERYT 1465) and
 # its 18 districts, cached by scripts/fetch_boundaries.py.

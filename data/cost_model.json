@@ -58,7 +58,6 @@
     "radiusM": 150
   },
   "energy": {
-    "defaultPayloadKg": 0.0,
-    "batteryReserveFraction": 0.2
+    "defaultPayloadKg": 0.0
   }
 }

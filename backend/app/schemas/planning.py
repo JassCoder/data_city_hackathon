@@ -57,10 +57,28 @@ class DroneProfile(CamelModel):
     max_range_km: float = Field(gt=0)
     max_payload_kg: float = Field(ge=0)
     # Energy model (app/routing/risk/energy.py): P = cruisePowerW + payloadPowerWPerKg x payload.
-    cruise_power_w: float = Field(gt=0)
+    cruise_power_w: float = Field(gt=0)  # "base power draw" at cruise speed, no payload
     payload_power_w_per_kg: float = Field(ge=0)
     battery_wh: float = Field(gt=0)
+    min_reserve_pct: float = Field(ge=0, lt=100)  # battery share that must remain on landing (planner + simulation)
+    # Simulation kinematics and vertical/hover power (app/sim).
+    max_speed_mps: float = Field(gt=0)
+    climb_rate_mps: float = Field(gt=0)
+    descent_rate_mps: float = Field(gt=0)
+    climb_extra_power_w: float = Field(ge=0)  # added to cruise power while climbing
+    descent_power_w: float = Field(gt=0)
+    hover_power_w: float = Field(gt=0)  # delivering, holding
     source: Literal["DEMO"]
+
+    @model_validator(mode="after")
+    def _speeds_consistent(self):
+        if self.cruise_speed_mps > self.max_speed_mps:
+            raise ValueError(f"cruiseSpeedMps ({self.cruise_speed_mps}) exceeds maxSpeedMps ({self.max_speed_mps})")
+        return self
+
+    @property
+    def reserve_fraction(self) -> float:
+        return self.min_reserve_pct / 100.0
 
 
 class DroneProfilesResponse(CamelModel):

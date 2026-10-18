@@ -6,7 +6,7 @@
  * UI offers no option for it.
  */
 
-import { FlightMode, RouteObjective } from './models';
+import { CostTerm, FlightMode, RouteObjective } from './models';
 
 export type OptimisationId = 'BALANCED' | 'FASTEST' | 'SAFEST' | 'LOWEST_ENERGY';
 
@@ -52,3 +52,14 @@ export const OBJECTIVE_LABEL: Record<RouteObjective, string> = {
 };
 
 export const MODE_LABEL: Record<FlightMode, string> = { NORMAL: 'Normal', EMERGENCY: 'Emergency' };
+
+/** Plain names of the multi-criteria cost terms (data/cost_model.json). */
+export const TERM_LABEL: Record<CostTerm, string> = {
+  population: 'Crowds (estimated)',
+  obstacle_proximity: 'Near tall structures',
+  noise: 'Noise over homes',
+  emergency_landing: 'Far from landing space',
+  sensitive_areas: 'Schools, hospitals, stadiums',
+  energy: 'Energy (wind)',
+  time: 'Flight time',
+};

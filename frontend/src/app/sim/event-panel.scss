@@ -1,0 +1,146 @@
+:host {
+  display: block;
+}
+
+.ef-heading {
+  margin: 0;
+  font-size: var(--fs-13);
+}
+
+.ef-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--fw-bold);
+  text-align: left;
+
+  .count {
+    color: var(--c-muted);
+    font-weight: 500;
+  }
+}
+
+.ef-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-1) 0 var(--sp-2);
+}
+
+.ef-drone {
+  flex: 1 1 120px;
+
+  .input {
+    height: var(--control-h-s);
+    font-size: var(--fs-12);
+  }
+}
+
+.ef-sev {
+  display: flex;
+  gap: var(--sp-1);
+}
+
+// Severity is shown by shape as well as colour: square = critical, triangle = warning, circle = info.
+.sev-mark,
+.ef-icon {
+  &[data-sev='critical'] {
+    color: var(--c-danger);
+  }
+
+  &[data-sev='warning'] {
+    color: var(--c-warn);
+  }
+
+  &[data-sev='info'] {
+    color: var(--c-muted);
+  }
+}
+
+.sev-mark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+
+  &[data-sev='warning'] {
+    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  }
+
+  &[data-sev='info'] {
+    border-radius: 50%;
+  }
+}
+
+.ef-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ef-item {
+  display: grid;
+  grid-template-columns: 4.6em 16px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 6px var(--sp-2);
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: inherit;
+  font-size: var(--fs-12);
+  text-align: left;
+
+  &:hover {
+    background: var(--c-surface-2);
+  }
+
+  &[data-sev='critical'] {
+    background: var(--c-danger-soft);
+  }
+}
+
+.ef-time {
+  color: var(--c-muted);
+}
+
+.ef-icon .icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+
+.ef-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ef-title {
+  line-height: var(--lh-tight);
+
+  .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 3px;
+    border-radius: 50%;
+    vertical-align: 1px;
+  }
+}
+
+.ef-detail {
+  color: var(--c-muted);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}

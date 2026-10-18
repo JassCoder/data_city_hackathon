@@ -15,6 +15,8 @@
             <app-icon name="close" /> End
           </button>
         </header>
+        <app-telemetry-list (picked)="onPicked()" (details)="drawerOpen.set(true)" />
+        <app-event-panel (jumped)="onJumped()" />
       } @else {
         <app-sim-start [starting]="sim.phase() === 'starting'" (start)="start($event)" />
       }
@@ -67,11 +69,16 @@
 
   <aside class="drawer" aria-label="Drone details" [attr.inert]="drawerOpen() ? null : ''" data-testid="drawer">
     <div class="drawer-head">
-      <h2 class="drawer-title">Drone details</h2>
+      @if (sim.selected(); as d) {
+        <span class="drawer-dot" [style.background]="d.color" aria-hidden="true"></span>
+        <h2 class="drawer-title">{{ d.name }}</h2>
+      } @else {
+        <h2 class="drawer-title">Drone details</h2>
+      }
       <button type="button" class="icon-btn" (click)="drawerOpen.set(false)" aria-label="Close drone details">
         <app-icon name="close" />
       </button>
     </div>
-    <div class="drawer-body"></div>
+    <div class="drawer-body"><app-drone-details /></div>
   </aside>
 </div>

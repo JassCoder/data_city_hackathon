@@ -2,6 +2,12 @@
   display: contents;
 }
 
+.sidebar-body {
+  display: grid;
+  align-content: start;
+  gap: var(--sp-4);
+}
+
 .sim-head {
   display: flex;
   align-items: flex-start;

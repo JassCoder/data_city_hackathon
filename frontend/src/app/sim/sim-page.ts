@@ -15,18 +15,21 @@ import { IconComponent } from '../ui/icon';
 import { fleetToScenario } from './fleet-scenario';
 import { PlaybackBarComponent } from './playback-bar';
 import { SimLayerComponent } from './sim-layer';
+import { TelemetryListComponent } from './telemetry-list';
+import { EventPanelComponent } from './event-panel';
+import { DroneDetailsComponent } from './drone-details';
 import { SimSession } from './sim-session';
 import { SimStartComponent, StartChoice } from './sim-start';
 
 const NEXT_SHEET: Record<SheetState, SheetState> = { peek: 'half', half: 'full', full: 'peek' };
 /** Keys that belong to the focused control, not to the playback shortcuts. */
 const TYPING = 'input:not([type="range"]):not([type="radio"]):not([type="checkbox"]), textarea, select, [contenteditable]';
-const ACTIVATES_ON_SPACE = 'button, a[href], summary, [role="button"], input[type="radio"], input[type="checkbox"]';
+const ACTIVATES_ON_SPACE = 'button, a[href], summary, [role="button"], input[type="checkbox"]';
 
 /** The simulation view: scenario picker or live panels, the map with drones, the playback bar. */
 @Component({
   selector: 'app-sim-page',
-  imports: [MapComponent, LayersPanelComponent, MapLegendComponent, IconComponent, PlaybackBarComponent, SimStartComponent, SimLayerComponent],
+  imports: [MapComponent, LayersPanelComponent, MapLegendComponent, IconComponent, PlaybackBarComponent, SimStartComponent, SimLayerComponent, TelemetryListComponent, EventPanelComponent, DroneDetailsComponent],
   providers: [SimSession],
   host: { '(document:keydown)': 'onKey($event)' },
   styleUrl: './sim-page.scss',
@@ -76,6 +79,17 @@ export class SimPage implements OnDestroy {
 
   protected onMapReady(map: L.Map): void {
     this.map.set(map);
+  }
+
+  /** A telemetry row was picked: details on desktop, the map (following the drone) on phones. */
+  protected onPicked(): void {
+    if (isSmallScreen()) this.sheet.set('peek');
+    else this.drawerOpen.set(true);
+  }
+
+  /** An event was clicked: show the map on phones. */
+  protected onJumped(): void {
+    if (isSmallScreen()) this.sheet.set('peek');
   }
 
   /** A drone marker was clicked: select it and show its details. */

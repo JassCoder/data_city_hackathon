@@ -2,8 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { AirspaceService, ZoneConflict } from '../core/airspace';
 import { droneIssues, shownResponse } from '../core/fleet';
 import { FleetStore } from '../core/fleet.store';
-import { CostTerm, RouteStatus } from '../core/models';
-import { MODE_LABEL, OBJECTIVE_LABEL } from '../core/routing-options';
+import { RouteStatus } from '../core/models';
+import { MODE_LABEL, OBJECTIVE_LABEL, TERM_LABEL } from '../core/routing-options';
 import { IconComponent } from '../ui/icon';
 import { formatDistance, formatDuration, formatNumber } from '../ui/format';
 
@@ -33,15 +33,7 @@ export const STATUS_NEXT_STEP: Partial<Record<RouteStatus, string>> = {
   RISK_DATA_UNAVAILABLE: 'Choose another route optimisation: the server has not loaded the risk layers Safest needs.',
 };
 
-const TERM_LABEL: Record<CostTerm, string> = {
-  population: 'Crowds (estimated)',
-  obstacle_proximity: 'Near tall structures',
-  noise: 'Noise over homes',
-  emergency_landing: 'Far from landing space',
-  sensitive_areas: 'Schools, hospitals, stadiums',
-  energy: 'Energy (wind)',
-  time: 'Flight time',
-};
+
 
 const RELATION_TEXT: Record<ZoneConflict['relation'], string> = {
   START_INSIDE: 'Point A inside',

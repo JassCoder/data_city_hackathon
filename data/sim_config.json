@@ -18,7 +18,8 @@
     "gustStdKmh": 0
   },
   "emergency": {
-    "openSpaceSearchRadiusM": 3000
+    "openSpaceSearchRadiusM": 3000,
+    "openSpaceCandidates": 5
   },
   "positionToleranceM": 50
 }

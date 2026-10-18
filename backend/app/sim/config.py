@@ -46,6 +46,7 @@ class Randomness(CamelModel):
 
 class EmergencyParams(CamelModel):
     open_space_search_radius_m: PositiveFloat  # how far to look for open green space
+    open_space_candidates: int = Field(ge=1)  # nearest open-space cells tried (a route is planned to each)
 
 
 class SimConfig(CamelModel):

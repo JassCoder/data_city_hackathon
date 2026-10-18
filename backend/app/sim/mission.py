@@ -46,6 +46,7 @@ class MissionRun:
     loading_s: float  # this run's loading time (config value, plus seeded jitter if configured)
     status: MissionStatus = MissionStatus.LOADING
     return_target: Target | None = None
+    return_energy_wh: float = 0.0  # planned cruise energy of the leg after delivery (0 = stay at B)
     planned_energy_wh: float | None = None  # pre-flight estimate for the whole mission
 
     @property

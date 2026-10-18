@@ -157,6 +157,8 @@ export class MapComponent implements OnDestroy {
   readonly route = input<RouteState>({ phase: 'idle' });
   /** Virtual flight frame (drone position, heading, flown trails, return route); null = no simulation. */
   readonly simulation = input<SimFrame | null>(null);
+  /** Fleet dashboard district: zoom to it; back to null shows the whole city. */
+  readonly zoomDistrict = input<string | null>(null);
   /** True while a "Pick on map" target is armed (crosshair cursor). */
   readonly picking = input(false);
   /** Evaluated airspace zones to draw (already filtered for display). */
@@ -286,6 +288,18 @@ export class MapComponent implements OnDestroy {
     effect(() => this.syncMarker('destination', this.destination()));
     effect(() => this.syncRoute(this.route()));
     effect(() => this.syncSimulation(this.simulation()));
+    let lastDistrict: string | null = null;
+    effect(() => {
+      const name = this.zoomDistrict(); // read first so the effect tracks it
+      const boundary = this.boundary();
+      if (name === lastDistrict || !this.map) return;
+      if (name) {
+        if (this.zoomToDistrict(name, boundary)) lastDistrict = name; // retried once the boundary has loaded
+      } else {
+        lastDistrict = null;
+        this.showEntireWarsaw();
+      }
+    });
     effect(() => this.mapEl().nativeElement.classList.toggle('picking', this.picking()));
     effect(() => this.syncZones(this.zones(), this.highlightZoneIds()));
     effect(() => this.syncSource(this.airspaceSource()));
@@ -367,6 +381,14 @@ export class MapComponent implements OnDestroy {
   }
 
   /** Fits the whole official city boundary in the map (with padding). */
+  private zoomToDistrict(name: string, boundary: BoundaryResponse | undefined): boolean {
+    const feature = boundary?.districts.features.find((f) => f.properties.name === name);
+    const size = this.map?.getSize();
+    if (!this.map || !feature || !size || !size.x || !size.y) return false;
+    this.map.fitBounds(L.geoJSON(feature as GeoJSON.Feature).getBounds(), { padding: [24, 24] });
+    return true;
+  }
+
   showEntireWarsaw(): void {
     if (!this.map) return;
     // A zero-size container (hidden tab, not laid out yet) would make fitBounds

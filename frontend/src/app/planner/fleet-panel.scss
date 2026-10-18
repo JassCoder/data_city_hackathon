@@ -55,3 +55,7 @@ tr.lvl-medium td { color: #8d5300; }
 .stations { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow: auto; label { flex-direction: row; gap: 4px; align-items: center; } }
 .hint { margin: 4px 0; font-size: 11px; color: var(--mat-sys-on-surface-variant); }
 .error { color: var(--mat-sys-error); }
+
+.pt .hint { display: block; }
+.pt .err { color: var(--mat-sys-error); }
+.order-form app-address-search { display: block; }

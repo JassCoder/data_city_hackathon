@@ -68,6 +68,10 @@ class OrderType(StrEnum):
     MEDICAL_SUPPLIES = "MEDICAL_SUPPLIES"
 
 
+# Medical orders are picked up at the nearest hospital when no pickup is given.
+MEDICAL_ORDER_TYPES = {OrderType.BLOOD_DELIVERY, OrderType.AED_DELIVERY, OrderType.MEDICAL_SUPPLIES}
+
+
 class OrderStatus(StrEnum):
     CREATED = "CREATED"
     ASSIGNED = "ASSIGNED"  # drone + capacity reserved
@@ -215,7 +219,8 @@ class Drone(CamelModel):
 
 class OrderCreate(CamelModel):
     order_type: OrderType
-    pickup: Coordinate  # the user's Point A (or an explicitly chosen facility's point)
+    # The user's pickup address. Optional for medical orders: the nearest hospital is used then.
+    pickup: Coordinate | None = None
     destination: Coordinate  # the user's Point B
     pickup_facility_id: str | None = None  # explicit choice: a restaurant pad / hospital station / depot
     destination_facility_id: str | None = None  # explicit choice: landing at a hospital station etc.
@@ -223,6 +228,14 @@ class OrderCreate(CamelModel):
     drone_profile_id: str | None = None  # restrict to this profile
     flight_altitude_meters: int = Field(default=80, ge=20, le=120, multiple_of=5)
     weather_mode: WeatherMode = WeatherMode.SAMPLE
+
+
+class NearestHospital(CamelModel):
+    hospital: Hospital
+    distance_m: float  # straight line from the delivery address
+    pickup: Coordinate  # the enabled station if there is one, else the hospital's mapped point
+    pickup_facility_id: str | None  # set only when the hospital's station is enabled for dispatch
+    note: str
 
 
 class RouteLeg(CamelModel):

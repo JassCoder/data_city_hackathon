@@ -17,6 +17,7 @@ from app.fleet.models import (
     FacilityKind,
     FacilityPatch,
     Hospital,
+    NearestHospital,
     Order,
     OrderCreate,
     OrderStatus,
@@ -62,6 +63,12 @@ def _call(fn, *args, **kwargs):
 @router.get("/hospitals", response_model=Page[Hospital], summary="OSM hospitals in Warsaw with their simulated station")
 def hospitals(fleet: Fleet, bbox: BboxQ = None, district: str | None = None, offset: Offset = 0, limit: Limit = 500):
     return fleet.hospitals(parse_bbox(bbox) if bbox else None, district, offset, limit)
+
+
+@router.get("/hospitals/nearest", response_model=NearestHospital,
+            summary="Nearest hospital to a delivery address (pickup point for medical orders)")
+def nearest_hospital(fleet: Fleet, latitude: float = Query(ge=-90, le=90), longitude: float = Query(ge=-180, le=180)):
+    return _call(fleet.nearest_hospital, latitude, longitude)
 
 
 @router.get("/hospitals/{hospital_id:path}", response_model=Hospital)

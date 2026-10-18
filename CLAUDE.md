@@ -206,6 +206,14 @@ Schemas are in `app/schemas/layers.py`.
   - `planner/fleet-panel` is the dashboard.
   - In `MapComponent` effects, read the input before `this.fleet?.…`, otherwise the effect never tracks it.
   - Facility popups are the only code that sets Point A/B from a facility (`source: 'FACILITY'`).
+  - The order form has its own addresses (`OrderDraft.pickup` / `delivery`, `planner/address-search.ts`), never the planner's A/B. Food orders need a pickup and a delivery address.
+  - Blood, AED and medical-supplies orders ask only for the delivery address. The pickup is the nearest hospital (`GET /hospitals/nearest`, straight line, skipping points inside blocked zones; its enabled station if any). The backend does the same when `pickup` is omitted.
+  - Restaurant "order from" and station "deliver to" popups fill the form.
+  - Each address field also has "Select on map" (`FleetService.pickTarget`). `App.onMapClick` gives the click to the armed fleet field before the planner, and rejects points outside Warsaw.
+  - The Orders list and the map's delivery routes show only orders created in this browser session (`myOrderIds`, sessionStorage `skyroute.fleet.myOrders.v1`).
+  - `FleetService.showLayersFor(type)` switches on that order type's layers (`ORDER_LAYERS`).
+  - The district filter zooms the map (`MapComponent.zoomDistrict`); "All of Warsaw" shows the whole city.
+  - "No eligible drone" is one summary sentence (`_no_drone_message`); details stay in `candidates`.
 - **Test fixtures:** `src/testing/fleet-fixtures.ts`. `flushStartup` answers the fleet requests (`flushFleet`). Spec rule: flush first, then `whenStable()`.
 
 ### Frontend structure

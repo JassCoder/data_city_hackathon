@@ -11,6 +11,7 @@ import { PlannerStore } from './core/planner.store';
 import { SimulationService } from './core/simulation';
 import { AirspaceService } from './core/airspace';
 import { MapDataService } from './core/map-data';
+import { Coordinate } from './core/models';
 import { PlannerPanelComponent } from './planner/planner-panel';
 import { RouteDetailsPanelComponent } from './planner/route-details-panel';
 import { MapLayersControlComponent } from './map/layers-control';
@@ -58,6 +59,19 @@ export class App {
     return this.healthInfo()?.status === 'ok' ? 'online' : 'offline';
   });
 
+  /** A fleet "Select on map" field takes the click; otherwise the planner does. */
+  protected onMapClick(c: Coordinate): void {
+    if (!this.fleet.pickTarget()) {
+      this.planner.handleMapClick(c);
+      return;
+    }
+    if (this.mapData.contains(c) === false) {
+      this.fleet.lastMessage.set({ ok: false, text: 'That point is outside the City of Warsaw boundary. Choose a point inside Warsaw.' });
+      return;
+    }
+    this.fleet.setPickedPoint(c);
+  }
+
   /** Popup actions are explicit user choices; scenario selection never moves Point A/B. */
   protected onFacilityAction(a: FacilityAction): void {
     switch (a.action) {
@@ -67,20 +81,19 @@ export class App {
           { coordinate: { latitude: a.latitude, longitude: a.longitude }, label: a.label, source: 'FACILITY' });
         break;
       case 'orderFrom': {
+        // Fills the fleet order form (its own addresses); the planner's Point A/B stay as they are.
         const point = { latitude: a.latitude, longitude: a.longitude };
-        if (this.planner.setLocation('start', { coordinate: point, label: `${a.label} (pickup pad)`, source: 'FACILITY' })) {
-          this.fleet.draft.update((d) => ({ ...d, orderType: 'FOOD_DELIVERY', pickupFacilityId: a.padId,
-            pickupFacilityPoint: point, partnerId: a.restaurantId }));
-          this.fleet.dashboardOpen.set(true);
-        }
+        this.fleet.draft.update((d) => ({ ...d, orderType: 'FOOD_DELIVERY', pickup: { coordinate: point, label: `${a.label} (pickup pad)` },
+          pickupFacilityId: a.padId, partnerId: a.restaurantId }));
+        this.fleet.showLayersFor('FOOD_DELIVERY');
+        this.fleet.dashboardOpen.set(true);
         break;
       }
       case 'deliverTo': {
         const point = { latitude: a.latitude, longitude: a.longitude };
-        if (this.planner.setLocation('destination', { coordinate: point, label: `${a.label} (drone station)`, source: 'FACILITY' })) {
-          this.fleet.draft.update((d) => ({ ...d, destinationFacilityId: a.stationId, destinationFacilityPoint: point }));
-          this.fleet.dashboardOpen.set(true);
-        }
+        this.fleet.draft.update((d) => ({ ...d, delivery: { coordinate: point, label: `${a.label} (drone station)` },
+          destinationFacilityId: a.stationId }));
+        this.fleet.dashboardOpen.set(true);
         break;
       }
       case 'viewFleet':

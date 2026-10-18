@@ -44,7 +44,9 @@ from app.fleet.models import (
     Facility,
     FacilityKind,
     FacilityPatch,
+    MEDICAL_ORDER_TYPES,
     Hospital,
+    NearestHospital,
     Order,
     OrderCreate,
     OrderStatus,
@@ -178,6 +180,31 @@ class FleetService:
             raise NotFound(f"Hospital '{hid}' not found.")
         r = self._facility_by_ref("HOSPITAL_STATION", hid)
         return self._hospital(p, self._facility(r, self._drone_counts()) if r else None)
+
+    def nearest_hospital(self, lat: float, lon: float, altitude_m: int = 80) -> NearestHospital:
+        """Closest mapped hospital (straight line) to a delivery address whose pickup point is
+        inside Warsaw and not inside a blocked zone / planning constraint."""
+        cov = self.planner.coverage
+        counts = self._drone_counts()
+        stations = {r["ref_id"]: self._facility(r, counts)
+                    for r in self.db.query("SELECT * FROM facilities WHERE kind = 'HOSPITAL_STATION'")}
+        best = None
+        for p in sorted(self.pois.hospitals.query(None, None), key=lambda p: _dist_m(lat, lon, p.latitude, p.longitude)):
+            st = stations.get(p.id)
+            use_station = st is not None and st.dispatch_enabled
+            plat, plon = (st.latitude, st.longitude) if use_station else (p.latitude, p.longitude)
+            if not cov.contains(plon, plat) or self.check_point(plat, plon, altitude_m=altitude_m).obstacle_zones:
+                continue
+            best = (p, st, use_station, plat, plon)
+            break
+        if best is None:
+            raise NotFound("No hospital with a reachable pickup point was found in Warsaw.")
+        p, st, use_station, plat, plon = best
+        note = (f"Pickup at the hospital's enabled drone station ({st.name})." if use_station else
+                "Pickup at the hospital's mapped location (no enabled drone station there; simulated pickup).")
+        return NearestHospital(hospital=self._hospital(p, st), distance_m=round(_dist_m(lat, lon, p.latitude, p.longitude), 1),
+                               pickup=Coordinate(latitude=plat, longitude=plon),
+                               pickup_facility_id=st.id if use_station else None, note=note)
 
     # --- restaurants & subscriptions --------------------------------------------------
     def _subscriptions(self) -> dict[str, Any]:
@@ -514,6 +541,12 @@ class FleetService:
         return self._order(r)
 
     def create_order(self, req: OrderCreate) -> Order:
+        if req.pickup is None:
+            if req.order_type not in MEDICAL_ORDER_TYPES:
+                raise Invalid("A pickup address is required for food deliveries.")
+            near = self.nearest_hospital(req.destination.latitude, req.destination.longitude, req.flight_altitude_meters)
+            req = req.model_copy(update={"pickup": near.pickup, "pickup_facility_id": near.pickup_facility_id,
+                                         "partner_id": req.partner_id or near.hospital.id})
         cov = self.planner.coverage
         for label, p in (("Pickup", req.pickup), ("Destination", req.destination)):
             if not cov.contains(p.longitude, p.latitude):
@@ -682,8 +715,25 @@ class FleetService:
             except _Full as full:
                 row = self.db.one("SELECT * FROM facilities WHERE id = ?", (full.fid,))
                 return fail(OrderStatus.FAILED, self._facility_full_message(row), candidates)
-        reasons = "; ".join(sorted({c.reason for c in candidates if not c.eligible})) or "no candidates"
-        return fail(OrderStatus.NO_DRONE_AVAILABLE, f"No eligible drone: {reasons}", candidates)
+        return fail(OrderStatus.NO_DRONE_AVAILABLE, self._no_drone_message(candidates), candidates)
+
+    @staticmethod
+    def _no_drone_message(candidates: list[AssignmentCandidate]) -> str:
+        """One readable sentence instead of one line per checked drone."""
+        bad = [c for c in candidates if not c.eligible]
+        if not bad:
+            return "No eligible drone: no candidates."
+        ranged = [c for c in bad if c.total_distance_m is not None]
+        parts = []
+        if ranged:
+            best = min(ranged, key=lambda c: c.total_distance_m)
+            parts.append(f"out of range for {len(ranged)} drone{'s' if len(ranged) != 1 else ''} checked; the closest "
+                         f"needs {best.total_distance_m / 1000:.1f} km incl. return ({best.reason.split('; ', 1)[-1]})")
+        other = sorted({c.reason for c in bad if c.total_distance_m is None})
+        parts.extend(other[:2])
+        if len(other) > 2:
+            parts.append(f"{len(other) - 2} other reason(s)")
+        return "No eligible drone: " + "; ".join(parts) + ". Try a pickup closer to a depot."
 
     def advance(self, oid: str) -> Order:
         """One simulated step of the delivery, updating drone state and parking occupancy."""

@@ -2,7 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient, HttpHeaders, httpResource } from '@angular/common/http';
 import { Observable, tap } from 'rxjs';
 import { API_BASE_URL, safeValue } from './api';
-import { MapLayerStore } from './map-layers';
+import { LayerKey, MapLayerStore } from './map-layers';
 import { Coordinate } from './models';
 
 /** Wire models for the simulated delivery infrastructure (backend/app/fleet/models.py). */
@@ -192,14 +192,37 @@ export interface DemandReport {
   notice?: string;
 }
 
+/** An address chosen in the fleet order form (independent of the planner's Point A/B). */
+export interface OrderPlace {
+  coordinate: Coordinate;
+  label: string;
+}
+
 export interface OrderDraft {
   orderType: OrderType;
-  /** Facility whose point was explicitly set as Point A (e.g. "Order food from this restaurant"). */
+  /** Pickup address (food only; medical orders start at the nearest hospital). */
+  pickup: OrderPlace | null;
+  delivery: OrderPlace | null;
+  /** Set by facility popups ("Order food from this restaurant", "Deliver to this station"). */
   pickupFacilityId: string | null;
-  pickupFacilityPoint: Coordinate | null;
   destinationFacilityId: string | null;
-  destinationFacilityPoint: Coordinate | null;
   partnerId: string | null;
+}
+
+export const MEDICAL_ORDER_TYPES: ReadonlySet<OrderType> = new Set(['BLOOD_DELIVERY', 'AED_DELIVERY', 'MEDICAL_SUPPLIES']);
+
+/** Map layers switched on for each order type (the other type's layers are switched off). */
+export const ORDER_LAYERS: Record<'FOOD' | 'MEDICAL', { on: LayerKey[]; off: LayerKey[] }> = {
+  FOOD: { on: ['partners', 'pads', 'depots', 'drones', 'deliveries'], off: ['hospitals'] },
+  MEDICAL: { on: ['hospitals', 'depots', 'drones', 'deliveries'], off: ['partners', 'pads'] },
+};
+
+export interface NearestHospital {
+  hospital: Hospital;
+  distanceM: number;
+  pickup: Coordinate;
+  pickupFacilityId: string | null;
+  note: string;
 }
 
 /** Development-only admin token (backend config.ADMIN_TOKEN default). Not production authentication. */
@@ -207,12 +230,23 @@ export const DEV_ADMIN_TOKEN = 'dev-admin-token';
 
 export const ACTIVE_ORDER_STATUSES: OrderStatus[] = ['ASSIGNED', 'TO_PICKUP', 'LOADING', 'IN_DELIVERY', 'DELIVERED', 'RETURNING'];
 
+const MY_ORDERS_KEY = 'skyroute.fleet.myOrders.v1';
+
+function restoreIds(): string[] {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(MY_ORDERS_KEY) ?? '[]');
+    return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export const EMPTY_DRAFT: OrderDraft = {
   orderType: 'FOOD_DELIVERY',
+  pickup: null,
+  delivery: null,
   pickupFacilityId: null,
-  pickupFacilityPoint: null,
   destinationFacilityId: null,
-  destinationFacilityPoint: null,
   partnerId: null,
 };
 
@@ -261,7 +295,15 @@ export class FleetService {
   readonly orders = computed(() => safeValue(this.ordersResource) ?? []);
   readonly summary = computed(() => safeValue(this.summaryResource));
   readonly demand = computed(() => safeValue(this.demandResource));
-  readonly activeOrders = computed(() => this.orders().filter((o) => ACTIVE_ORDER_STATUSES.includes(o.status)));
+  /** Orders created in this browser session: the only ones listed and drawn. */
+  readonly myOrderIds = signal<string[]>(restoreIds());
+  readonly myOrders = computed(() => {
+    const ids = new Set(this.myOrderIds());
+    return this.orders().filter((o) => ids.has(o.id));
+  });
+  readonly activeOrders = computed(() => this.myOrders().filter((o) => ACTIVE_ORDER_STATUSES.includes(o.status)));
+  /** Order-form field waiting for a map click (fleet "Select on map"). */
+  readonly pickTarget = signal<'pickup' | 'delivery' | null>(null);
   readonly enabledStations = computed(() =>
     this.hospitals().filter((h) => h.station?.dispatchEnabled).map((h) => ({ hospital: h, station: h.station! })),
   );
@@ -279,16 +321,49 @@ export class FleetService {
     return obs.pipe(tap({ next: () => this.refresh(), error: () => this.refresh() }));
   }
 
+  /** Shows the layers that matter for an order type (hiding only changes the map, never routing). */
+  showLayersFor(type: OrderType): void {
+    const preset = ORDER_LAYERS[MEDICAL_ORDER_TYPES.has(type) ? 'MEDICAL' : 'FOOD'];
+    for (const k of preset.on) this.mapLayers.set(k, true);
+    for (const k of preset.off) this.mapLayers.set(k, false);
+  }
+
+  nearestHospital(c: Coordinate): Observable<NearestHospital> {
+    return this.http.get<NearestHospital>(`${API_BASE_URL}/hospitals/nearest`,
+      { params: { latitude: c.latitude, longitude: c.longitude } });
+  }
+
   createOrder(body: {
     orderType: OrderType;
-    pickup: Coordinate;
+    /** Omitted for medical orders: the backend uses the nearest hospital. */
+    pickup?: Coordinate | null;
     destination: Coordinate;
     pickupFacilityId?: string | null;
     destinationFacilityId?: string | null;
     partnerId?: string | null;
     flightAltitudeMeters?: number;
   }): Observable<Order> {
-    return this.after(this.http.post<Order>(`${API_BASE_URL}/orders`, body));
+    return this.after(this.http.post<Order>(`${API_BASE_URL}/orders`, body).pipe(tap((o) => this.remember(o.id))));
+  }
+
+  private remember(id: string): void {
+    this.myOrderIds.update((ids) => (ids.includes(id) ? ids : [id, ...ids]));
+    try {
+      sessionStorage.setItem(MY_ORDERS_KEY, JSON.stringify(this.myOrderIds()));
+    } catch {
+      // storage unavailable: the list lasts for this page only
+    }
+  }
+
+  /** Fills the armed order-form field from a map click. */
+  setPickedPoint(c: Coordinate): void {
+    const target = this.pickTarget();
+    if (!target) return;
+    const place = { coordinate: c, label: `Map point ${c.latitude.toFixed(5)}, ${c.longitude.toFixed(5)}` };
+    this.draft.update((d) => target === 'pickup'
+      ? { ...d, pickup: place, pickupFacilityId: null, partnerId: null }
+      : { ...d, delivery: place, destinationFacilityId: null });
+    this.pickTarget.set(null);
   }
 
   assign(orderId: string): Observable<AssignmentResult> {

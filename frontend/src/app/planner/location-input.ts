@@ -18,11 +18,11 @@ export const ACCURACY_LABEL: Record<GeocodeAccuracy, string> = {
   PLACE: 'Place-level approximation',
   COORDINATES: 'Coordinates as entered',
 };
-const BUILDING_LEVEL: ReadonlySet<GeocodeAccuracy | null | undefined> = new Set(['ADDRESS', 'NEARBY_BUILDING']);
+export const BUILDING_LEVEL: ReadonlySet<GeocodeAccuracy | null | undefined> = new Set(['ADDRESS', 'NEARBY_BUILDING']);
 /** Building-level matches this close to the best one are the same building (e.g. shops inside a station). */
-const SAME_BUILDING_M = 75;
+export const SAME_BUILDING_M = 75;
 
-function distanceM(a: GeocodeResult, b: GeocodeResult): number {
+export function distanceM(a: GeocodeResult, b: GeocodeResult): number {
   const dy = (a.latitude - b.latitude) * 111_320;
   const dx = (a.longitude - b.longitude) * 111_320 * Math.cos((a.latitude * Math.PI) / 180);
   return Math.hypot(dx, dy);

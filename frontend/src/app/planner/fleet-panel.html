@@ -59,30 +59,36 @@
       }
     </select>
   </label>
-  <p class="pt" data-testid="order-pickup">
-    <b>Pickup (Point A):</b>
-    {{ store.start()?.label ?? 'not selected' }}
-    @if (pickupFacility(); as f) { <span class="tag">pad {{ f }}</span> }
-  </p>
-  <p class="pt" data-testid="order-destination">
-    <b>Destination (Point B):</b>
-    {{ store.destination()?.label ?? 'not selected' }}
-    @if (destinationFacility(); as f) { <span class="tag">lands at {{ f }}</span> }
-  </p>
-  <label>
-    Land at hospital station (optional)
-    <select data-testid="order-station" [value]="destinationFacility() ?? ''" (change)="setDestinationStation($any($event.target).value)">
-      <option value="">No – drop-off at Point B</option>
-      @for (s of fleet.enabledStations(); track s.station.id) {
-        <option [value]="s.station.id">{{ s.hospital.name ?? s.station.name }} ({{ s.station.available }}/{{ s.station.capacity }} free)</option>
+  @if (isMedical()) {
+    <app-address-search label="Delivery address" testId="order-delivery" [value]="fleet.draft().delivery"
+                        [picking]="fleet.pickTarget() === 'delivery'" (pickOnMap)="togglePick('delivery')"
+                        (chosen)="setDelivery($event)" />
+    <div class="pt" data-testid="order-hospital">
+      <b>Pickup:</b>
+      @if (nearest(); as n) {
+        nearest hospital – {{ n.hospital.name ?? 'unnamed hospital' }} ({{ n.distanceM / 1000 | number: '1.1-1' }} km)
+        <span class="hint">{{ n.note }}</span>
+      } @else if (nearestLoading()) {
+        finding the nearest hospital…
+      } @else if (nearestError(); as e) {
+        <span class="err">{{ e }}</span>
+      } @else {
+        the nearest hospital to the delivery address (chosen automatically)
       }
-    </select>
-  </label>
+    </div>
+  } @else {
+    <app-address-search label="Pickup address" testId="order-pickup" [value]="fleet.draft().pickup"
+                        placeholder="e.g. Nowy Świat 10, Warszawa" [picking]="fleet.pickTarget() === 'pickup'"
+                        (pickOnMap)="togglePick('pickup')" (chosen)="setPickup($event)" />
+    <app-address-search label="Delivery address" testId="order-delivery" [value]="fleet.draft().delivery"
+                        [picking]="fleet.pickTarget() === 'delivery'" (pickOnMap)="togglePick('delivery')"
+                        (chosen)="setDelivery($event)" />
+  }
   <button mat-flat-button data-testid="order-submit" [disabled]="!canOrder()" (click)="createAndAssign()">
     <mat-icon>local_shipping</mat-icon> Create order &amp; assign drone
   </button>
-  @if (!store.start() || !store.destination()) {
-    <p class="hint">Select Point A and Point B in the planner (search, map click, or a facility popup).</p>
+  @if (missing(); as m) {
+    <p class="hint" data-testid="order-missing">{{ m }}</p>
   }
   @if (fleet.lastMessage(); as m) {
     <p [class]="m.ok ? 'msg ok' : 'msg err'" data-testid="fleet-message" role="status">{{ m.text }}</p>
@@ -91,7 +97,7 @@
 
 <h3>Orders</h3>
 <ul class="orders" data-testid="orders">
-  @for (o of fleet.orders().slice(0, 12); track o.id) {
+  @for (o of fleet.myOrders().slice(0, 12); track o.id) {
     <li [attr.data-order-id]="o.id" [class]="'order st-' + o.status.toLowerCase()">
       <div class="row1">
         <b>{{ o.orderType.replace('_', ' ') }}</b>
@@ -117,7 +123,7 @@
       </div>
     </li>
   } @empty {
-    <li class="hint">No orders yet.</li>
+    <li class="hint">No orders yet. Orders you create appear here.</li>
   }
 </ul>
 @if (charging().length) {

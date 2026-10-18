@@ -69,7 +69,7 @@ describe('App', () => {
     expect(summary).toContain('18 districts');
   });
 
-  it('facility popup actions are the only way facilities become Point A/B', async () => {
+  it('facility popups set Point A/B explicitly; restaurant popups fill the fleet order form', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
@@ -80,13 +80,33 @@ describe('App', () => {
     expect(store.start()).toBeNull();
     app.onFacilityAction({ action: 'orderFrom', restaurantId: 'osm:node/10', padId: PAD.id,
       latitude: PAD.latitude, longitude: PAD.longitude, label: 'Zapiecek' });
-    expect(store.start()).toMatchObject({ coordinate: { latitude: PAD.latitude, longitude: PAD.longitude }, source: 'FACILITY' });
-    expect(fleet.draft()).toMatchObject({ orderType: 'FOOD_DELIVERY', pickupFacilityId: PAD.id, partnerId: 'osm:node/10' });
+    expect(store.start()).toBeNull(); // the fleet form has its own addresses
+    expect(fleet.draft()).toMatchObject({ orderType: 'FOOD_DELIVERY', pickupFacilityId: PAD.id, partnerId: 'osm:node/10',
+      pickup: { coordinate: { latitude: PAD.latitude, longitude: PAD.longitude } } });
+    app.onFacilityAction({ action: 'setStart', latitude: PAD.latitude, longitude: PAD.longitude, label: 'Zapiecek' });
     expect(fleet.dashboardOpen()).toBe(true);
     app.onFacilityAction({ action: 'setDestination', latitude: 52.2353, longitude: 21.0225, label: 'Szpital' });
     expect(store.destination()?.label).toBe('Szpital');
     store.selectScenario('EMERGENCY'); // scenario selection never moves the points
     expect(store.start()?.coordinate).toEqual({ latitude: PAD.latitude, longitude: PAD.longitude });
+  });
+
+  it('a map click fills the armed fleet field instead of the planner (and never outside Warsaw)', async () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    await settle(TestBed.inject(HttpTestingController), fixture);
+    const app = fixture.componentInstance as unknown as { onMapClick(c: { latitude: number; longitude: number }): void };
+    const fleet = TestBed.inject(FleetService);
+    const store = TestBed.inject(PlannerStore);
+    fleet.pickTarget.set('pickup');
+    app.onMapClick({ latitude: 52.05, longitude: 21.0 }); // outside the boundary fixture
+    expect(fleet.draft().pickup).toBeNull();
+    expect(fleet.lastMessage()?.text).toContain('outside the City of Warsaw');
+    app.onMapClick({ latitude: 52.2297, longitude: 21.0122 });
+    expect(fleet.draft().pickup?.coordinate).toEqual({ latitude: 52.2297, longitude: 21.0122 });
+    expect(store.start()).toBeNull();
+    app.onMapClick({ latitude: 52.2297, longitude: 21.0122 }); // no field armed: the planner gets it
+    expect(store.start()?.source).toBe('MAP_CLICK');
   });
 
   it('lays out the planner, a full map and floating controls instead of a right column', async () => {

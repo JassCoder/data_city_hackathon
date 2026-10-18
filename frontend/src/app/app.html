@@ -27,7 +27,8 @@
       [destination]="planner.destination()"
       [route]="planner.route()"
       [simulation]="sim.frame()"
-      [picking]="planner.pickTarget() !== null"
+      [zoomDistrict]="fleet.district()"
+      [picking]="planner.pickTarget() !== null || fleet.pickTarget() !== null"
       [zones]="airspace.visibleZones()"
       [airspaceSource]="airspace.source()"
       [highlightZoneIds]="airspace.highlightZoneIds()"
@@ -44,7 +45,7 @@
       [entrances]="planner.entranceChoice()?.entrances ?? []"
       (entranceSelected)="planner.chooseEntrance($event)"
       (facilityAction)="onFacilityAction($event)"
-      (mapClick)="planner.handleMapClick($event)"
+      (mapClick)="onMapClick($event)"
       (focusDone)="airspace.focusZoneId.set(null)"
     />
     <div class="overlay top-right">

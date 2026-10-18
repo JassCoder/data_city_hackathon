@@ -352,6 +352,38 @@ def test_insufficient_battery_or_range(fleet):
     assert not res.assigned and any("Battery" in c.reason for c in res.candidates)
 
 
+@pytest.mark.parametrize("kind", [OrderType.BLOOD_DELIVERY, OrderType.AED_DELIVERY, OrderType.MEDICAL_SUPPLIES])
+def test_medical_order_without_pickup_starts_at_the_nearest_hospital(fleet, kind):
+    dest = C(52.1990, 21.0280)  # close to "Szpital Testowy Mokotów"
+    near = fleet.nearest_hospital(dest.latitude, dest.longitude)
+    assert near.hospital.name == "Szpital Testowy Mokotów" and near.distance_m < 600
+    o = fleet.create_order(OrderCreate(order_type=kind, destination=dest))
+    assert (o.pickup.latitude, o.pickup.longitude) == (near.pickup.latitude, near.pickup.longitude)
+    assert o.partner_id == near.hospital.id
+    assert (o.destination.latitude, o.destination.longitude) == (dest.latitude, dest.longitude)
+
+
+def test_food_order_needs_a_pickup_address(fleet):
+    with pytest.raises(Invalid, match="pickup address is required"):
+        fleet.create_order(OrderCreate(order_type=OrderType.FOOD_DELIVERY, destination=C(52.2, 21.0)))
+
+
+def test_no_drone_message_is_one_summary_not_a_line_per_drone(fleet):
+    with fleet.db.tx() as c:
+        c.execute("UPDATE drones SET battery_pct = 30")
+    res = fleet.assign(order(fleet, pickup=(52.3300, 21.0100), dest=(52.1200, 21.0400)).id, WEATHER)
+    assert not res.assigned
+    assert res.message.count("Needs") == 0 and res.message.count("needs") == 1
+    assert "drones checked" in res.message or "drone checked" in res.message
+    assert len([c for c in res.candidates if not c.eligible]) >= 2  # the details stay in the candidate list
+
+
+def test_api_nearest_hospital(client):
+    r = client.get("/api/v1/hospitals/nearest", params={"latitude": 52.2297, "longitude": 21.0122})
+    assert r.status_code == 200, r.text
+    assert r.json()["hospital"]["name"] and r.json()["distanceM"] >= 0
+
+
 def test_concurrent_orders_compete_for_a_single_drone(fleet):
     probe = fleet.assign(order(fleet).id, WEATHER)  # the drone the assigner would pick for this trip
     keep = probe.order.drone_id

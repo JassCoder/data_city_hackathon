@@ -2,6 +2,7 @@ import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { API_BASE_URL } from '../core/api';
+import { MapLayerStore } from '../core/map-layers';
 import { FleetService } from '../core/fleet';
 import { PlannerStore } from '../core/planner.store';
 import { CENTRALNA, KOPERNIK, settle } from '../../testing/fixtures';
@@ -16,6 +17,7 @@ describe('FleetPanelComponent', () => {
   let fleet: FleetService;
 
   beforeEach(async () => {
+    sessionStorage.clear(); // "my orders" and layer choices are kept per browser session
     TestBed.configureTestingModule({
       imports: [FleetPanelComponent],
       providers: [provideHttpClient(), provideHttpClientTesting()],
@@ -75,16 +77,38 @@ describe('FleetPanelComponent', () => {
     expect(q('stat-depots').textContent).toBe('1');
   });
 
-  it('orders use the planner Point A and B; nothing is sent without both', async () => {
-    expect((q('order-submit') as HTMLButtonElement).disabled).toBe(true);
-    store.setLocation('start', CENTRALNA);
+  /** Searches an address in one of the order form fields and answers with a single building match. */
+  async function chooseAddress(field: string, name: string, latitude: number, longitude: number) {
+    const box = q(field);
+    const input = box.querySelector<HTMLInputElement>('[data-testid="query"]')!;
+    input.value = name;
+    input.dispatchEvent(new Event('input'));
+    box.querySelector<HTMLButtonElement>('[data-testid="search"]')!.click();
+    http.expectOne((r) => r.url === `${API_BASE_URL}/geocoding/search`).flush({
+      query: name, provider: 'test', attribution: 'test', cached: false, note: null,
+      results: [{ displayName: name, latitude, longitude, placeId: 'prg:' + name, category: 'address/prg',
+        source: 'gugik-prg', inCoverage: true, accuracy: 'ADDRESS' }],
+    });
+    await render();
+  }
+
+  it('food orders ask for a pickup and a delivery address (not the planner points)', async () => {
+    store.setLocation('start', CENTRALNA); // planner points are not used by the fleet form
     store.setLocation('destination', KOPERNIK);
     await render();
+    expect(el.textContent).not.toContain('Point A');
+    expect(el.textContent).not.toContain('Point B');
+    expect((q('order-submit') as HTMLButtonElement).disabled).toBe(true);
+    expect(q('order-missing').textContent).toContain('pickup address and the delivery address');
+    await chooseAddress('order-pickup', 'Nowy Świat 10, Warszawa', 52.2335, 21.0186);
+    expect(q('order-pickup').textContent).toContain('Nowy Świat 10');
+    expect((q('order-submit') as HTMLButtonElement).disabled).toBe(true);
+    await chooseAddress('order-delivery', 'Puławska 2, Warszawa', 52.2126, 21.0207);
     q('order-submit').click();
     const create = http.expectOne(`${API_BASE_URL}/orders`);
     expect(create.request.body).toMatchObject({
-      orderType: 'FOOD_DELIVERY', pickup: CENTRALNA.coordinate, destination: KOPERNIK.coordinate,
-      pickupFacilityId: null, destinationFacilityId: null,
+      orderType: 'FOOD_DELIVERY', pickup: { latitude: 52.2335, longitude: 21.0186 },
+      destination: { latitude: 52.2126, longitude: 21.0207 }, pickupFacilityId: null, destinationFacilityId: null,
     });
     create.flush(orderFixture({ id: 'ord-9', status: 'CREATED' }));
     const assign = http.expectOne(`${API_BASE_URL}/orders/ord-9/assign-drone`);
@@ -94,34 +118,81 @@ describe('FleetPanelComponent', () => {
     expect(el.querySelector('[data-order-id="ord-9"]')!.textContent).toContain('ASSIGNED');
   });
 
-  it('an explicitly chosen facility is used only while Point A still sits on it', async () => {
-    const padPoint = { latitude: PAD.latitude, longitude: PAD.longitude };
-    store.setLocation('start', { coordinate: padPoint, label: 'Zapiecek (pickup pad)', source: 'FACILITY' });
-    store.setLocation('destination', KOPERNIK);
-    fleet.draft.update((d) => ({ ...d, pickupFacilityId: PAD.id, pickupFacilityPoint: padPoint, partnerId: 'osm:node/10' }));
+  it('medical orders ask only for the delivery address and start at the nearest hospital', async () => {
+    const type = q('order-type') as HTMLSelectElement;
+    type.value = 'AED_DELIVERY';
+    type.dispatchEvent(new Event('change'));
     await render();
-    expect(q('order-pickup').textContent).toContain(PAD.id);
-    store.setLocation('start', CENTRALNA); // the user moved Point A: the pad no longer applies
+    expect(el.querySelector('[data-testid="order-pickup"]')).toBeNull();
+    expect(q('order-hospital').textContent).toContain('nearest hospital');
+    await chooseAddress('order-delivery', 'Puławska 2, Warszawa', 52.2126, 21.0207);
+    const near = http.expectOne((r) => r.url === `${API_BASE_URL}/hospitals/nearest`);
+    expect(near.request.params.get('latitude')).toBe('52.2126');
+    const hospital = HOSPITALS[0];
+    near.flush({ hospital, distanceM: 1250, pickup: { latitude: hospital.latitude, longitude: hospital.longitude },
+      pickupFacilityId: null, note: 'Pickup at the hospital\'s mapped location.' });
     await render();
-    expect(q('order-pickup').textContent).not.toContain(PAD.id);
+    expect(q('order-hospital').textContent).toContain(hospital.name!);
+    expect(q('order-hospital').textContent).toContain('1.3 km');
     q('order-submit').click();
-    expect(http.expectOne(`${API_BASE_URL}/orders`).request.body.pickupFacilityId).toBeNull();
+    expect(http.expectOne(`${API_BASE_URL}/orders`).request.body).toMatchObject({
+      orderType: 'AED_DELIVERY', pickup: { latitude: hospital.latitude, longitude: hospital.longitude },
+      partnerId: hospital.id, destination: { latitude: 52.2126, longitude: 21.0207 },
+    });
   });
 
-  it('choosing a hospital station sets Point B explicitly and requests landing there', async () => {
-    store.setLocation('start', CENTRALNA);
-    const sel = q('order-station') as HTMLSelectElement;
-    const enabled = HOSPITALS[0].station!;
-    sel.value = enabled.id;
-    sel.dispatchEvent(new Event('change'));
+  it('the order type switches on the matching map layers', async () => {
+    const layers = TestBed.inject(MapLayerStore);
+    const type = q('order-type') as HTMLSelectElement;
+    type.value = 'BLOOD_DELIVERY';
+    type.dispatchEvent(new Event('change'));
     await render();
-    expect(store.destination()?.coordinate).toEqual({ latitude: enabled.latitude, longitude: enabled.longitude });
-    expect(store.destination()?.source).toBe('FACILITY');
+    expect(layers.isVisible('hospitals')).toBe(true);
+    expect(layers.isVisible('depots')).toBe(true);
+    expect(layers.isVisible('partners')).toBe(false);
+    type.value = 'FOOD_DELIVERY';
+    type.dispatchEvent(new Event('change'));
+    await render();
+    expect(layers.isVisible('partners')).toBe(true);
+    expect(layers.isVisible('pads')).toBe(true);
+    expect(layers.isVisible('hospitals')).toBe(false);
+  });
+
+  it('a restaurant pad chosen in a popup is used until the user searches another pickup', async () => {
+    fleet.draft.update((d) => ({ ...d, pickup: { coordinate: { latitude: PAD.latitude, longitude: PAD.longitude },
+      label: 'Zapiecek (pickup pad)' }, pickupFacilityId: PAD.id, partnerId: 'osm:node/10' }));
+    await render();
+    expect(q('order-pickup').textContent).toContain('Zapiecek');
+    await chooseAddress('order-delivery', 'Puławska 2, Warszawa', 52.2126, 21.0207);
     q('order-submit').click();
-    expect(http.expectOne(`${API_BASE_URL}/orders`).request.body.destinationFacilityId).toBe(enabled.id);
+    expect(http.expectOne(`${API_BASE_URL}/orders`).request.body).toMatchObject({ pickupFacilityId: PAD.id, partnerId: 'osm:node/10' });
+  });
+
+  it('lists only the orders created in this session, not older orders from the database', async () => {
+    fleet.ordersResource.reload();
+    await pump([orderFixture({ id: 'ord-old', status: 'NO_DRONE_AVAILABLE', message: 'No eligible drone: Needs 22.3 km…' })]);
+    expect(el.querySelector('[data-order-id="ord-old"]')).toBeNull();
+    expect(q('orders').textContent).toContain('No orders yet');
+    expect(fleet.activeOrders()).toEqual([]); // nothing of someone else's is drawn on the map either
+  });
+
+  it('"Select on map" fills the order field from the next map click', async () => {
+    const box = q('order-delivery');
+    box.querySelector<HTMLButtonElement>('[data-testid="pick"]')!.click();
+    await render();
+    expect(fleet.pickTarget()).toBe('delivery');
+    expect(store.pickTarget()).toBeNull();
+    expect(box.textContent).toContain('Click the map');
+    fleet.setPickedPoint({ latitude: 52.2126, longitude: 21.0207 }); // what App does with the map click
+    await render();
+    expect(fleet.draft().delivery?.coordinate).toEqual({ latitude: 52.2126, longitude: 21.0207 });
+    expect(q('order-delivery').textContent).toContain('Map point 52.21260, 21.02070');
+    expect(fleet.pickTarget()).toBeNull();
+    expect(store.destination()).toBeNull(); // the planner's points are untouched
   });
 
   it('advances an active order', async () => {
+    fleet.myOrderIds.set(['ord-1']);
     fleet.ordersResource.reload();
     await pump();
     q('order-advance').click();

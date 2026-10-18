@@ -227,6 +227,20 @@ describe('MapComponent', () => {
     expect(el.querySelector('path.sim-trail')).toBeNull();
   });
 
+  it('zooms to the fleet district and back to the whole city for "All of Warsaw"', async () => {
+    sized();
+    await set('boundary', BOUNDARY);
+    const fit = vi.spyOn(leaflet(), 'fitBounds');
+    const district = BOUNDARY.districts.features[0];
+    await set('zoomDistrict', district.properties.name);
+    expect(fit).toHaveBeenCalledTimes(1);
+    const expected = L.geoJSON(district as GeoJSON.Feature).getBounds();
+    expect((fit.mock.calls[0][0] as L.LatLngBounds).equals(expected)).toBe(true);
+    await set('zoomDistrict', null);
+    expect(fit).toHaveBeenCalledTimes(2);
+    expect((fit.mock.calls[1][0] as L.LatLngBounds).getWest()).toBeCloseTo(20.85); // whole city
+  });
+
   it('only draws the zones it is given (category filters)', async () => {
     await set('zones', ZONES.zones.filter((z) => z.draCategory !== 'DRA-P'));
     expect(zoneLayers().some((l) => l.feature.properties.id === '-P-SEJM')).toBe(false);

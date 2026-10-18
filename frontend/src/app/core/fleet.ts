@@ -5,7 +5,7 @@
  */
 
 import { ALTITUDE, Coordinate, FlightMode, PointRole, RouteRequest, RouteResponse, SelectedLocation, WeatherMode, isValidAltitude, isValidCoordinate } from './models';
-import { MissionId, OptimisationId, defaultMission, mission, optimisation } from './routing-options';
+import { OptimisationId, optimisation } from './routing-options';
 
 /** Colour-blind-safe drone colours (Okabe-Ito / Tol based); no red, amber or yellow, which mean airspace. */
 export const DRONE_COLORS = ['#0072b2', '#009e73', '#b05fa0', '#332288', '#2a9dcc', '#5c7f1e', '#7a4fb5', '#1f6f8b'] as const;
@@ -24,12 +24,10 @@ export interface Drone {
   start: SelectedLocation | null;
   destination: SelectedLocation | null;
   mode: FlightMode;
-  mission: MissionId;
   optimisation: OptimisationId;
   altitude: number;
+  /** Always the default (Standard) profile; not shown in the UI. */
   profileId: string;
-  /** null = the backend default payload. */
-  payloadKg: number | null;
   /** Show the route and markers on the map. */
   visible: boolean;
   route: DroneRoute;
@@ -43,7 +41,7 @@ export interface DroneDefaults {
 }
 
 /** Changing any of these makes a calculated route outdated. */
-const ROUTE_FIELDS = ['start', 'destination', 'mode', 'mission', 'optimisation', 'altitude', 'profileId', 'payloadKg'] as const;
+const ROUTE_FIELDS = ['start', 'destination', 'mode', 'optimisation', 'altitude', 'profileId'] as const;
 export type DronePatch = Partial<Omit<Drone, 'id' | 'route'>>;
 
 export function nextName(drones: Drone[]): string {
@@ -67,11 +65,9 @@ export function createDrone(drones: Drone[], id: string, defaults: DroneDefaults
     start: null,
     destination: null,
     mode: 'NORMAL',
-    mission: defaultMission('NORMAL'),
     optimisation: 'BALANCED',
     altitude: defaults.altitude,
     profileId: defaults.profileId,
-    payloadKg: null,
     visible: true,
     route: { phase: 'draft' },
     notices: {},
@@ -116,11 +112,6 @@ export function setRoute(drones: Drone[], id: string, route: DroneRoute): Drone[
   return drones.map((d) => (d.id === id ? { ...d, route } : d));
 }
 
-/** Switching mode picks that mode's default mission (missions belong to one mode). */
-export function modePatch(mode: FlightMode): DronePatch {
-  return { mode, mission: defaultMission(mode) };
-}
-
 export function swapPatch(d: Drone): DronePatch {
   return { start: d.destination, destination: d.start, notices: {} };
 }
@@ -140,7 +131,6 @@ export function droneIssues(d: Drone): string[] {
   if (!isValidAltitude(d.altitude)) {
     issues.push(`Altitude must be ${ALTITUDE.min}–${ALTITUDE.max} m in ${ALTITUDE.step} m steps.`);
   }
-  if (!d.profileId) issues.push('Choose a drone profile.');
   if (d.notices.start) issues.push(d.notices.start);
   if (d.notices.destination) issues.push(d.notices.destination);
   return issues;
@@ -150,26 +140,18 @@ export function sameCoordinate(a: Coordinate, b: Coordinate): boolean {
   return a.latitude === b.latitude && a.longitude === b.longitude;
 }
 
-/**
- * The backend request for a drone, or null while it is invalid.
- * - Missions with a scenario send `scenario` + the mode and no objective (the scenario sets it).
- * - The general missions send `mode` + the objective of the chosen optimisation.
- */
+/** The backend request for a drone (mode + the optimisation's objective), or null while it is invalid. */
 export function toRouteRequest(d: Drone, weatherMode: WeatherMode): RouteRequest | null {
   if (droneIssues(d).length) return null;
-  const m = mission(d.mission);
-  const req: RouteRequest = {
+  return {
     start: { latitude: d.start!.coordinate.latitude, longitude: d.start!.coordinate.longitude },
     destination: { latitude: d.destination!.coordinate.latitude, longitude: d.destination!.coordinate.longitude },
-    mode: m.mode,
+    mode: d.mode,
     flightAltitudeMeters: d.altitude,
     droneProfileId: d.profileId,
     weatherMode,
+    routeObjective: optimisation(d.optimisation).objective,
   };
-  if (m.scenario) req.scenario = m.scenario;
-  else req.routeObjective = optimisation(d.optimisation).objective;
-  if (d.payloadKg !== null) req.payloadKg = d.payloadKg;
-  return req;
 }
 
 // --- status ---------------------------------------------------------------------------------

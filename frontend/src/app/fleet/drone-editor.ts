@@ -3,25 +3,14 @@ import { FleetStore } from '../core/fleet.store';
 import { droneIssues } from '../core/fleet';
 import { HealthService } from '../core/health';
 import { FlightMode } from '../core/models';
-import { PlannerApi } from '../core/planner-api';
-import {
-  MODE_HELP,
-  MissionId,
-  OBJECTIVE_LABEL,
-  OPTIMISATIONS,
-  OptimisationId,
-  lockedObjective,
-  missionHelp,
-  missionsFor,
-  optimisation,
-} from '../core/routing-options';
+import { MODE_HELP, MODE_LABEL, OPTIMISATIONS, OptimisationId, ZONE_RULE, optimisation } from '../core/routing-options';
 import { IconComponent } from '../ui/icon';
 import { AltitudeInputComponent } from './altitude-input';
 import { PointFieldComponent } from './point-field';
 
 let seq = 0;
 
-/** The inline form of one drone: points, flight mode + mission, optimisation, altitude, drone. */
+/** The inline form of one drone: points, flight mode, optimisation, altitude. */
 @Component({
   selector: 'app-drone-editor',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -48,71 +37,35 @@ let seq = 0;
                     [disabled]="!d.start && !d.destination" data-testid="clear-points">Clear points</button>
           </div>
           <app-point-field [droneId]="d.id" role="destination" [color]="d.color" />
+          <p class="rule" data-testid="zone-rule"><app-icon name="check" />{{ zoneRule }}</p>
         </fieldset>
 
         <fieldset class="group">
           <legend class="field-label">Flight mode</legend>
           <div class="segmented" role="radiogroup" aria-label="Flight mode" data-testid="mode">
-            @for (m of modes; track m.value) {
-              <label><input type="radio" [name]="ids + '-mode'" [value]="m.value" [checked]="d.mode === m.value"
-                            (change)="setMode(m.value)" /><span>{{ m.label }}</span></label>
+            @for (m of modes; track m) {
+              <label><input type="radio" [name]="ids + '-mode'" [value]="m" [checked]="d.mode === m"
+                            (change)="setMode(m)" /><span>{{ modeLabel[m] }}</span></label>
             }
           </div>
           <p class="field-hint" data-testid="mode-help">{{ modeHelp[d.mode] }}</p>
-          <div class="segmented" role="radiogroup" aria-label="Mission" data-testid="mission">
-            @for (m of missions(); track m.id) {
-              <label><input type="radio" [name]="ids + '-mission'" [value]="m.id" [checked]="d.mission === m.id"
-                            (change)="setMission(m.id)" /><span>{{ m.label }}</span></label>
-            }
-          </div>
-          @if (missionText(); as t) {
-            <p class="field-hint" data-testid="mission-help">{{ t }}</p>
-          }
         </fieldset>
 
         <fieldset class="group" [attr.aria-describedby]="ids + '-opt-help'">
           <legend class="field-label">Route optimisation</legend>
           <div class="segmented grid-2" role="radiogroup" aria-label="Route optimisation" data-testid="optimisation">
             @for (o of optimisations; track o.id) {
-              <label><input type="radio" [name]="ids + '-opt'" [value]="o.id" [disabled]="!!locked()"
-                            [checked]="locked() ? lockedOption() === o.id : d.optimisation === o.id"
+              <label><input type="radio" [name]="ids + '-opt'" [value]="o.id" [checked]="d.optimisation === o.id"
                             (change)="setOptimisation(o.id)" /><span>{{ o.label }}</span></label>
             }
           </div>
-          <p class="field-hint" [id]="ids + '-opt-help'" data-testid="optimisation-help">
-            @if (locked(); as l) {
-              {{ objectiveLabel[l] }}, set by the {{ missionLabel() }} mission.
-            } @else {
-              {{ optimisationHelp() }}
-            }
-          </p>
+          <p class="field-hint" [id]="ids + '-opt-help'" data-testid="optimisation-help">{{ optimisationHelp() }}</p>
           @if (safestUnavailable()) {
             <p class="field-error" role="alert">Safest is unavailable: the server has not loaded the risk layers.</p>
           }
         </fieldset>
 
         <app-altitude-input [value]="d.altitude" (valueChange)="fleet.setAltitude(d.id, $event)" />
-
-        <div class="row-2">
-          <div class="field">
-            <label class="field-label" [for]="ids + '-profile'">Drone profile</label>
-            <select [id]="ids + '-profile'" class="input" [value]="d.profileId" (change)="fleet.setProfile(d.id, $any($event.target).value)"
-                    data-testid="profile">
-              @for (p of profiles(); track p.id) {
-                <option [value]="p.id" [selected]="p.id === d.profileId">{{ p.name }}</option>
-              }
-            </select>
-          </div>
-          <div class="field">
-            <label class="field-label" [for]="ids + '-payload'">Payload (kg)</label>
-            <input [id]="ids + '-payload'" class="input num" type="number" inputmode="decimal" min="0"
-                   [max]="maxPayload()" step="0.1" [value]="d.payloadKg ?? ''" placeholder="Default"
-                   (change)="setPayload($any($event.target).value)" [attr.aria-invalid]="payloadError() ? true : null" />
-          </div>
-        </div>
-        @if (payloadError(); as e) {
-          <p class="field-error" role="alert">{{ e }}</p>
-        }
 
         @if (issues().length) {
           <ul class="issues" aria-live="polite" data-testid="drone-issues">
@@ -162,15 +115,21 @@ let seq = 0;
       gap: var(--sp-1);
       margin-left: 22px;
     }
+    .rule {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--sp-2);
+      font-size: var(--fs-12);
+      color: var(--c-muted);
+    }
+    .rule .icon {
+      margin-top: 1px;
+      color: var(--c-ok);
+    }
     .segmented.grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 2px;
-    }
-    .row-2 {
-      display: grid;
-      grid-template-columns: 1fr 96px;
-      gap: var(--sp-2);
     }
     .issues {
       margin: 0;
@@ -193,68 +152,31 @@ export class DroneEditorComponent {
   readonly droneId = input.required<string>();
 
   protected readonly fleet = inject(FleetStore);
-  private readonly api = inject(PlannerApi);
   private readonly health = inject(HealthService);
 
   protected readonly ids = `ed-${++seq}`;
-  protected readonly modes: { value: FlightMode; label: string }[] = [
-    { value: 'NORMAL', label: 'Normal' },
-    { value: 'EMERGENCY', label: 'Emergency' },
-  ];
+  protected readonly modes: FlightMode[] = ['NORMAL', 'EMERGENCY'];
+  protected readonly modeLabel = MODE_LABEL;
   protected readonly modeHelp = MODE_HELP;
   protected readonly optimisations = OPTIMISATIONS;
-  protected readonly objectiveLabel = OBJECTIVE_LABEL;
+  protected readonly zoneRule = ZONE_RULE;
 
   protected readonly drone = computed(() => this.fleet.drones().find((d) => d.id === this.droneId()));
-  protected readonly profiles = computed(() => this.api.profileList() ?? []);
-  protected readonly missions = computed(() => missionsFor(this.drone()?.mode ?? 'NORMAL'));
-  protected readonly missionLabel = computed(() => this.missions().find((m) => m.id === this.drone()?.mission)?.label.toLowerCase());
-  protected readonly missionText = computed(() => {
-    const d = this.drone();
-    return d ? missionHelp(d.mission, this.api.scenarioList()) : null;
-  });
-  /** A mission's scenario fixes the objective; the control then shows it, disabled. */
-  protected readonly locked = computed(() => {
-    const d = this.drone();
-    return d ? lockedObjective(d.mission, this.api.scenarioList()) : null;
-  });
-  protected readonly lockedOption = computed(() => OPTIMISATIONS.find((o) => o.objective === this.locked())?.id ?? null);
   protected readonly optimisationHelp = computed(() => optimisation(this.drone()?.optimisation ?? 'BALANCED').help);
   protected readonly safestUnavailable = computed(
-    () => !this.locked() && this.drone()?.optimisation === 'SAFEST' && this.health.riskDataMissing(),
+    () => this.drone()?.optimisation === 'SAFEST' && this.health.riskDataMissing(),
   );
-  protected readonly maxPayload = computed(
-    () => this.profiles().find((p) => p.id === this.drone()?.profileId)?.maxPayloadKg ?? null,
-  );
-  protected readonly payloadError = computed(() => {
-    const d = this.drone();
-    const max = this.maxPayload();
-    if (!d || d.payloadKg === null) return null;
-    if (d.payloadKg < 0) return 'Payload cannot be negative.';
-    return max !== null && d.payloadKg > max ? `This profile carries at most ${max} kg.` : null;
-  });
   protected readonly issues = computed(() => {
     const d = this.drone();
-    if (!d) return [];
-    const p = this.payloadError();
-    return [...droneIssues(d), ...(p ? [p] : [])];
+    return d ? droneIssues(d) : [];
   });
 
   protected setMode(mode: FlightMode): void {
     this.fleet.setMode(this.droneId(), mode);
   }
 
-  protected setMission(id: MissionId): void {
-    this.fleet.setMission(this.droneId(), id);
-  }
-
   protected setOptimisation(id: OptimisationId): void {
     this.fleet.setOptimisation(this.droneId(), id);
-  }
-
-  protected setPayload(raw: string): void {
-    const v = raw.trim() === '' ? null : Number(raw);
-    this.fleet.setPayload(this.droneId(), v === null || Number.isFinite(v) ? v : null);
   }
 
   protected calculate(): void {

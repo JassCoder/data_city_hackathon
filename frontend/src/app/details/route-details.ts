@@ -3,8 +3,7 @@ import { AirspaceService, ZoneConflict } from '../core/airspace';
 import { droneIssues, shownResponse } from '../core/fleet';
 import { FleetStore } from '../core/fleet.store';
 import { CostTerm, RouteStatus } from '../core/models';
-import { PlannerApi } from '../core/planner-api';
-import { OBJECTIVE_LABEL, mission } from '../core/routing-options';
+import { MODE_LABEL, OBJECTIVE_LABEL } from '../core/routing-options';
 import { IconComponent } from '../ui/icon';
 import { formatDistance, formatDuration, formatNumber } from '../ui/format';
 
@@ -30,7 +29,7 @@ export const STATUS_NEXT_STEP: Partial<Record<RouteStatus, string>> = {
   BLOCKED_WEATHER: 'Use a drone with a higher wind limit, or try again with live wind later.',
   SEARCH_LIMIT: 'Try closer points or calculate again.',
   COVERAGE_UNAVAILABLE: 'The server is missing the Warsaw boundary, so routing is turned off.',
-  INSUFFICIENT_BATTERY: 'Choose closer points, a lighter payload or a drone with a bigger battery.',
+  INSUFFICIENT_BATTERY: 'Choose closer points: the route needs more energy than the battery allows with its reserve.',
   RISK_DATA_UNAVAILABLE: 'Choose another route optimisation: the server has not loaded the risk layers Safest needs.',
 };
 
@@ -40,7 +39,7 @@ const TERM_LABEL: Record<CostTerm, string> = {
   noise: 'Noise over homes',
   emergency_landing: 'Far from landing space',
   sensitive_areas: 'Schools, hospitals, stadiums',
-  energy: 'Energy (wind, payload)',
+  energy: 'Energy (wind)',
   time: 'Flight time',
 };
 
@@ -109,9 +108,8 @@ const RELATION_RANK: Record<ZoneConflict['relation'], number> = {
                 <dt>Energy</dt><dd class="num" data-testid="details-energy">{{ num(b.energyWh) }} Wh of {{ num(b.batteryUsableWh, 0) }} Wh usable</dd>
               }
               <dt>Altitude</dt><dd class="num">{{ r.flightAltitudeMeters }} m above ground</dd>
-              <dt>Mode</dt><dd>{{ r.mode === 'EMERGENCY' ? 'Emergency' : 'Normal' }} · {{ missionLabel() }}</dd>
+              <dt>Flight mode</dt><dd>{{ modeLabel[r.mode] }}</dd>
               <dt>Optimised for</dt><dd>{{ objectiveLabel[r.routeObjective] }}</dd>
-              <dt>Drone</dt><dd>{{ profileName() }}</dd>
               <dt>Wind</dt><dd class="num">{{ r.weather.windSpeedKmh }} km/h from {{ r.weather.windDirectionDeg }}° ({{ r.weather.source === 'OPEN_METEO' ? 'live' : 'demo' }})</dd>
             </dl>
           } @else {
@@ -157,7 +155,7 @@ const RELATION_RANK: Record<ZoneConflict['relation'], number> = {
               </table>
               <p class="small muted">
                 Crowd exposure {{ num(b.populationExposure) }} people/ha·km (peak {{ num(b.maxDensityPerHa, 0) }}/ha),
-                payload {{ b.payloadKg }} kg, departure {{ b.localHour }}:00 local. {{ b.note }}
+                departure {{ b.localHour }}:00 local. {{ b.note }}
               </p>
             </details>
           }
@@ -341,12 +339,12 @@ const RELATION_RANK: Record<ZoneConflict['relation'], number> = {
 export class RouteDetailsComponent {
   protected readonly fleet = inject(FleetStore);
   protected readonly airspace = inject(AirspaceService);
-  private readonly api = inject(PlannerApi);
 
   protected readonly headline = STATUS_HEADLINE;
   protected readonly termLabel = TERM_LABEL;
   protected readonly relationText = RELATION_TEXT;
   protected readonly objectiveLabel = OBJECTIVE_LABEL;
+  protected readonly modeLabel = MODE_LABEL;
 
   protected readonly drone = this.fleet.selected;
   protected readonly response = computed(() => {
@@ -373,16 +371,6 @@ export class RouteDetailsComponent {
   protected readonly crossings = computed(() => {
     const d = this.drone();
     return d ? (this.fleet.crossings().get(d.id) ?? []) : [];
-  });
-  protected readonly missionLabel = computed(() => {
-    const d = this.drone();
-    if (!d) return '';
-    const m = mission(d.mission);
-    return m.scenario ? m.label : 'General flight';
-  });
-  protected readonly profileName = computed(() => {
-    const id = this.response()?.droneProfileId;
-    return this.api.profileList()?.find((p) => p.id === id)?.name ?? id ?? '';
   });
 
   protected km = formatDistance;

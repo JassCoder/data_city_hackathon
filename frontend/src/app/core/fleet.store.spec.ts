@@ -4,7 +4,6 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { API_BASE_URL } from './api';
 import { LayersService } from './layers';
-import { PlannerApi } from './planner-api';
 import { MapDataService } from './map-data';
 import { DEMO_FLEET, FleetStore } from './fleet.store';
 import { CENTRALNA, KOPERNIK, OUTSIDE_POINT, routeResponse, settle } from '../../testing/fixtures';
@@ -23,8 +22,6 @@ describe('FleetStore', () => {
     store = TestBed.inject(FleetStore);
     http = TestBed.inject(HttpTestingController);
     TestBed.inject(LayersService).resource.value();
-    TestBed.inject(PlannerApi).profiles.value();
-    TestBed.inject(PlannerApi).scenarios.value();
     TestBed.inject(MapDataService).boundary.value();
     await settle(http, TestBed.inject(ApplicationRef));
   });
@@ -174,9 +171,21 @@ describe('FleetStore', () => {
     const reqs = http.match(ROUTE_URL);
     expect(reqs.length).toBe(DEMO_FLEET.length);
     const bodies = reqs.map((r) => r.request.body as RouteRequest);
-    expect(bodies[0]).toMatchObject({ scenario: 'BLOOD_DELIVERY', mode: 'EMERGENCY', droneProfileId: 'DEMO_DRONE_02' });
+    expect(bodies[0]).toMatchObject({ mode: 'EMERGENCY', routeObjective: 'FASTEST', droneProfileId: 'DEMO_DRONE_01' });
+    expect(bodies.every((b) => b.scenario === undefined && b.droneProfileId === 'DEMO_DRONE_01')).toBe(true);
     expect(bodies[2].flightAltitudeMeters).toBe(20);
     reqs.forEach(answer);
+  });
+
+  it('migrates saved drones from older versions to the Standard profile without missions', () => {
+    localStorage.setItem('skyroute.fleet.v1', JSON.stringify([
+      { id: 'old', name: 'Old', color: '#0072b2', start: null, destination: null, mode: 'EMERGENCY',
+        mission: 'BLOOD_DELIVERY', optimisation: 'FASTEST', altitude: 60, profileId: 'DEMO_DRONE_02', payloadKg: 2, visible: true },
+    ]));
+    const restored = (TestBed.inject(FleetStore) as unknown as { restore: () => unknown[] }).restore();
+    expect(restored).toEqual([expect.objectContaining({ id: 'old', mode: 'EMERGENCY', profileId: 'DEMO_DRONE_01', altitude: 60 })]);
+    expect(restored[0]).not.toHaveProperty('mission');
+    expect(restored[0]).not.toHaveProperty('payloadKg');
   });
 
   it('marks routes from an older airspace dataset as outdated', () => {

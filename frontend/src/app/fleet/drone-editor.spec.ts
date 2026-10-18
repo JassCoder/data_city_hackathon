@@ -3,7 +3,6 @@ import { ApplicationRef } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { FleetStore } from '../core/fleet.store';
-import { PlannerApi } from '../core/planner-api';
 import { MapDataService } from '../core/map-data';
 import { LayersService } from '../core/layers';
 import { HealthService } from '../core/health';
@@ -21,8 +20,6 @@ describe('DroneEditorComponent', () => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     fleet = TestBed.inject(FleetStore);
     const http = TestBed.inject(HttpTestingController);
-    TestBed.inject(PlannerApi).profiles.value();
-    TestBed.inject(PlannerApi).scenarios.value();
     TestBed.inject(MapDataService).boundary.value();
     TestBed.inject(LayersService).resource.value();
     TestBed.inject(HealthService).resource.value();
@@ -39,43 +36,43 @@ describe('DroneEditorComponent', () => {
     await fixture.whenStable();
   }
 
-  const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`)!;
+  const q = (testid: string) => el.querySelector<HTMLElement>(`[data-testid="${testid}"]`);
   const radio = (group: string, value: string) =>
-    q(group).querySelector<HTMLInputElement>(`input[value="${value}"]`)!;
+    q(group)!.querySelector<HTMLInputElement>(`input[value="${value}"]`)!;
 
   it('lists what is missing and keeps Calculate disabled until the drone is valid', async () => {
-    expect(q('drone-issues').textContent).toContain('Set Point A.');
+    expect(q('drone-issues')!.textContent).toContain('Set Point A.');
     expect((q('calculate') as HTMLButtonElement).disabled).toBe(true);
     fleet.setLocation(id, 'start', CENTRALNA);
     fleet.setLocation(id, 'destination', KOPERNIK);
     await render();
-    expect(el.querySelector('[data-testid="drone-issues"]')).toBeNull();
+    expect(q('drone-issues')).toBeNull();
     expect((q('calculate') as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it('emergency mode offers the mission types, and a mission locks the optimisation', async () => {
+  it('offers only Normal and Emergency, with no mission sub-options', async () => {
+    const modes = [...q('mode')!.querySelectorAll('span')].map((s) => s.textContent?.trim());
+    expect(modes).toEqual(['Normal', 'Emergency']);
     radio('mode', 'EMERGENCY').click();
     await render();
-    const missions = [...q('mission').querySelectorAll('span')].map((s) => s.textContent?.trim());
-    expect(missions).toEqual(['General emergency', 'Blood delivery', 'AED / first aid']);
-    expect(q('mode-help').textContent).toContain('grants no airspace permission');
-
-    radio('mission', 'BLOOD_DELIVERY').click();
-    await render();
-    expect(radio('optimisation', 'FASTEST').checked).toBe(true);
-    expect(radio('optimisation', 'SAFEST').disabled).toBe(true);
-    expect(q('optimisation-help').textContent).toContain('Fastest, set by the blood delivery mission');
-    expect(q('mission-help').textContent).toContain('Minimises delivery time');
+    expect(q('mission')).toBeNull();
+    expect(q('mode-help')!.textContent).toContain('grants no airspace permission');
+    expect(fleet.drones()[0].mode).toBe('EMERGENCY');
   });
 
-  it('back in normal mode the optimisation is free again', async () => {
+  it('keeps the optimisation free in both modes', async () => {
     radio('mode', 'EMERGENCY').click();
     await render();
-    radio('mode', 'NORMAL').click();
-    await render();
+    expect(radio('optimisation', 'SAFEST').disabled).toBe(false);
     radio('optimisation', 'LOWEST_ENERGY').click();
     await render();
-    expect(fleet.drones()[0]).toMatchObject({ mode: 'NORMAL', mission: 'GENERAL', optimisation: 'LOWEST_ENERGY' });
-    expect(q('optimisation-help').textContent).toContain('Least battery use');
+    expect(fleet.drones()[0]).toMatchObject({ mode: 'EMERGENCY', optimisation: 'LOWEST_ENERGY' });
+    expect(q('optimisation-help')!.textContent).toContain('Least battery use');
+  });
+
+  it('states that zones are always avoided and shows no drone profile or payload', () => {
+    expect(q('zone-rule')!.textContent).toContain('always avoided');
+    expect(q('profile')).toBeNull();
+    expect(el.textContent).not.toMatch(/profile|payload/i);
   });
 });

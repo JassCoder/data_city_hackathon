@@ -391,6 +391,8 @@ At weight 5 the route takes 85 % less crowd exposure for 8 % more distance and 6
 - `e2e/ui_check.py`: 0 overlaps at 1280×720 and 390×844, default and with panels open.
 - `e2e/flows.py`: 20/20 acceptance checks (three coloured routes at once; A/B by suggestion, typed coordinates, map pick with Esc, marker drag; zone popup for the selected flight; one forced server error stays on its drone; mobile sheets). The flows found and fixed one bug: the automatic fit was undone when the drawer opened (animated zoom + `invalidateSize` pan), hiding Point A behind the sidebar.
 
+**Follow-up (user request, 2026-10-18):** flight mode reduced to Normal / Emergency with no mission sub-options; zone avoidance shown as a fixed rule (every request already avoids prohibited and restricted zones); one drone profile (Standard) for every drone, with profile and payload removed from the UI. Requests now always send `mode` + `routeObjective` without a scenario; saved fleets are migrated. `ng test` 78 passed, `flows.py` 20/20, `ui_check.py` 0 overlaps.
+
 ## Next
 - Obtain a permitted official zone export from PAŻP and validate the ED-269 mapping against it (see DATA_SOURCES.md).
 - Spec phase 4 remainder: `/routes/compare`.

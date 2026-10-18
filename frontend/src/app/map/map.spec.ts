@@ -282,12 +282,12 @@ describe('MapComponent', () => {
     reqs.forEach((r) => r.flush({ type: 'FeatureCollection', features: [] }));
   });
 
-  it('keeps a drone’s markers in place when its route changes mission', async () => {
+  it('keeps a drone’s markers in place when its mode or optimisation changes', async () => {
     const base = drone('a');
     await set('drones', [base]);
     const before = markers().map((m) => m.getLatLng());
-    for (const mission of ['BLOOD_DELIVERY', 'AED_DELIVERY', 'GENERAL_EMERGENCY'] as const) {
-      await set('drones', [ready({ ...base, mode: 'EMERGENCY', mission })]);
+    for (const optimisation of ['FASTEST', 'SAFEST', 'LOWEST_ENERGY'] as const) {
+      await set('drones', [ready({ ...base, mode: 'EMERGENCY', optimisation })]);
       expect(markers().map((m) => m.getLatLng())).toEqual(before);
     }
   });

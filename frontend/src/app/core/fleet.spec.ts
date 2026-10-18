@@ -7,7 +7,6 @@ import {
   droneStatus,
   duplicateDrone,
   findCrossings,
-  modePatch,
   playbackPoints,
   segmentIntersection,
   shortLabel,
@@ -16,7 +15,7 @@ import {
   updateDrone,
 } from './fleet';
 import { RouteRequest } from './models';
-import { MISSIONS, OPTIMISATIONS } from './routing-options';
+import { OPTIMISATIONS } from './routing-options';
 import { ZONE_KINDS } from '../map/map-style';
 
 const DEFAULTS = { altitude: 80, profileId: 'DEMO_DRONE_01' };
@@ -48,7 +47,7 @@ describe('fleet: creating and copying drones', () => {
 
   it('starts as a draft with normal mode, balanced optimisation and the default altitude', () => {
     const d = createDrone([], 'd1', DEFAULTS);
-    expect(d).toMatchObject({ mode: 'NORMAL', mission: 'GENERAL', optimisation: 'BALANCED', altitude: 80, visible: true });
+    expect(d).toMatchObject({ mode: 'NORMAL', optimisation: 'BALANCED', altitude: 80, profileId: 'DEMO_DRONE_01', visible: true });
     expect(d.route).toEqual({ phase: 'draft' });
   });
 
@@ -65,7 +64,7 @@ describe('fleet: creating and copying drones', () => {
 describe('fleet: changes invalidate routes', () => {
   it('turns a ready route into an outdated one when a routing input changes', () => {
     const list = [ready(drone())];
-    for (const patch of [{ altitude: 100 }, { optimisation: 'FASTEST' as const }, { destination: CENTRALNA }, { payloadKg: 0.3 }]) {
+    for (const patch of [{ altitude: 100 }, { optimisation: 'FASTEST' as const }, { destination: CENTRALNA }, { mode: 'EMERGENCY' as const }]) {
       expect(updateDrone(list, 'd1', patch)[0].route.phase).toBe('stale');
     }
   });
@@ -90,11 +89,6 @@ describe('fleet: changes invalidate routes', () => {
     expect(out[1]).toBe(list[1]);
   });
 
-  it('switching mode picks that mode’s default mission', () => {
-    expect(modePatch('EMERGENCY')).toEqual({ mode: 'EMERGENCY', mission: 'GENERAL_EMERGENCY' });
-    expect(modePatch('NORMAL')).toEqual({ mode: 'NORMAL', mission: 'GENERAL' });
-  });
-
   it('swaps A and B', () => {
     expect(swapPatch(drone())).toMatchObject({ start: KOPERNIK, destination: CENTRALNA });
   });
@@ -111,39 +105,24 @@ describe('fleet: validation', () => {
   });
 });
 
-describe('fleet: mapping modes, missions and optimisations to the API request', () => {
-  it('general flights send mode + the objective of the chosen optimisation, no scenario', () => {
+describe('fleet: mapping flight mode and optimisation to the API request', () => {
+  it('sends the flight mode and the objective of the chosen optimisation, never a scenario', () => {
     const expected = { BALANCED: 'CORRIDORS', FASTEST: 'FASTEST', SAFEST: 'SAFEST', LOWEST_ENERGY: 'LOWEST_ENERGY' };
-    for (const o of OPTIMISATIONS) {
-      const req = toRouteRequest(drone({ optimisation: o.id }), 'LIVE')!;
-      expect(req.routeObjective).toBe(expected[o.id]);
-      expect(req.scenario).toBeUndefined();
-      expect(req).toMatchObject({ mode: 'NORMAL', flightAltitudeMeters: 80, droneProfileId: 'DEMO_DRONE_01', weatherMode: 'LIVE' });
+    for (const mode of ['NORMAL', 'EMERGENCY'] as const) {
+      for (const o of OPTIMISATIONS) {
+        const req = toRouteRequest(drone({ mode, optimisation: o.id }), 'LIVE')!;
+        expect(req).toMatchObject({ mode, routeObjective: expected[o.id], flightAltitudeMeters: 80, weatherMode: 'LIVE' });
+        expect(req.scenario).toBeUndefined();
+        expect(req.payloadKg).toBeUndefined(); // backend default
+      }
     }
   });
 
-  it('missions send their scenario with the mode, and let the scenario set the objective', () => {
-    const cases: [Drone['mission'], string, string][] = [
-      ['AVOID_PROHIBITED_ZONE', 'AVOID_PROHIBITED_ZONE', 'NORMAL'],
-      ['GENERAL_EMERGENCY', 'EMERGENCY', 'EMERGENCY'],
-      ['BLOOD_DELIVERY', 'BLOOD_DELIVERY', 'EMERGENCY'],
-      ['AED_DELIVERY', 'AED_DELIVERY', 'EMERGENCY'],
-    ];
-    for (const [mission, scenario, mode] of cases) {
-      const req = toRouteRequest(drone({ mission, optimisation: 'SAFEST' }), 'DEMO') as RouteRequest;
-      expect(req.scenario).toBe(scenario);
-      expect(req.mode).toBe(mode);
-      expect(req.routeObjective).toBeUndefined(); // an explicit, contradicting objective would be a 422
-    }
-    // Every backend scenario except the plain NORMAL one is reachable from the UI.
-    expect(MISSIONS.map((m) => m.scenario).filter(Boolean).sort()).toEqual(
-      ['AED_DELIVERY', 'AVOID_PROHIBITED_ZONE', 'BLOOD_DELIVERY', 'EMERGENCY'],
-    );
+  it('always flies the default (Standard) profile', () => {
+    expect(toRouteRequest(drone(), 'DEMO')!.droneProfileId).toBe('DEMO_DRONE_01');
   });
 
-  it('sends the payload only when set and never sends an invalid request', () => {
-    expect(toRouteRequest(drone(), 'DEMO')!.payloadKg).toBeUndefined();
-    expect(toRouteRequest(drone({ payloadKg: 0.4 }), 'DEMO')!.payloadKg).toBe(0.4);
+  it('never sends an invalid request', () => {
     expect(toRouteRequest(drone({ start: null }), 'DEMO')).toBeNull();
     expect(toRouteRequest(drone({ altitude: 130 }), 'DEMO')).toBeNull();
   });

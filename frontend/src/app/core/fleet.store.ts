@@ -10,7 +10,6 @@ import {
   duplicateDrone,
   findCrossings,
   invalidateRoute,
-  modePatch,
   setRoute,
   shownResponse,
   swapPatch,
@@ -21,7 +20,7 @@ import { LayersService, StationFeature } from './layers';
 import { MapDataService, OUTSIDE_WARSAW } from './map-data';
 import { Coordinate, FlightMode, LocationSource, PointRole, SelectedLocation, WeatherMode, isValidCoordinate } from './models';
 import { PlannerApi } from './planner-api';
-import { MissionId, OptimisationId } from './routing-options';
+import { OptimisationId } from './routing-options';
 import { SETTINGS } from './settings';
 
 const STORAGE_KEY = 'skyroute.fleet.v1';
@@ -42,26 +41,21 @@ export const DEMO_FLEET: {
   start: FixturePoint;
   destination: FixturePoint;
   mode: FlightMode;
-  mission: MissionId;
   optimisation: OptimisationId;
   altitude?: number;
-  profileId?: string;
 }[] = [
   {
-    name: 'Blood: depot → hospital',
+    name: 'Urgent: depot → hospital',
     start: { stationId: 'st-depot' },
     destination: { stationId: 'st-hospital' },
     mode: 'EMERGENCY',
-    mission: 'BLOOD_DELIVERY',
     optimisation: 'FASTEST',
-    profileId: 'DEMO_DRONE_02',
   },
   {
     name: 'Across the Sejm zone',
     start: { label: 'Demo point west of the Sejm zone', coordinate: { latitude: 52.2255, longitude: 21.0205 } },
     destination: { label: 'Demo point east of the Sejm zone', coordinate: { latitude: 52.225, longitude: 21.037 } },
     mode: 'NORMAL',
-    mission: 'GENERAL',
     optimisation: 'BALANCED',
   },
   {
@@ -69,7 +63,6 @@ export const DEMO_FLEET: {
     start: { label: 'Demo point: enclosed courtyard (Praga-Północ)', coordinate: { latitude: 52.25549, longitude: 21.04532 } },
     destination: { stationId: 'st-hospital' },
     mode: 'NORMAL',
-    mission: 'GENERAL',
     optimisation: 'SAFEST',
     altitude: 20,
   },
@@ -120,12 +113,10 @@ export class FleetStore {
   // --- drones -----------------------------------------------------------------------------
 
   addDrone(): Drone {
-    const profiles = this.api.profileList();
-    const profileId =
-      !profiles || profiles.some((p) => p.id === SETTINGS.defaultProfileId)
-        ? SETTINGS.defaultProfileId
-        : (profiles[0]?.id ?? SETTINGS.defaultProfileId);
-    const drone = createDrone(this.drones(), newId(), { altitude: SETTINGS.altitude.default, profileId });
+    const drone = createDrone(this.drones(), newId(), {
+      altitude: SETTINGS.altitude.default,
+      profileId: SETTINGS.defaultProfileId, // one profile for every drone (Standard), not shown in the UI
+    });
     this.drones.update((list) => [...list, drone]);
     this.selectedId.set(drone.id);
     this.editingId.set(drone.id);
@@ -191,11 +182,7 @@ export class FleetStore {
   }
 
   setMode(id: string, mode: FlightMode): void {
-    this.update(id, modePatch(mode));
-  }
-
-  setMission(id: string, missionId: MissionId): void {
-    this.update(id, { mission: missionId });
+    this.update(id, { mode });
   }
 
   setOptimisation(id: string, value: OptimisationId): void {
@@ -204,14 +191,6 @@ export class FleetStore {
 
   setAltitude(id: string, altitude: number): void {
     this.update(id, { altitude });
-  }
-
-  setProfile(id: string, profileId: string): void {
-    this.update(id, { profileId });
-  }
-
-  setPayload(id: string, payloadKg: number | null): void {
-    this.update(id, { payloadKg });
   }
 
   toggleVisible(id: string): void {
@@ -364,9 +343,9 @@ export class FleetStore {
       if (!start || !destination) return 'Demo stations are not loaded yet. Wait for the map layers and try again.';
       const base = createDrone([...this.drones(), ...added], newId(), {
         altitude: f.altitude ?? SETTINGS.altitude.default,
-        profileId: f.profileId ?? SETTINGS.defaultProfileId,
+        profileId: SETTINGS.defaultProfileId,
       });
-      added.push({ ...base, name: f.name, start, destination, mode: f.mode, mission: f.mission, optimisation: f.optimisation });
+      added.push({ ...base, name: f.name, start, destination, mode: f.mode, optimisation: f.optimisation });
     }
     this.drones.update((list) => [...list, ...added]);
     this.editingId.set(null);
@@ -390,9 +369,24 @@ export class FleetStore {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       const stored = raw ? (JSON.parse(raw) as StoredDrone[]) : [];
-      return Array.isArray(stored)
-        ? stored.filter((d) => d && typeof d.id === 'string').map((d) => ({ ...d, route: { phase: 'draft' }, notices: {} }))
-        : [];
+      if (!Array.isArray(stored)) return [];
+      return stored
+        .filter((d) => d && typeof d.id === 'string')
+        .map((d) => ({
+          id: d.id,
+          name: d.name,
+          color: d.color,
+          start: d.start ?? null,
+          destination: d.destination ?? null,
+          mode: d.mode === 'EMERGENCY' ? 'EMERGENCY' : 'NORMAL',
+          optimisation: d.optimisation ?? 'BALANCED',
+          altitude: d.altitude,
+          // Older saves may carry another profile, a mission or a payload: every drone is Standard now.
+          profileId: SETTINGS.defaultProfileId,
+          visible: d.visible !== false,
+          route: { phase: 'draft' as const },
+          notices: {},
+        }));
     } catch {
       return [];
     }

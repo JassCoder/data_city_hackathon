@@ -41,15 +41,13 @@ The screen has three parts: the **drone list** on the left (a bottom sheet on ph
    - type coordinates such as `52.2297, 21.0122` and press Enter;
    - press the crosshair button and click the map (a hint above the map says which point is being set; **Esc** cancels).
    Drag a marker on the map to move a point. **Swap A and B** and **Clear points** are under the fields. Points outside the official Warsaw polygon are refused with an inline message.
-3. **Flight mode:** *Normal* or *Emergency*. Emergency status grants no airspace permission: every restriction still applies. Each mode has missions:
-   - Normal: *General* (you choose the optimisation) or *Avoid prohibited zone* (shortest path around active blocked zones);
-   - Emergency: *General emergency*, *Blood delivery* or *AED / first aid* (all minimise flight time; the mission sets the optimisation).
+3. **Flight mode:** *Normal* or *Emergency*. With *Balanced*, emergency routes are more direct. Emergency status grants no airspace permission. **Prohibited and restricted zones are always avoided** (with a safety margin) in both modes; it is a fixed rule, not an option.
 4. **Route optimisation:** *Balanced* (prefers the Vistula and parks, the default), *Fastest* (wind-aware flight time), *Safest* (multi-criteria risk cost: estimated crowds, noise over homes, landing space, schools and hospitals) or *Lowest energy* (wind- and payload-aware battery use). Weights live in the backend (`data/cost_model.json`, `costs.py`).
-5. **Altitude** 20–120 m in 5 m steps (slider or number). This is a planning setting, not an authorization to fly. **Drone profile** and optional **payload** affect speed, wind limit and energy.
+5. **Altitude** 20–120 m in 5 m steps (slider or number). This is a planning setting, not an authorization to fly. Every drone uses the Standard demo profile (not shown in the UI).
 6. **Calculate route** (per drone) or **Calculate all** (in parallel; a failing drone shows its own error and does not affect the others). Any change marks that drone's route **outdated** (grey, dashed) until you recalculate.
 7. **Route details:** the outcome in plain language (and what to do if there is no feasible route), distance, estimated time, energy against the usable battery, the zones the route avoids or passes, the cost breakdown, warnings and the safety note. Blocking zones are highlighted on the map. The **Airspace** tab lists the zones as evaluated for the selected drone's altitude.
 8. **Per-drone actions** (⋯): route details, show on map, hide/show route, duplicate, delete (with **Undo**). Two routes that cross at a similar altitude get a warning badge and a marker on the map (a hint, not collision avoidance).
-9. **Load demo fleet** adds three demo drones (blood delivery from the depot, a flight across the Sejm zone, and an enclosed courtyard at 20 m that has no feasible route). It is the only place with predefined points and never replaces your drones.
+9. **Load demo fleet** adds three demo drones (an urgent flight from the depot to the hospital pad, a flight across the Sejm zone, and an enclosed courtyard at 20 m that has no feasible route). It is the only place with predefined points and never replaces your drones.
 10. The fleet is remembered in this browser (settings only; routes are recalculated). The URL keeps the selected drone and the open details tab.
 
 ### Map layers and legend

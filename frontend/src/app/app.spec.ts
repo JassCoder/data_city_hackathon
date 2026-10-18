@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { App } from './app';
 import { API_BASE_URL } from './core/api';
-import { BOUNDARY, COVERAGE, LAYERS, PROFILES, SCENARIOS, ZONES } from '../testing/fixtures';
+import { BOUNDARY, COVERAGE, LAYERS, ZONES } from '../testing/fixtures';
 import { stubCanvas } from '../testing/canvas-stub';
 
 describe('App', () => {
@@ -29,7 +29,7 @@ describe('App', () => {
     expect(text).toContain('PANSA DroneMap and DroneTower');
   });
 
-  it('loads health, layers, profiles, scenarios, zones and the Warsaw boundary once', async () => {
+  it('loads health, layers, zones and the Warsaw boundary once', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
@@ -41,8 +41,6 @@ describe('App', () => {
       riskDataAvailable: true,
     });
     http.expectOne(`${API_BASE_URL}/layers`).flush(LAYERS);
-    http.expectOne(`${API_BASE_URL}/drone-profiles`).flush(PROFILES);
-    http.expectOne(`${API_BASE_URL}/scenarios`).flush(SCENARIOS);
     http.expectOne(`${API_BASE_URL}/map/warsaw-boundary`).flush(BOUNDARY);
     http.expectOne(`${API_BASE_URL}/map/coverage`).flush(COVERAGE);
     http.expectOne(`${API_BASE_URL}/zones?altitudeM=80`).flush(ZONES);

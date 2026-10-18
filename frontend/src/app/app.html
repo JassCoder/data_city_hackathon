@@ -1,29 +1,29 @@
 <a class="skip-link" href="#map-region">Skip to map</a>
 
 <header class="topbar">
-  <span class="brand" translate="no">SkyRoute Warsaw</span>
+  <h1 class="brand" translate="no">SkyRoute Warsaw</h1>
   <app-demo-badge />
   <span class="spacer"></span>
-  <span class="backend" [class]="'backend backend-' + backendStatus()" data-testid="backend-status"
+  <span class="backend" [class]="'backend backend-' + health.status()" data-testid="backend-status"
         [attr.title]="backendTitle()" role="status">
     <span class="dot" aria-hidden="true"></span>
     <span class="backend-label">{{ backendLabel() }}</span>
   </span>
-  @if (backendStatus() === 'offline' || layers.resource.error()) {
+  @if (health.status() === 'offline' || layers.resource.error()) {
     <button type="button" class="icon-btn" (click)="retry()" aria-label="Retry backend connection" title="Retry">
       <app-icon name="refresh" />
     </button>
   }
 </header>
 
-<div class="shell" [class.drawer-open]="drawerOpen()">
-  <aside class="sidebar" [attr.data-sheet]="sheet()" aria-label="Drones">
+<div class="shell" [class.drawer-open]="ui.drawerOpen()">
+  <aside class="sidebar" [attr.data-sheet]="ui.sheet()" aria-label="Drones">
     <button type="button" class="sheet-handle" (click)="cycleSheet()" [attr.aria-label]="sheetLabel()"
-            data-testid="sheet-handle">
+            [attr.aria-expanded]="ui.sheet() !== 'peek'" data-testid="sheet-handle">
       <span class="grip" aria-hidden="true"></span>
     </button>
     <div class="sidebar-body">
-      <app-planner-panel />
+      <app-drone-list />
     </div>
   </aside>
 
@@ -43,10 +43,11 @@
     }
     <app-map
       [layers]="layers.data()"
-      [start]="planner.start()"
-      [destination]="planner.destination()"
-      [route]="planner.route()"
-      [picking]="planner.pickTarget() !== null"
+      [drones]="fleet.drones()"
+      [selectedId]="fleet.selectedId()"
+      [crossings]="fleet.crossings()"
+      [focusRequest]="ui.focusRequest()"
+      [picking]="fleet.pickTarget() !== null"
       [zones]="airspace.visibleZones()"
       [airspaceSource]="airspace.source()"
       [highlightZoneIds]="airspace.highlightZoneIds()"
@@ -54,7 +55,9 @@
       [boundary]="mapData.boundaryData()"
       [layerVisibility]="mapLayers.visible()"
       [flightLabel]="flightLabel()"
-      (mapClick)="planner.handleMapClick($event)"
+      (mapClick)="fleet.handleMapClick($event)"
+      (markerDrag)="fleet.handleMarkerDrag($event.droneId, $event.role, $event.coordinate)"
+      (routeClick)="selectFromMap($event)"
       (focusDone)="airspace.focusZoneId.set(null)"
     >
       <app-layers-panel mapTopRight />
@@ -62,17 +65,42 @@
     </app-map>
   </main>
 
-  <aside class="drawer" aria-label="Route details" [attr.aria-hidden]="!drawerOpen()" [attr.inert]="drawerOpen() ? null : ''"
-         data-testid="drawer">
+  <aside class="drawer" aria-label="Route details" [attr.inert]="ui.drawerOpen() ? null : ''" data-testid="drawer">
     <div class="drawer-head">
-      <h2>Route details</h2>
-      <button type="button" class="icon-btn" (click)="closeDrawer()" aria-label="Close route details">
+      @if (fleet.selected(); as d) {
+        <span class="drawer-dot" [style.background]="d.color" aria-hidden="true"></span>
+        <h2 class="drawer-title">{{ d.name }}</h2>
+      } @else {
+        <h2 class="drawer-title">Route details</h2>
+      }
+      <button type="button" class="icon-btn" (click)="closeDrawer()" aria-label="Close route details" data-testid="drawer-close">
         <app-icon name="close" />
       </button>
     </div>
+    <div class="tabs" role="tablist" aria-label="Details">
+      <button type="button" role="tab" id="tab-route" aria-controls="panel-route" [attr.aria-selected]="ui.drawerTab() === 'route'"
+              [attr.tabindex]="ui.drawerTab() === 'route' ? 0 : -1" (click)="ui.drawerTab.set('route')"
+              (keydown.arrowRight)="ui.drawerTab.set('airspace')" data-testid="tab-route">Route</button>
+      <button type="button" role="tab" id="tab-airspace" aria-controls="panel-airspace"
+              [attr.aria-selected]="ui.drawerTab() === 'airspace'" [attr.tabindex]="ui.drawerTab() === 'airspace' ? 0 : -1"
+              (click)="ui.drawerTab.set('airspace')" (keydown.arrowLeft)="ui.drawerTab.set('route')"
+              data-testid="tab-airspace">Airspace</button>
+    </div>
     <div class="drawer-body">
-      <app-route-results />
-      <app-airspace-panel />
+      @if (ui.drawerTab() === 'route') {
+        <div role="tabpanel" id="panel-route" aria-labelledby="tab-route"><app-route-details /></div>
+      } @else {
+        <div role="tabpanel" id="panel-airspace" aria-labelledby="tab-airspace"><app-airspace-tab /></div>
+      }
     </div>
   </aside>
+</div>
+
+<div class="toasts" aria-live="polite">
+  @if (fleet.lastDeleted(); as del) {
+    <div class="toast" role="status" data-testid="undo-toast">
+      <span>Deleted {{ del.drone.name }}.</span>
+      <button type="button" class="btn btn-s" (click)="fleet.undoRemove()" data-testid="undo">Undo</button>
+    </div>
+  }
 </div>

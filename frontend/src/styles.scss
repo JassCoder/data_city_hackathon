@@ -1,18 +1,2 @@
-@use '@angular/material' as mat;
 @use 'styles/tokens';
 @use 'styles/base';
-
-// Temporary: the old planner panels still use Angular Material until they are replaced
-// (redesign step 4); the theme is scoped to them so the new shell uses the tokens only.
-app-planner-panel,
-app-route-results,
-app-airspace-panel {
-  @include mat.theme((
-    color: (
-      primary: mat.$azure-palette,
-      tertiary: mat.$blue-palette,
-    ),
-    typography: system-ui,
-    density: -3,
-  ));
-}

@@ -19,8 +19,8 @@ import { BoundaryResponse, FALLBACK_VIEW } from '../core/map-data';
 import { AirspaceSource, AirspaceZone, SOURCE_LABEL, STATUS_LABEL } from '../core/airspace';
 import { BuildingProps, CorridorProps, Layers, StationProps, StationType, TALL_BUILDING_M } from '../core/layers';
 import { DEFAULT_LAYERS, LayerKey } from '../core/map-layers';
-import { Coordinate, SelectedLocation } from '../core/models';
-import { RouteState } from '../core/planner.store';
+import { Crossing, Drone, shownResponse } from '../core/fleet';
+import { Coordinate, PointRole, SelectedLocation } from '../core/models';
 import { iconSvg } from '../ui/icon';
 import {
   MAP_COLORS,
@@ -51,8 +51,11 @@ export function tilesFor(west: number, south: number, east: number, north: numbe
   return out;
 }
 
-/** Route colours until each drone gets its own (redesign step 4). */
-const ROUTE_COLORS = { NORMAL: '#0072b2', EMERGENCY: '#009e73' } as const;
+export interface MarkerDrag {
+  droneId: string;
+  role: PointRole;
+  coordinate: Coordinate;
+}
 
 export function esc(v: unknown): string {
   return String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -148,9 +151,12 @@ export function zonePopupHtml(z: AirspaceZone, flightLabel: string): string {
 })
 export class MapComponent implements OnDestroy {
   readonly layers = input<Layers | undefined>();
-  readonly start = input<SelectedLocation | null>(null);
-  readonly destination = input<SelectedLocation | null>(null);
-  readonly route = input<RouteState>({ phase: 'idle' });
+  /** Every drone; hidden ones are not drawn. */
+  readonly drones = input<Drone[]>([]);
+  readonly selectedId = input<string | null>(null);
+  readonly crossings = input<Map<string, Crossing[]>>(new Map());
+  /** One-shot "fit this drone" request (list action "Show on map"). */
+  readonly focusRequest = input<{ droneId: string; nonce: number } | null>(null);
   /** True while a pick target is armed (crosshair cursor; clicks inside zones pick too). */
   readonly picking = input(false);
   /** Evaluated airspace zones to draw (already filtered for display). */
@@ -165,6 +171,8 @@ export class MapComponent implements OnDestroy {
   /** Whose evaluation the zones show, used in zone popups. */
   readonly flightLabel = input('the planned flight');
   readonly mapClick = output<Coordinate>();
+  readonly markerDrag = output<MarkerDrag>();
+  readonly routeClick = output<string>();
   readonly focusDone = output<void>();
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
@@ -177,10 +185,15 @@ export class MapComponent implements OnDestroy {
   private zoneDecor?: L.LayerGroup;
   private readonly keyed: Partial<Record<LayerKey, L.Layer>> = {};
   private corridorLayers: L.GeoJSON[] = [];
-  private readonly markers: Partial<Record<'start' | 'destination', L.Marker>> = {};
+  /** Point markers by `${droneId}:${role}`. */
+  private readonly markers = new Map<string, L.Marker>();
   private routeLayer?: L.LayerGroup;
   private routeRenderer?: L.Renderer;
   private lastFitted?: unknown;
+  private lastFocusNonce = 0;
+  /** Last automatic fit; re-applied when the map resizes (e.g. the drawer opens) until the user moves the map. */
+  private lastFit?: L.LatLngBounds;
+  private keepFit = false;
   private readonly http = inject(HttpClient, { optional: true });
   private cityBounds?: L.LatLngBounds;
   private fittedCity = false;
@@ -238,11 +251,20 @@ export class MapComponent implements OnDestroy {
       this.map.on('moveend', () => this.syncBuildingTiles());
       if (typeof ResizeObserver !== 'undefined') {
         this.resizeObserver = new ResizeObserver(() => {
-          this.map?.invalidateSize();
+          const map = this.map;
+          if (!map) return;
+          // invalidateSize() would pan by half the size change (animated) and undo a re-fit.
+          const refit = this.keepFit && !!this.lastFit;
+          map.invalidateSize(refit ? { pan: false } : true);
+          if (refit && map.getSize().x > 0) map.fitBounds(this.lastFit!, { padding: [48, 48], maxZoom: 16, animate: false });
           // First real layout after a zero-size start: fit the city now.
           if (this.cityBounds && this.map && this.map.getZoom() === FALLBACK_VIEW.zoom && this.fittedCity) this.showEntireWarsaw();
         });
         this.resizeObserver.observe(host);
+      }
+      // Any direct interaction with the map ends the automatic fit.
+      for (const type of ['pointerdown', 'wheel', 'keydown'] as const) {
+        host.addEventListener(type, () => (this.keepFit = false), { passive: true });
       }
       this.map.on('click', (e: L.LeafletMouseEvent) =>
         this.mapClick.emit({ latitude: e.latlng.lat, longitude: e.latlng.lng }),
@@ -252,9 +274,7 @@ export class MapComponent implements OnDestroy {
       this.routeRenderer = L.svg({ pane: 'routePane' });
       this.routeLayer = L.layerGroup().addTo(this.map);
       this.render(this.layers());
-      this.syncMarker('start', this.start());
-      this.syncMarker('destination', this.destination());
-      this.syncRoute(this.route());
+      this.syncDrones(this.drones(), this.selectedId(), this.crossings());
       this.syncZones(this.zones(), this.highlightZoneIds());
       this.syncSource(this.airspaceSource());
       this.syncBoundary(this.boundary());
@@ -262,9 +282,8 @@ export class MapComponent implements OnDestroy {
     });
 
     effect(() => this.render(this.layers()));
-    effect(() => this.syncMarker('start', this.start()));
-    effect(() => this.syncMarker('destination', this.destination()));
-    effect(() => this.syncRoute(this.route()));
+    effect(() => this.syncDrones(this.drones(), this.selectedId(), this.crossings()));
+    effect(() => this.focusDrone(this.focusRequest()));
     effect(() => this.mapEl().nativeElement.classList.toggle('picking', this.picking()));
     effect(() => this.syncZones(this.zones(), this.highlightZoneIds()));
     effect(() => this.syncSource(this.airspaceSource()));
@@ -491,72 +510,55 @@ export class MapComponent implements OnDestroy {
     this.addKeyed('extent', extent);
   }
 
-  // --- markers and route ---------------------------------------------------------
+  // --- drones: markers and routes ---------------------------------------------------
 
-  private syncMarker(role: 'start' | 'destination', loc: SelectedLocation | null): void {
-    const map = this.map;
-    if (!map) return;
-    const existing = this.markers[role];
-    if (!loc) {
-      existing?.remove();
-      delete this.markers[role];
-      return;
-    }
-    const latlng = L.latLng(loc.coordinate.latitude, loc.coordinate.longitude);
-    const tooltip = `<b>${role === 'start' ? 'Point A' : 'Point B'}</b><br>${esc(loc.label)}`;
-    if (existing) {
-      existing.setLatLng(latlng).setTooltipContent(tooltip);
-    } else {
-      this.markers[role] = L.marker(latlng, {
-        icon: L.divIcon({
-          className: '',
-          html: `<div class="route-pin route-pin-${role}"><span>${role === 'start' ? 'A' : 'B'}</span></div>`,
-          iconSize: [28, 28],
-          iconAnchor: [14, 28],
-        }),
-        keyboard: false,
-        zIndexOffset: 1000,
-      })
-        .bindTooltip(tooltip, { direction: 'top', offset: [0, -26] })
-        .addTo(map);
-    }
-    // Typed or searched points may be off-screen: pan there, keeping the zoom.
-    if (loc.source !== 'MAP_CLICK' && loc.source !== 'DEMO' && !map.getBounds().contains(latlng)) {
-      map.panTo(latlng);
-    }
-  }
-
-  private syncRoute(state: RouteState): void {
+  private syncDrones(drones: Drone[], selectedId: string | null, crossings: Map<string, Crossing[]>): void {
     const map = this.map;
     const group = this.routeLayer;
     if (!map || !group) return;
     group.clearLayers();
-    const response =
-      state.phase === 'ready' || state.phase === 'stale'
-        ? state.response
-        : state.phase === 'loading'
-          ? state.previous
-          : undefined;
-    if (!response?.geometry) return;
+    const shown = drones.filter((d) => d.visible);
+    // Selected drone last, so its line is drawn on top.
+    const ordered = [...shown.filter((d) => d.id !== selectedId), ...shown.filter((d) => d.id === selectedId)];
+    for (const d of ordered) this.drawRoute(d, d.id === selectedId);
+    this.syncMarkers(shown, selectedId);
+    this.drawCrossings(crossings, drones);
 
-    const stale = state.phase !== 'ready';
-    const color = stale ? MAP_COLORS.routeStale : ROUTE_COLORS[response.mode];
+    const sel = drones.find((d) => d.id === selectedId);
+    const r = sel?.route;
+    if (r?.phase === 'ready' && r.response.geometry && this.lastFitted !== r.response) {
+      this.lastFitted = r.response;
+      this.fit(r.response.geometry.coordinates.map(([lon, lat]) => L.latLng(lat, lon)));
+    }
+  }
+
+  private drawRoute(d: Drone, selected: boolean): void {
+    const group = this.routeLayer!;
+    const response = shownResponse(d);
+    if (!response?.geometry) return;
+    const fresh = d.route.phase === 'ready';
+    const color = fresh ? d.color : MAP_COLORS.routeStale;
     const latlngs = response.geometry.coordinates.map(([lon, lat]) => L.latLng(lat, lon));
+    const weight = selected ? 6 : 4;
+    // Halo for contrast on the busy basemap.
+    group.addLayer(
+      L.polyline(latlngs, { renderer: this.routeRenderer, color: MAP_COLORS.halo, weight: weight + 4, opacity: fresh ? 0.85 : 0.35, interactive: false }),
+    );
     const line = L.polyline(latlngs, {
       renderer: this.routeRenderer,
       color,
-      weight: 5,
-      opacity: stale ? 0.7 : 0.95,
-      dashArray: stale ? '8 8' : undefined,
-      className: `route-line ${stale ? 'route-stale' : 'route-' + response.mode.toLowerCase()}`,
-      interactive: false,
+      weight,
+      opacity: fresh ? (selected ? 1 : 0.85) : 0.7,
+      dashArray: fresh ? undefined : '8 8',
+      className: `route-line route-${fresh ? 'ready' : 'stale'} route-${response.mode.toLowerCase()}`,
+      bubblingMouseEvents: false,
     });
-    // Halo for contrast on the busy basemap.
-    group.addLayer(
-      L.polyline(latlngs, { renderer: this.routeRenderer, color: MAP_COLORS.halo, weight: 9, opacity: stale ? 0.3 : 0.85, interactive: false }),
-    );
+    line.bindTooltip(`<b>${esc(d.name)}</b>${fresh ? '' : ' (outdated)'}`, { sticky: true });
+    line.on('click', (e: L.LeafletMouseEvent) => {
+      if (this.picking()) this.mapClick.emit({ latitude: e.latlng.lat, longitude: e.latlng.lng });
+      else this.routeClick.emit(d.id);
+    });
     group.addLayer(line);
-
     // Snapped endpoints: dotted link from the chosen point to where the route starts.
     const link = (from: SelectedLocation | null, to: Coordinate | null) => {
       if (!from || !to) return;
@@ -566,13 +568,99 @@ export class MapComponent implements OnDestroy {
         group.addLayer(L.polyline([a, b], { renderer: this.routeRenderer, color, weight: 2, dashArray: '2 6', interactive: false }));
       }
     };
-    link(this.start(), response.routeStart);
-    link(this.destination(), response.routeDestination);
+    link(d.start, response.routeStart);
+    link(d.destination, response.routeDestination);
+  }
 
-    if (state.phase === 'ready' && this.lastFitted !== response) {
-      this.lastFitted = response;
-      map.fitBounds(line.getBounds(), { padding: [48, 48], maxZoom: 16 });
+  private syncMarkers(drones: Drone[], selectedId: string | null): void {
+    const map = this.map!;
+    const wanted = new Set<string>();
+    for (const d of drones) {
+      for (const role of ['start', 'destination'] as const) {
+        const loc = d[role];
+        if (!loc) continue;
+        const key = `${d.id}:${role}`;
+        wanted.add(key);
+        const latlng = L.latLng(loc.coordinate.latitude, loc.coordinate.longitude);
+        const letter = role === 'start' ? 'A' : 'B';
+        const selected = d.id === selectedId;
+        const icon = L.divIcon({
+          className: '',
+          html: `<div class="route-pin${selected ? ' selected' : ''}" style="--drone:${d.color}"><span>${letter}</span></div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 28],
+        });
+        const tooltip = `<b>${esc(d.name)} · Point ${letter}</b><br>${esc(loc.label)}<br><span class="muted">Drag to move</span>`;
+        let m = this.markers.get(key);
+        if (!m) {
+          m = L.marker(latlng, { icon, draggable: true, keyboard: false, autoPan: true, zIndexOffset: selected ? 1200 : 1000 })
+            .bindTooltip(tooltip, { direction: 'top', offset: [0, -26] })
+            .addTo(map);
+          m.on('dragend', () => {
+            const p = m!.getLatLng();
+            this.markerDrag.emit({ droneId: d.id, role, coordinate: { latitude: p.lat, longitude: p.lng } });
+            // Rejected points (outside Warsaw) snap back to the stored position.
+            setTimeout(() => this.syncMarkers(this.drones().filter((x) => x.visible), this.selectedId()));
+          });
+          this.markers.set(key, m);
+          // Typed or searched points may be off-screen: pan there, keeping the zoom.
+          if (loc.source !== 'MAP_CLICK' && loc.source !== 'MAP_DRAG' && loc.source !== 'DEMO' && !map.getBounds().contains(latlng)) {
+            map.panTo(latlng);
+          }
+        } else {
+          if (!m.getLatLng().equals(latlng)) m.setLatLng(latlng);
+          m.setIcon(icon).setTooltipContent(tooltip).setZIndexOffset(selected ? 1200 : 1000);
+        }
+      }
     }
+    for (const [key, m] of this.markers) {
+      if (!wanted.has(key)) {
+        m.remove();
+        this.markers.delete(key);
+      }
+    }
+  }
+
+  private drawCrossings(crossings: Map<string, Crossing[]>, drones: Drone[]): void {
+    const seen = new Set<string>();
+    for (const [id, list] of crossings) {
+      for (const c of list) {
+        const pair = [id, c.otherId].sort().join('|');
+        if (seen.has(pair)) continue;
+        seen.add(pair);
+        const a = drones.find((d) => d.id === id)?.name ?? '';
+        this.routeLayer!.addLayer(
+          L.marker([c.point.latitude, c.point.longitude], {
+            icon: L.divIcon({ className: 'crossing-marker', html: iconSvg('alert'), iconSize: [22, 22], iconAnchor: [11, 11] }),
+            keyboard: false,
+            zIndexOffset: 900,
+          }).bindTooltip(`${esc(a)} and ${esc(c.otherName)} cross at a similar altitude`),
+        );
+      }
+    }
+  }
+
+  private focusDrone(req: { droneId: string; nonce: number } | null): void {
+    if (!req || !this.map || req.nonce === this.lastFocusNonce) return;
+    this.lastFocusNonce = req.nonce;
+    const d = this.drones().find((x) => x.id === req.droneId);
+    if (!d) return;
+    const coords = shownResponse(d)?.geometry?.coordinates.map(([lon, lat]) => L.latLng(lat, lon)) ?? [];
+    const points = [d.start, d.destination].filter((p): p is SelectedLocation => !!p).map((p) => L.latLng(p.coordinate.latitude, p.coordinate.longitude));
+    this.fit([...coords, ...points]);
+  }
+
+  private fit(latlngs: L.LatLng[]): void {
+    const map = this.map;
+    if (!map || !latlngs.length || map.getSize().x === 0) return;
+    if (latlngs.length === 1) {
+      map.setView(latlngs[0], Math.max(map.getZoom(), 15));
+      return;
+    }
+    this.lastFit = L.latLngBounds(latlngs);
+    this.keepFit = true;
+    // Not animated: a running zoom animation would overwrite the re-fit done when the drawer resizes the map.
+    map.fitBounds(this.lastFit, { padding: [48, 48], maxZoom: 16, animate: false });
   }
 
   ngOnDestroy(): void {

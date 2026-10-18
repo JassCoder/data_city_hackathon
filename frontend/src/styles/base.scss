@@ -427,6 +427,35 @@ button.badge {
   }
 }
 
+// --- tabs ------------------------------------------------------------------------------
+
+.tabs {
+  display: flex;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-4);
+  border-bottom: 1px solid var(--c-line);
+
+  [role='tab'] {
+    margin-bottom: -1px;
+    padding: var(--sp-2) 0;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--c-muted);
+    font-size: var(--fs-13);
+    font-weight: var(--fw-medium);
+
+    &[aria-selected='true'] {
+      border-bottom-color: var(--c-accent);
+      color: var(--c-text);
+    }
+
+    &:hover {
+      color: var(--c-text);
+    }
+  }
+}
+
 // --- toast ---------------------------------------------------------------------------
 
 .toast {

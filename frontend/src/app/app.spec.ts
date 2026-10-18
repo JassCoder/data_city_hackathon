@@ -3,7 +3,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { App } from './app';
 import { API_BASE_URL } from './core/api';
-import { BOUNDARY, COVERAGE, DEMO_WEATHER, LAYERS, PROFILES, SCENARIOS, ZONES } from '../testing/fixtures';
+import { BOUNDARY, COVERAGE, LAYERS, PROFILES, SCENARIOS, ZONES } from '../testing/fixtures';
 import { stubCanvas } from '../testing/canvas-stub';
 
 describe('App', () => {
@@ -29,7 +29,7 @@ describe('App', () => {
     expect(text).toContain('PANSA DroneMap and DroneTower');
   });
 
-  it('loads health, layers, profiles, weather, zones and the Warsaw boundary once', async () => {
+  it('loads health, layers, profiles, scenarios, zones and the Warsaw boundary once', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
     const http = TestBed.inject(HttpTestingController);
@@ -43,7 +43,6 @@ describe('App', () => {
     http.expectOne(`${API_BASE_URL}/layers`).flush(LAYERS);
     http.expectOne(`${API_BASE_URL}/drone-profiles`).flush(PROFILES);
     http.expectOne(`${API_BASE_URL}/scenarios`).flush(SCENARIOS);
-    http.expectOne(`${API_BASE_URL}/weather?mode=DEMO&altitude_m=80`).flush(DEMO_WEATHER);
     http.expectOne(`${API_BASE_URL}/map/warsaw-boundary`).flush(BOUNDARY);
     http.expectOne(`${API_BASE_URL}/map/coverage`).flush(COVERAGE);
     http.expectOne(`${API_BASE_URL}/zones?altitudeM=80`).flush(ZONES);
@@ -53,9 +52,9 @@ describe('App', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('[data-testid="backend-status"]')?.textContent).toContain('online');
     expect(el.querySelectorAll('.station-icon.station-depot').length).toBe(1);
-    expect(el.querySelector('[data-testid="route-idle"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="location-start"]')).not.toBeNull();
-    expect(el.querySelector('[data-testid="airspace-source"]')?.textContent).toContain('DEMO');
+    expect(el.querySelector('[data-testid="fleet-empty"]')?.textContent).toContain('No drones yet');
+    expect(el.querySelector('[data-testid="add-drone"]')).not.toBeNull();
+    expect(el.querySelector('[data-testid="drawer"]')?.hasAttribute('inert')).toBe(true); // closed until a result
     // One Layers panel and one legend, both collapsed by default; no airspace banner over the map.
     expect(el.querySelector('[data-testid="layers-toggle"]')?.getAttribute('aria-expanded')).toBe('false');
     expect(el.querySelector('[data-testid="legend-toggle"]')?.getAttribute('aria-expanded')).toBe('false');

@@ -186,11 +186,11 @@ export const ZONES: ZonesResponse = {
 export const SCENARIOS: ScenariosResponse = {
   note: 'Scenarios configure the optimisation only. Start and destination always come from the request.',
   scenarios: [
-    { id: 'NORMAL', displayName: 'Normal Flight', description: 'Standard route.', optimizationGoal: 'PREFER_SAFE_CORRIDORS', routeObjective: 'CORRIDORS', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
-    { id: 'BLOOD_DELIVERY', displayName: 'Blood Delivery', description: 'Minimises delivery time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: 'DEMO_DRONE_02' },
-    { id: 'AED_DELIVERY', displayName: 'AED / First Aid Delivery', description: 'Minimises response time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
-    { id: 'AVOID_PROHIBITED_ZONE', displayName: 'Avoid Prohibited Zone', description: 'Shortest path around blocked zones.', optimizationGoal: 'MINIMIZE_DISTANCE', routeObjective: 'SHORTEST', mode: 'NORMAL', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
-    { id: 'EMERGENCY', displayName: 'Emergency Flight', description: 'Minimises travel time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'EMERGENCY', respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+    { id: 'NORMAL', displayName: 'Normal Flight', description: 'Standard route.', optimizationGoal: 'PREFER_SAFE_CORRIDORS', routeObjective: 'CORRIDORS', mode: 'NORMAL', allowedModes: ['NORMAL'], respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+    { id: 'BLOOD_DELIVERY', displayName: 'Blood Delivery', description: 'Minimises delivery time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'NORMAL', allowedModes: ['NORMAL', 'EMERGENCY'], respectRestrictedZones: true, useWeather: true, recommendedProfileId: 'DEMO_DRONE_02' },
+    { id: 'AED_DELIVERY', displayName: 'AED / First Aid Delivery', description: 'Minimises response time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'NORMAL', allowedModes: ['NORMAL', 'EMERGENCY'], respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+    { id: 'AVOID_PROHIBITED_ZONE', displayName: 'Avoid Prohibited Zone', description: 'Shortest path around blocked zones.', optimizationGoal: 'MINIMIZE_DISTANCE', routeObjective: 'SHORTEST', mode: 'NORMAL', allowedModes: ['NORMAL'], respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
+    { id: 'EMERGENCY', displayName: 'Emergency Flight', description: 'Minimises travel time.', optimizationGoal: 'MINIMIZE_ETA', routeObjective: 'FASTEST', mode: 'EMERGENCY', allowedModes: ['EMERGENCY'], respectRestrictedZones: true, useWeather: true, recommendedProfileId: null },
   ],
 };
 

@@ -1,8 +1,9 @@
 import { Injectable, computed, effect, inject, linkedSignal, signal, untracked } from '@angular/core';
 import { httpResource } from '@angular/common/http';
 import { API_BASE_URL, safeValue } from './api';
-import { ALTITUDE } from './models';
-import { PlannerStore } from './planner.store';
+import { FleetStore } from './fleet.store';
+import { shownResponse } from './fleet';
+import { ALTITUDE, isValidAltitude } from './models';
 
 /** Wire models for GET /zones (mirrors backend/app/airspace/models.py). */
 
@@ -123,17 +124,19 @@ export const SOURCE_LABEL: Record<SourceType, string> = {
 };
 
 /**
- * Loads GET /zones evaluated for the planner's current altitude. Filters only
- * change what the map shows; routing always uses every loaded zone.
+ * Loads GET /zones evaluated for the altitude of the drone being edited (else the
+ * selected one, else the default). Filters only change what the map shows;
+ * routing always uses every loaded zone.
  */
 @Injectable({ providedIn: 'root' })
 export class AirspaceService {
-  private readonly store = inject(PlannerStore);
+  private readonly fleet = inject(FleetStore);
 
   /** Last valid altitude; an invalid entry keeps the previous evaluation. */
-  private readonly altitude = linkedSignal<{ value: number; valid: boolean }, number>({
-    source: () => ({ value: this.store.altitude(), valid: this.store.altitudeValid() }),
-    computation: (src, prev) => (src.valid ? src.value : (prev?.value ?? ALTITUDE.default)),
+  readonly altitude = linkedSignal<number | undefined, number>({
+    source: () => this.fleet.focusDrone()?.altitude,
+    computation: (alt, prev) =>
+      alt !== undefined && isValidAltitude(alt) ? alt : (prev?.value ?? ALTITUDE.default),
   });
 
   readonly resource = httpResource<ZonesResponse>(() => `${API_BASE_URL}/zones?altitudeM=${this.altitude()}`);
@@ -159,12 +162,13 @@ export class AirspaceService {
     return out;
   });
 
-  /** Zones containing a rejected start/destination: highlighted on the map. */
+  /** Zones that block the selected drone's failed result (points inside, or the blocked direct line). */
   readonly highlightZoneIds = computed(() => {
-    const r = this.store.route();
-    const resp = r.phase === 'ready' || r.phase === 'stale' ? r.response : undefined;
-    return (resp?.zoneConflicts ?? [])
-      .filter((c) => c.relation === 'START_INSIDE' || c.relation === 'DESTINATION_INSIDE')
+    const d = this.fleet.selected();
+    const resp = d ? shownResponse(d) : undefined;
+    if (!resp || resp.status === 'OK') return [];
+    return resp.zoneConflicts
+      .filter((c) => c.relation === 'START_INSIDE' || c.relation === 'DESTINATION_INSIDE' || c.relation === 'DIRECT_LINE_BLOCKED')
       .map((c) => c.zoneId);
   });
 
@@ -172,19 +176,22 @@ export class AirspaceService {
     // A new dataset version invalidates routes calculated on the old one.
     effect(() => {
       const v = this.source()?.datasetVersion;
-      if (v) untracked(() => this.store.onAirspaceVersion(v));
+      if (v) untracked(() => this.fleet.onAirspaceVersion(v));
     });
     // A route computed on a newer dataset than the one displayed: refresh the map.
     effect(() => {
-      const r = this.store.route();
-      const routeVersion = r.phase === 'ready' ? r.response.airspace?.datasetVersion : undefined;
       const shown = untracked(() => this.source()?.datasetVersion);
-      if (routeVersion && shown && routeVersion !== shown) untracked(() => this.resource.reload());
+      const newer = this.fleet
+        .drones()
+        .some((d) => d.route.phase === 'ready' && shown && d.route.response.airspace?.datasetVersion !== shown);
+      if (newer) untracked(() => this.resource.reload());
     });
-    // Focus the conflicting zone when a point is rejected.
+    // A point rejected inside a zone: show that zone.
     effect(() => {
-      const ids = this.highlightZoneIds();
-      if (ids.length) untracked(() => this.focusZoneId.set(ids[0]));
+      const d = this.fleet.selected();
+      const resp = d?.route.phase === 'ready' ? d.route.response : undefined;
+      const inside = resp?.zoneConflicts.find((c) => c.relation === 'START_INSIDE' || c.relation === 'DESTINATION_INSIDE');
+      if (inside) untracked(() => this.focusZoneId.set(inside.zoneId));
     });
   }
 

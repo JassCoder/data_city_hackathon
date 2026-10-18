@@ -19,6 +19,7 @@
 }
 
 .brand {
+  margin: 0;
   font-size: var(--fs-14);
   font-weight: var(--fw-bold);
   white-space: nowrap;
@@ -148,11 +149,36 @@
 .drawer-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-2);
   min-height: 44px;
   padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-4);
-  border-bottom: 1px solid var(--c-line);
+}
+
+.drawer-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.drawer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: var(--sp-6);
+  z-index: var(--z-toast);
+  transform: translateX(-50%);
+
+  @media (max-width: 767px) {
+    bottom: calc(var(--sheet-peek) + var(--sp-3));
+  }
 }
 
 // --- mobile: map full width, sidebar = bottom sheet, drawer = full-height sheet ---------

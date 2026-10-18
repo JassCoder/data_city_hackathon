@@ -9,6 +9,7 @@ import {
   droneIssues,
   duplicateDrone,
   findCrossings,
+  invalidateRoute,
   modePatch,
   setRoute,
   shownResponse,
@@ -310,6 +311,16 @@ export class FleetStore {
   /** Every drone that can be calculated, in parallel; each one succeeds or fails on its own. */
   calculateAll(): void {
     for (const d of this.drones()) if (!droneIssues(d).length) this.calculate(d.id);
+  }
+
+  /** Wind source for every drone; calculated routes become outdated, running requests stop. */
+  setWeatherMode(mode: WeatherMode): void {
+    if (mode === this.weatherMode()) return;
+    this.weatherMode.set(mode);
+    for (const d of this.drones()) {
+      if (d.route.phase === 'calculating') this.cancel(d.id);
+      this.drones.update((list) => setRoute(list, d.id, invalidateRoute(d.route)));
+    }
   }
 
   /** A new airspace dataset: routes planned on another version are outdated. */

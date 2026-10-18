@@ -239,16 +239,40 @@ app-map .route-pin {
   border: 2px solid #fff;
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
+  background: var(--drone, #1e2a33);
   color: #fff;
   font-size: 13px;
   font-weight: var(--fw-bold);
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+  cursor: grab;
 
-  &.route-pin-start { background: #1e2a33; }
-  &.route-pin-destination { background: #1e2a33; }
+  &.selected {
+    outline: 3px solid rgb(255 255 255 / 0.9);
+    box-shadow: 0 0 0 5px var(--drone, #1e2a33), 0 2px 8px rgb(0 0 0 / 0.45);
+  }
 
   // Keep the letter upright inside the rotated pin.
   span { display: block; transform: rotate(45deg); line-height: 1; }
+}
+
+app-map .leaflet-drag-target .route-pin {
+  cursor: grabbing;
+}
+
+app-map .crossing-marker {
+  display: grid;
+  place-items: center;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #1e2a33;
+  color: #fff;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.45);
+
+  .icon {
+    width: 13px;
+    height: 13px;
+    stroke-width: 2.4;
+  }
 }
 
 app-map .station-icon {

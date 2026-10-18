@@ -115,7 +115,9 @@
           @case ('FAILED') { <button mat-button (click)="assign(o)">Retry</button> }
         }
         @if (['ASSIGNED', 'TO_PICKUP', 'LOADING', 'IN_DELIVERY', 'DELIVERED', 'RETURNING'].includes(o.status)) {
-          <button mat-button data-testid="order-advance" (click)="advance(o)">Advance simulation</button>
+          <button mat-button data-testid="order-advance" [disabled]="flight.flying()" (click)="advance(o)">
+            {{ flight.flying() && flight.orderId() === o.id ? 'Drone flying…' : 'Advance simulation' }}
+          </button>
         }
         @if (['CREATED', 'ASSIGNED', 'NO_DRONE_AVAILABLE', 'FAILED'].includes(o.status)) {
           <button mat-button (click)="cancel(o)">Cancel</button>

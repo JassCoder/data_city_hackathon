@@ -1,0 +1,14 @@
+# Backend image context (repository root): only backend/app, its requirements and data/ are copied.
+.git
+frontend
+scripts
+backend/.venv
+backend/tests
+**/__pycache__
+**/*.pyc
+.pytest_cache
+# The simulated fleet database is created fresh in the container's volume.
+data/fleet
+*.pptx
+*.md
+logs

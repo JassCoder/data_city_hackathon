@@ -7,3 +7,12 @@ __pycache__/
 # Editors / OS
 .DS_Store
 Thumbs.db
+
+# run.ps1 logs
+logs/
+
+# AI assistant files (kept locally, never committed)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+SKYROUTE_PROMPT.md

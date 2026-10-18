@@ -6,6 +6,7 @@ import { describeHttpError } from '../core/api';
 import { Facility, FleetService, KindUtilization, MEDICAL_ORDER_TYPES, NearestHospital, Order, OrderPlace, OrderType } from '../core/fleet';
 import { MapDataService } from '../core/map-data';
 import { PlannerStore } from '../core/planner.store';
+import { FleetFlightService } from '../core/fleet-flight';
 import { AddressSearchComponent, ChosenPlace } from './address-search';
 
 const ORDER_TYPES: { id: OrderType; label: string }[] = [
@@ -30,6 +31,8 @@ const KIND_LABEL: Record<string, string> = {
 export class FleetPanelComponent {
   protected readonly fleet = inject(FleetService);
   protected readonly store = inject(PlannerStore);
+  /** Animates the order's drone along its route legs on the map. */
+  protected readonly flight = inject(FleetFlightService);
   private readonly mapData = inject(MapDataService);
   protected readonly orderTypes = ORDER_TYPES;
   protected readonly kindLabel = KIND_LABEL;
@@ -143,11 +146,16 @@ export class FleetPanelComponent {
     });
   }
 
+  /** One simulated step; flight steps fly the drone along that leg of the order's route. */
   protected advance(o: Order): void {
-    this.fleet.advance(o.id).subscribe({ error: (e) => this.done(false, describeHttpError(e, 'Advance failed')) });
+    this.fleet.advance(o.id).subscribe({
+      next: (updated) => this.flight.show(updated),
+      error: (e) => this.done(false, describeHttpError(e, 'Advance failed')),
+    });
   }
 
   protected cancel(o: Order): void {
+    if (this.flight.orderId() === o.id) this.flight.clear();
     this.fleet.cancel(o.id).subscribe({ error: (e) => this.done(false, describeHttpError(e, 'Cancel failed')) });
   }
 

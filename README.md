@@ -9,6 +9,37 @@ A "Google Maps for drones" prototype covering the **whole City of Warsaw** (all 
 
 ## Quick start
 
+### Option 1: one command (Windows)
+
+Requirements: Python 3.12+ and Node 20+ (or Docker Desktop for `-Docker`). Double-click `run.cmd`, or from PowerShell in the repository root:
+
+```powershell
+.\run.cmd            # local: installs missing packages, starts backend + frontend, opens http://localhost:4200
+.\run.cmd -Docker    # build and start the Docker containers instead
+.\run.cmd -Down      # stop the Docker containers
+```
+
+- **First run:** the script creates `backend\.venv` and runs `npm ci`. Later runs reinstall only when `requirements.txt` or `package-lock.json` changed.
+- **Stopping:** Ctrl+C stops both servers.
+- **Logs:** written to `logs\`.
+- **Ports:** 8000 and 4200 must be free; the script names the program using a busy port.
+
+### Option 2: Docker
+
+Requirements: Docker Desktop (or Docker Engine with Compose v2). Run from the repository root:
+
+```bash
+docker compose build     # build the backend and frontend images
+docker compose up -d     # start: app at http://localhost:4200, API docs at http://localhost:8000/docs
+docker compose down      # stop and remove the containers
+```
+
+- The frontend container (nginx) waits until the backend reports healthy, which takes about 30 seconds after start-up.
+- Ports 4200 and 8000 must be free, so stop any local `ng serve` or `uvicorn` first.
+- The simulated fleet database lives in the `fleet-state` volume and survives `down`. To start it fresh, use `docker compose down -v`.
+
+### Option 3: manual start
+
 Requirements: Python 3.12+, Node 20+ (tested with Node 24).
 
 ```bash

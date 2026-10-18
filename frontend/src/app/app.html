@@ -26,7 +26,7 @@
       [start]="planner.start()"
       [destination]="planner.destination()"
       [route]="planner.route()"
-      [simulation]="sim.frame()"
+      [simulation]="sim.frame() ?? flight.frame()"
       [zoomDistrict]="fleet.district()"
       [picking]="planner.pickTarget() !== null || fleet.pickTarget() !== null"
       [zones]="airspace.visibleZones()"

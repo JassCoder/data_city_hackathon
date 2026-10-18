@@ -42,6 +42,8 @@ export interface SimFrame {
   trails: [number, number][][];
   returnPath: [number, number][] | null;
   follow: boolean;
+  /** When set, the map zooms once onto these points (a new fleet leg). */
+  focus?: [number, number][] | null;
 }
 
 const R = 6_371_000;
@@ -62,15 +64,21 @@ export function bearingDeg(a: [number, number], b: [number, number]): number {
 
 /** A leg from a route response (GeoJSON lon/lat order). Null if the route has no geometry. */
 export function buildLeg(response: RouteResponse): Leg | null {
-  const g = response.geometry?.coordinates;
-  if (response.status !== 'OK' || !g || g.length < 2) return null;
+  if (response.status !== 'OK') return null;
+  return legFromLine(response.geometry?.coordinates, response.distanceM, response.etaS);
+}
+
+/** A leg from any backend route line (GeoJSON lon/lat order), e.g. a fleet order's leg. */
+export function legFromLine(g: number[][] | null | undefined, distance: number | null | undefined,
+                            eta: number | null | undefined): Leg | null {
+  if (!g || g.length < 2) return null;
   const coords = g.map(([lon, lat]) => [lat, lon] as [number, number]);
   const cum = [0];
   for (let i = 1; i < coords.length; i++) cum.push(cum[i - 1] + segmentLengthM(coords[i - 1], coords[i]));
   const lengthM = cum[cum.length - 1];
-  const distanceM = response.distanceM ?? lengthM;
+  const distanceM = distance ?? lengthM;
   // Without an ETA, fall back to the drone's cruise speed so the animation still moves.
-  const etaS = response.etaS && response.etaS > 0 ? response.etaS : distanceM / 15;
+  const etaS = eta && eta > 0 ? eta : distanceM / 15;
   return { coords, cum, lengthM, distanceM, etaS };
 }
 

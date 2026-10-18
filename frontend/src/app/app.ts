@@ -9,6 +9,7 @@ import { API_BASE_URL, Health, safeValue } from './core/api';
 import { LayersService, TALL_BUILDING_M } from './core/layers';
 import { PlannerStore } from './core/planner.store';
 import { SimulationService } from './core/simulation';
+import { FleetFlightService } from './core/fleet-flight';
 import { AirspaceService } from './core/airspace';
 import { MapDataService } from './core/map-data';
 import { Coordinate } from './core/models';
@@ -42,6 +43,7 @@ export class App {
   protected readonly layers = inject(LayersService);
   protected readonly planner = inject(PlannerStore);
   protected readonly sim = inject(SimulationService);
+  protected readonly flight = inject(FleetFlightService);
   protected readonly airspace = inject(AirspaceService);
   protected readonly mapData = inject(MapDataService);
   protected readonly fleet = inject(FleetService);

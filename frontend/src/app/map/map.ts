@@ -202,6 +202,7 @@ export class MapComponent implements OnDestroy {
   private simReturn?: L.Polyline;
   private simTrails: L.Polyline[] = [];
   private drone?: L.Marker;
+  private lastFocus?: [number, number][];
   private lastFitted?: unknown;
   private readonly http = inject(HttpClient, { optional: true });
   private cityLayer?: L.GeoJSON;
@@ -639,6 +640,12 @@ export class MapComponent implements OnDestroy {
       this.drone = L.marker(at, { icon: droneIcon(), pane: 'dronePane', interactive: false, keyboard: false }).addTo(group);
     } else {
       this.drone.setLatLng(at);
+    }
+    // A new fleet leg: zoom onto it once so the flight is visible.
+    const size = map.getSize();
+    if (frame.focus && frame.focus !== this.lastFocus && size.x && size.y) {
+      this.lastFocus = frame.focus;
+      map.fitBounds(L.latLngBounds(frame.focus), { padding: [80, 80], maxZoom: 16 });
     }
     const body = this.drone.getElement()?.querySelector<HTMLElement>('.drone-body');
     if (body) body.style.transform = `rotate(${frame.heading.toFixed(1)}deg)`;

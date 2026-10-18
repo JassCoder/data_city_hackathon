@@ -1,0 +1,35 @@
+# SkyRoute Warsaw: backend (FastAPI) + frontend (Angular on nginx).
+#   docker compose build      # build both images
+#   docker compose up -d      # run: app at http://localhost:4200, API at http://localhost:8000/docs
+#   docker compose down       # stop and remove the containers (fleet data volume is kept)
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: skyroute-backend
+    container_name: skyroute-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Optional: load a permitted official airspace file (see DATA_SOURCES.md).
+      SKYROUTE_AIRSPACE_PROVIDER: ${SKYROUTE_AIRSPACE_PROVIDER:-none}
+      SKYROUTE_PLANNING_CONSTRAINTS: ${SKYROUTE_PLANNING_CONSTRAINTS:-on}
+    volumes:
+      - fleet-state:/app/state
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    image: skyroute-frontend
+    container_name: skyroute-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  fleet-state:

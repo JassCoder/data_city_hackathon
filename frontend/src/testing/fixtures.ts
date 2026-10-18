@@ -236,7 +236,7 @@ export function routeResponse(req: RouteRequest, over: Partial<RouteResponse> = 
     distanceM: 3035.2,
     etaS: 175.6,
     mode: req.mode,
-    routeObjective: req.routeObjective,
+    routeObjective: req.routeObjective ?? 'FASTEST', // scenarios set it on the server
     flightAltitudeMeters: req.flightAltitudeMeters,
     droneProfileId: req.droneProfileId,
     weather: DEMO_WEATHER,

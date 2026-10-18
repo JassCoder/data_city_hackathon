@@ -6,7 +6,7 @@ import { SETTINGS } from './settings';
 export type FlightMode = 'NORMAL' | 'EMERGENCY';
 export type WeatherMode = 'DEMO' | 'LIVE';
 /** What the route minimises (hard restrictions always apply). */
-export type RouteObjective = 'CORRIDORS' | 'SHORTEST' | 'FASTEST' | 'SAFEST';
+export type RouteObjective = 'CORRIDORS' | 'SHORTEST' | 'FASTEST' | 'SAFEST' | 'LOWEST_ENERGY';
 /** Routing scenario: configuration only. It never carries or changes Point A/B. */
 export type ScenarioId = 'NORMAL' | 'BLOOD_DELIVERY' | 'AED_DELIVERY' | 'AVOID_PROHIBITED_ZONE' | 'EMERGENCY';
 export type OptimizationGoal = 'PREFER_SAFE_CORRIDORS' | 'MINIMIZE_DISTANCE' | 'MINIMIZE_ETA';
@@ -18,6 +18,8 @@ export interface ScenarioConfig {
   optimizationGoal: OptimizationGoal;
   routeObjective: RouteObjective;
   mode: FlightMode;
+  /** Modes a request may choose explicitly with this scenario (first = default). */
+  allowedModes?: FlightMode[];
   respectRestrictedZones: boolean;
   useWeather: boolean;
   recommendedProfileId: string | null;
@@ -34,7 +36,7 @@ export interface Coordinate {
   longitude: number;
 }
 
-export type LocationSource = 'SEARCH' | 'MAP_CLICK' | 'MANUAL' | 'DEMO';
+export type LocationSource = 'SEARCH' | 'MAP_CLICK' | 'MAP_DRAG' | 'MANUAL' | 'SUGGESTION' | 'DEMO';
 
 /** A start/destination chosen by the user. Only in-coverage points are ever selected. */
 export interface SelectedLocation {
@@ -50,8 +52,10 @@ export interface RouteRequest {
   flightAltitudeMeters: number;
   droneProfileId: string;
   weatherMode: WeatherMode;
-  routeObjective: RouteObjective;
+  /** Omitted when a scenario sets it (an explicit contradiction is a 422). */
+  routeObjective?: RouteObjective;
   scenario?: ScenarioId | null;
+  payloadKg?: number;
 }
 
 export type RouteStatus =

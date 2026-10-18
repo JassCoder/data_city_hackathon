@@ -33,6 +33,7 @@ const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
   SHORTEST: 'Shortest',
   FASTEST: 'Fastest (wind-aware)',
   SAFEST: 'Safest (multi-criteria)',
+  LOWEST_ENERGY: 'Lowest energy',
 };
 
 const TERM_LABEL: Record<CostTerm, string> = {

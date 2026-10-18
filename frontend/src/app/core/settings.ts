@@ -17,6 +17,8 @@ export const SETTINGS = {
   maxRecentPlaces: 8,
   /** How long "Undo" stays available after deleting a drone. */
   undoMs: 6000,
+  /** Profile for new drones (profiles themselves come from GET /drone-profiles). */
+  defaultProfileId: 'DEMO_DRONE_01',
   /** Below this width the sidebar becomes a bottom sheet and the drawer a full-height sheet. */
   mobileMaxWidthPx: 767,
 } as const;

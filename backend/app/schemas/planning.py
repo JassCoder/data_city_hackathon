@@ -228,8 +228,9 @@ class CostBreakdown(CamelModel):
     total_cost: float
     length_m: float
     terms: list[TermCostInfo]
-    energy_wh: float
-    battery_usable_wh: float  # battery minus the configured reserve
+    energy_wh: float  # whole flight: cruise along the route + take-off climb + landing descent
+    vertical_energy_wh: float  # the take-off and landing part of energy_wh
+    battery_usable_wh: float  # battery minus the profile's reserve
     payload_kg: float
     flight_time_s: float
     population_exposure: float  # integral of estimated density along the route: people/ha x km

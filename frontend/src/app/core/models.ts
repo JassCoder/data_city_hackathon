@@ -117,7 +117,9 @@ export interface CostBreakdown {
   totalCost: number;
   lengthM: number;
   terms: { term: CostTerm; weight: number; mean: number; cost: number }[];
+  /** Whole flight: cruise + take-off climb + landing descent. */
   energyWh: number;
+  verticalEnergyWh?: number;
   batteryUsableWh: number;
   payloadKg: number;
   flightTimeS: number;

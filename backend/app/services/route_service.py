@@ -78,7 +78,9 @@ def cost_breakdown(result, risk_data_available: bool = True) -> CostBreakdown | 
         total_cost=round(b.total_cost, 1), length_m=round(b.length_m, 1),
         terms=[TermCostInfo(term=name, weight=t.weight, mean=round(t.mean, 4), cost=round(t.cost, 1))
                for name, t in b.terms.items()],
-        energy_wh=round(b.energy_wh, 1), battery_usable_wh=round(result.battery_usable_wh, 1),
+        energy_wh=round(b.energy_wh + result.vertical_energy_wh, 1),
+        vertical_energy_wh=round(result.vertical_energy_wh, 1),
+        battery_usable_wh=round(result.battery_usable_wh, 1),
         payload_kg=result.payload_kg, flight_time_s=round(b.flight_time_s, 1),
         population_exposure=round(b.population_exposure, 2), max_density_per_ha=round(b.max_density_per_ha, 1),
         local_hour=result.local_hour, note=BREAKDOWN_NOTE if risk_data_available else DEGRADED_NOTE,

@@ -34,12 +34,44 @@ class DroneEnergy:
     battery_wh: float
     max_wind_kmh: float
     max_payload_kg: float
+    # Vertical flight and hovering (simulation, planner battery check). 0 = not modelled
+    # (the risk-cost unit tests build cruise-only drones); production always sets them
+    # from the DroneProfile.
+    climb_rate_mps: float = 0.0
+    descent_rate_mps: float = 0.0
+    climb_extra_power_w: float = 0.0
+    descent_power_w: float = 0.0
+    hover_power_w: float = 0.0
 
     def power_w(self, payload_kg: float) -> float:
+        """Cruise power: P = cruise power + payload power per kg x payload."""
         return self.cruise_power_w + self.payload_power_w_per_kg * payload_kg
+
+    def climb_power_w(self, payload_kg: float) -> float:
+        return self.power_w(payload_kg) + self.climb_extra_power_w
+
+    def descent_power(self, payload_kg: float) -> float:
+        return self.descent_power_w + self.payload_power_w_per_kg * payload_kg
+
+    def hover_power(self, payload_kg: float) -> float:
+        return self.hover_power_w + self.payload_power_w_per_kg * payload_kg
 
     def usable_wh(self, reserve_fraction: float) -> float:
         return self.battery_wh * (1.0 - reserve_fraction)
+
+
+def takeoff_energy_wh(drone: DroneEnergy, payload_kg: float, altitude_m: float) -> float:
+    """Vertical climb from the ground to the flight altitude at the climb rate."""
+    if not drone.climb_rate_mps:
+        return 0.0
+    return drone.climb_power_w(payload_kg) * (altitude_m / drone.climb_rate_mps) / 3600
+
+
+def landing_energy_wh(drone: DroneEnergy, payload_kg: float, altitude_m: float) -> float:
+    """Vertical descent from the flight altitude to the ground at the descent rate."""
+    if not drone.descent_rate_mps:
+        return 0.0
+    return drone.descent_power(payload_kg) * (altitude_m / drone.descent_rate_mps) / 3600
 
 
 def wind_vector_to(speed_kmh: float, from_deg: float) -> tuple[float, float]:

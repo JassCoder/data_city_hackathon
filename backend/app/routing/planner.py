@@ -43,7 +43,7 @@ from app.routing.costs import BLOCKED, FlightMode, RouteObjective
 
 RISK_OBJECTIVES = (RouteObjective.SAFEST, RouteObjective.LOWEST_ENERGY)  # searched on the CostSurface
 from app.routing.grid import Grid, lonlat_to_xy, pool_blocked, xy_to_lonlat
-from app.routing.risk.energy import DroneEnergy, ground_speed
+from app.routing.risk.energy import DroneEnergy, ground_speed, landing_energy_wh, takeoff_energy_wh
 from app.routing.risk.providers import CostContext, SampledWind, WindVector
 from app.routing.risk.surface import CostModel, CostSurface, RouteBreakdown
 from app.schemas.planning import DroneProfile, RouteStatus, WeatherInfo
@@ -81,6 +81,7 @@ class PlanResult:
     payload_kg: float | None = None
     local_hour: int | None = None
     battery_usable_wh: float | None = None
+    vertical_energy_wh: float = 0.0  # take-off climb + landing descent at the flight altitude
 
 
 def _fmt(lon: float, lat: float) -> str:
@@ -196,6 +197,9 @@ class RoutePlanner:
             cruise_speed_mps=profile.cruise_speed_mps, cruise_power_w=profile.cruise_power_w,
             payload_power_w_per_kg=profile.payload_power_w_per_kg, battery_wh=profile.battery_wh,
             max_wind_kmh=profile.max_wind_kmh, max_payload_kg=profile.max_payload_kg,
+            climb_rate_mps=profile.climb_rate_mps, descent_rate_mps=profile.descent_rate_mps,
+            climb_extra_power_w=profile.climb_extra_power_w, descent_power_w=profile.descent_power_w,
+            hover_power_w=profile.hover_power_w,
         )
 
     @staticmethod
@@ -316,13 +320,18 @@ class RoutePlanner:
                           search=search)
 
         breakdown = surface.breakdown(list(line.coords))
-        if breakdown.energy_wh > energy_info["battery_usable_wh"]:
+        # The battery must also cover the vertical take-off and landing at this altitude.
+        energy_info["vertical_energy_wh"] = (takeoff_energy_wh(drone, payload, altitude_m)
+                                             + landing_energy_wh(drone, payload, altitude_m))
+        needed = breakdown.energy_wh + energy_info["vertical_energy_wh"]
+        if needed > energy_info["battery_usable_wh"]:
             reserve = profile.reserve_fraction
             return result(
                 RouteStatus.INSUFFICIENT_BATTERY,
-                f"The route ({breakdown.length_m / 1000:.1f} km) needs about {breakdown.energy_wh:.0f} Wh, but the "
-                f"{profile.name} can use only {energy_info['battery_usable_wh']:.0f} Wh while keeping a "
-                f"{reserve:.0%} battery reserve. Flight not planned. Try closer points or a smaller payload.",
+                f"The route ({breakdown.length_m / 1000:.1f} km) needs about {needed:.0f} Wh including take-off "
+                f"and landing, but the {profile.name} can use only {energy_info['battery_usable_wh']:.0f} Wh "
+                f"while keeping a {reserve:.0%} battery reserve. Flight not planned. Try closer points or a "
+                f"smaller payload.",
                 search=search, breakdown=breakdown, **energy_info,
             )
         self._route_zone_notes(line, state, evals, obstacles, warnings, conflicts)

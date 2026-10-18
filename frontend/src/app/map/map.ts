@@ -16,10 +16,22 @@ import type { FeatureCollection } from 'geojson';
 import { API_BASE_URL } from '../core/api';
 import { SETTINGS } from '../core/settings';
 import { BoundaryResponse, FALLBACK_VIEW } from '../core/map-data';
-import { AirspaceSource, AirspaceZone, DisplayClass, SOURCE_LABEL, STATUS_LABEL } from '../core/airspace';
+import { AirspaceSource, AirspaceZone, SOURCE_LABEL, STATUS_LABEL } from '../core/airspace';
 import { BuildingProps, CorridorProps, Layers, StationProps, StationType, TALL_BUILDING_M } from '../core/layers';
+import { DEFAULT_LAYERS, LayerKey } from '../core/map-layers';
 import { Coordinate, SelectedLocation } from '../core/models';
 import { RouteState } from '../core/planner.store';
+import { iconSvg } from '../ui/icon';
+import {
+  MAP_COLORS,
+  ZONE_KINDS,
+  ZoneKind,
+  zoneGlyphSvg,
+  zoneKind,
+  zonePathStyle,
+  zonePatternDefs,
+  zoneTickStyle,
+} from './map-style';
 
 /** All footprints are loaded as z14 tiles once the map is zoomed in this far. */
 export const BUILDING_TILE_ZOOM = 14;
@@ -39,47 +51,11 @@ export function tilesFor(west: number, south: number, east: number, north: numbe
   return out;
 }
 
-export const COLORS = {
-  river: '#1e88e5',
-  park: '#43a047',
-  building: '#9e9e9e',
-  tallBuilding: '#37474f',
-  bbox: '#455a64',
-  city: '#263238',
-  district: '#5c6bc0',
-  routeNormal: '#1565c0',
-  routeEmergency: '#2e7d32',
-  routeStale: '#757575',
-} as const;
+/** Route colours until each drone gets its own (redesign step 4). */
+const ROUTE_COLORS = { NORMAL: '#0072b2', EMERGENCY: '#009e73' } as const;
 
-/** Airspace legend colours (fill = evaluation class for the planned flight). */
-export const ZONE_COLORS: Record<DisplayClass, string> = {
-  RED: '#d32f2f',
-  ORANGE: '#f57c00',
-  YELLOW: '#f9a825',
-  GRAY: '#757575',
-  INACTIVE: '#9e9e9e',
-};
-const OBSTACLE_OUTLINE = '#c62828';
-
-function esc(v: unknown): string {
+export function esc(v: unknown): string {
   return String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-/** Leaflet path style for a zone: fill by class, solid red outline when it is a routing obstacle. */
-export function zoneStyle(z: AirspaceZone, highlighted = false): L.PathOptions {
-  const e = z.evaluation;
-  const fill = ZONE_COLORS[e.displayClass];
-  if (e.displayClass === 'INACTIVE') {
-    return { color: '#757575', weight: highlighted ? 4 : 1.5, dashArray: '4 6', fillColor: fill, fillOpacity: 0.06 };
-  }
-  return {
-    color: e.isObstacle ? OBSTACLE_OUTLINE : fill,
-    weight: highlighted ? 5 : e.isObstacle ? 2.5 : 1.5,
-    dashArray: e.isObstacle ? undefined : '6 4',
-    fillColor: fill,
-    fillOpacity: e.displayClass === 'RED' ? 0.4 : 0.3,
-  };
 }
 
 /**
@@ -102,11 +78,12 @@ const HEIGHT_SOURCE_LABEL: Record<BuildingProps['height_source'], string> = {
   default_15m: 'unknown, default 15 m (estimated)',
 };
 
-const STATION_ICON: Record<StationType, string> = {
-  HOSPITAL: 'local_hospital',
-  ROOFTOP: 'apartment',
-  PARK: 'park',
-  DEPOT: 'warehouse',
+/** Station glyphs (filled, white on the station colour). */
+const STATION_GLYPH: Record<StationType, string> = {
+  HOSPITAL: 'M10 5h4v5h5v4h-5v5h-4v-5H5v-4h5z',
+  ROOFTOP: 'M5 20V10l7-5 7 5v10h-5v-5h-4v5z',
+  PARK: 'M12 3l6 8h-3.5l4 6H13v4h-2v-4H5.5l4-6H6z',
+  DEPOT: 'M4 8l8-4 8 4v9l-8 4-8-4zM12 12v9M4 8l8 4 8-4',
 };
 
 const STATION_LABEL: Record<StationType, string> = {
@@ -116,10 +93,57 @@ const STATION_LABEL: Record<StationType, string> = {
   DEPOT: 'Depot',
 };
 
+function altitudeBand(z: AirspaceZone): string {
+  const alt = (v: number | null, unknown: string) => (v === null ? unknown : `${v} m`);
+  return `${alt(z.lowerAltitude, 'unknown floor')} – ${alt(z.upperAltitude, 'unknown ceiling')} ${z.altitudeReference}`;
+}
+
+function validityText(z: AirspaceZone): string {
+  if (!z.validityStart && !z.validityEnd) return 'Permanent or not specified';
+  const fmt = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
+  const d = (v: string | null) => (v ? fmt.format(new Date(v)) : '…');
+  return `${d(z.validityStart)} to ${d(z.validityEnd)} UTC`;
+}
+
+/** Popup: what the zone means for the selected flight first, details on demand. */
+export function zonePopupHtml(z: AirspaceZone, flightLabel: string): string {
+  const kind = zoneKind(z.evaluation);
+  const k = ZONE_KINDS[kind];
+  const e = z.evaluation;
+  const demo = z.sourceType === 'DEMO' ? '<span class="badge badge-demo">Demo, not official</span>' : '';
+  const reasons = e.reasons.length ? `<ul class="reasons">${e.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : '';
+  return `
+    <div class="zone-popup" data-zone-id="${esc(z.id)}" data-kind="${kind}">
+      <div class="zp-head">${zoneGlyphSvg(kind, 20)}<div><div class="zp-title">${esc(z.name)}</div>
+        <div class="zp-meta"><span class="zp-cat">${esc(z.draCategory)}</span> ${demo}</div></div></div>
+      <div class="zp-meaning zp-${kind}"><b>For ${esc(flightLabel)}:</b> ${esc(k.meaning)}</div>
+      <dl>
+        <dt>Altitude</dt><dd>${esc(altitudeBand(z))}</dd>
+        <dt>Valid</dt><dd>${esc(validityText(z))}</dd>
+      </dl>
+      <details><summary>Details</summary>
+        <p class="zp-status">${esc(STATUS_LABEL[e.status])}</p>
+        ${reasons}
+        <dl>
+          <dt>Restriction</dt><dd>${esc(z.restrictionType)}</dd>
+          <dt>Authorization</dt><dd>${z.authorizationRequired === null ? 'unknown' : z.authorizationRequired ? 'required' : 'not required'}</dd>
+          ${z.operationalConditions ? `<dt>Conditions</dt><dd>${esc(z.operationalConditions)}</dd>` : ''}
+          ${z.circle ? `<dt>Circle</dt><dd>${z.circle.radiusM} m radius around ${z.circle.center[1].toFixed(5)}, ${z.circle.center[0].toFixed(5)}</dd>` : ''}
+          <dt>Source</dt><dd>${esc(z.source ?? 'unknown')} (${esc(SOURCE_LABEL[z.sourceType])})</dd>
+          <dt>Verification</dt><dd>${esc(z.verificationStatus)}</dd>
+        </dl>
+      </details>
+    </div>`;
+}
+
 @Component({
   selector: 'app-map',
-  template: `<div #mapEl class="map"></div>`,
-  // Leaflet builds its own DOM (legend, icons, popups): its styles are global (src/styles/map.scss).
+  template: `
+    <div #mapEl class="map"></div>
+    <div #topRight class="map-overlay-host" data-overlay="top-right"><ng-content select="[mapTopRight]" /></div>
+    <div #bottomRight class="map-overlay-host" data-overlay="bottom-right"><ng-content select="[mapBottomRight]" /></div>
+  `,
+  // Leaflet builds its own DOM (icons, popups): its styles are global (src/styles/map.scss).
   encapsulation: ViewEncapsulation.None,
 })
 export class MapComponent implements OnDestroy {
@@ -127,7 +151,7 @@ export class MapComponent implements OnDestroy {
   readonly start = input<SelectedLocation | null>(null);
   readonly destination = input<SelectedLocation | null>(null);
   readonly route = input<RouteState>({ phase: 'idle' });
-  /** True while a "Pick on map" target is armed (crosshair cursor). */
+  /** True while a pick target is armed (crosshair cursor; clicks inside zones pick too). */
   readonly picking = input(false);
   /** Evaluated airspace zones to draw (already filtered for display). */
   readonly zones = input<AirspaceZone[]>([]);
@@ -136,58 +160,69 @@ export class MapComponent implements OnDestroy {
   readonly focusZoneId = input<string | null>(null);
   /** Official Warsaw boundary + districts (undefined while loading). */
   readonly boundary = input<BoundaryResponse | undefined>();
-  /** The boundary could not be loaded: show a labelled fallback view. */
-  readonly boundaryMissing = input(false);
+  /** Which display layers are on (Layers panel). */
+  readonly layerVisibility = input<Record<LayerKey, boolean>>(DEFAULT_LAYERS);
+  /** Whose evaluation the zones show, used in zone popups. */
+  readonly flightLabel = input('the planned flight');
   readonly mapClick = output<Coordinate>();
   readonly focusDone = output<void>();
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
+  private readonly topRight = viewChild.required<ElementRef<HTMLDivElement>>('topRight');
+  private readonly bottomRight = viewChild.required<ElementRef<HTMLDivElement>>('bottomRight');
   private map?: L.Map;
-  private layerControl?: L.Control.Layers;
-  private dataLayers: L.Layer[] = [];
-  private corridorLayers: L.GeoJSON[] = [];
-  private zoneLayer?: L.GeoJSON;
   private canvas?: L.Renderer;
-  private banner?: HTMLElement;
-  private legendSource?: HTMLElement;
+  private zoneRenderer?: L.Renderer;
+  private zoneLayer?: L.GeoJSON;
+  private zoneDecor?: L.LayerGroup;
+  private readonly keyed: Partial<Record<LayerKey, L.Layer>> = {};
+  private corridorLayers: L.GeoJSON[] = [];
   private readonly markers: Partial<Record<'start' | 'destination', L.Marker>> = {};
   private routeLayer?: L.LayerGroup;
   private routeRenderer?: L.Renderer;
   private lastFitted?: unknown;
   private readonly http = inject(HttpClient, { optional: true });
-  private cityLayer?: L.GeoJSON;
-  private districtLayer?: L.GeoJSON;
   private cityBounds?: L.LatLngBounds;
   private fittedCity = false;
-  private coverageBanner?: HTMLElement;
-  private extentLayer?: L.GeoJSON;
   private tallLayer?: L.GeoJSON;
   /** Building footprint tiles (z14): loaded once, shown only at street zoom. */
   private tileGroup?: L.LayerGroup;
   private readonly tiles = new Map<string, L.GeoJSON>();
   private readonly pendingTiles = new Set<string>();
   private resizeObserver?: ResizeObserver;
+  private defs?: SVGSVGElement;
 
   constructor() {
     afterNextRender(() => {
+      const host = this.mapEl().nativeElement;
       // Starts on an approximate view; fits the official boundary once it loads.
-      this.map = L.map(this.mapEl().nativeElement).setView(FALLBACK_VIEW.center, FALLBACK_VIEW.zoom);
+      this.map = L.map(host, { zoomControl: true }).setView(FALLBACK_VIEW.center, FALLBACK_VIEW.zoom);
       L.tileLayer(SETTINGS.tileUrl, { maxZoom: 19, attribution: SETTINGS.tileAttribution }).addTo(this.map);
-      this.layerControl = L.control.layers(undefined, undefined, { collapsed: false }).addTo(this.map);
-      this.legend().addTo(this.map);
-      this.airspaceBanner().addTo(this.map);
+      this.installPatternDefs();
+      // Corner controls: Leaflet stacks controls inside a corner, so overlays never overlap.
       this.showWarsawControl().addTo(this.map);
-      this.coverageBannerControl().addTo(this.map);
-      // One canvas for corridors, zones and buildings (thousands of polygons).
+      this.hostControl(this.topRight().nativeElement, 'topright').addTo(this.map);
+      this.hostControl(this.bottomRight().nativeElement, 'bottomright').addTo(this.map);
+
+      // One canvas for corridors and buildings (thousands of polygons).
       this.canvas = guardedCanvas();
+      // Zones: SVG (fill patterns) in their own pane above the canvas, below routes and markers.
+      this.map.createPane('zonePane').style.zIndex = '420';
+      this.zoneRenderer = L.svg({ pane: 'zonePane' });
+      this.zoneDecor = L.layerGroup();
       this.zoneLayer = L.geoJSON(undefined, {
         // GeoJSON forwards `renderer` to each path at runtime; the typings omit it.
-        ...({ renderer: this.canvas } as L.PathOptions),
+        ...({ renderer: this.zoneRenderer } as L.PathOptions),
         bubblingMouseEvents: false,
-        style: (f) => zoneStyle(f?.properties.zone, f?.properties.highlighted),
+        style: (f) => zonePathStyle(f?.properties.kind, f?.properties.highlighted),
         onEachFeature: (f, l) => {
           const z = f.properties.zone as AirspaceZone;
-          l.bindPopup(this.zonePopup(z), { maxWidth: 320 });
+          l.bindTooltip(`<b>${esc(z.name)}</b><br>${esc(ZONE_KINDS[f.properties.kind as ZoneKind].label)}`, {
+            sticky: true,
+            className: 'zone-tooltip',
+          });
+          l.bindPopup(() => zonePopupHtml(z, this.flightLabel()), { maxWidth: 300, className: 'zone-popup-wrap' });
+          l.on('popupopen', () => l.closeTooltip());
           // While a point is being picked, clicks inside zones pick the point instead.
           l.on('click', (e: L.LeafletMouseEvent) => {
             if (this.picking()) {
@@ -196,10 +231,10 @@ export class MapComponent implements OnDestroy {
             }
           });
         },
-      }).addTo(this.map);
-      this.layerControl.addOverlay(this.zoneLayer, this.swatch(ZONE_COLORS.RED, 'Airspace zones'));
-      this.tileGroup = L.layerGroup().addTo(this.map);
-      this.layerControl.addOverlay(this.tileGroup, this.swatch(COLORS.building, `All buildings (zoom ≥ ${BUILDING_MIN_ZOOM})`));
+      });
+      this.keyed.zones = L.layerGroup([this.zoneLayer, this.zoneDecor]);
+      this.tileGroup = L.layerGroup();
+      this.keyed.buildings = this.tileGroup;
       this.map.on('moveend', () => this.syncBuildingTiles());
       if (typeof ResizeObserver !== 'undefined') {
         this.resizeObserver = new ResizeObserver(() => {
@@ -207,14 +242,12 @@ export class MapComponent implements OnDestroy {
           // First real layout after a zero-size start: fit the city now.
           if (this.cityBounds && this.map && this.map.getZoom() === FALLBACK_VIEW.zoom && this.fittedCity) this.showEntireWarsaw();
         });
-        this.resizeObserver.observe(this.mapEl().nativeElement);
+        this.resizeObserver.observe(host);
       }
-      // Re-enabled overlays are drawn last on the shared canvas: restore the order.
-      this.map.on('overlayadd', () => this.enforceOrder());
       this.map.on('click', (e: L.LeafletMouseEvent) =>
         this.mapClick.emit({ latitude: e.latlng.lat, longitude: e.latlng.lng }),
       );
-      // Route above all data layers (canvas + SVG in overlayPane), below markers.
+      // Route above all data layers, below markers.
       this.map.createPane('routePane').style.zIndex = '450';
       this.routeRenderer = L.svg({ pane: 'routePane' });
       this.routeLayer = L.layerGroup().addTo(this.map);
@@ -224,7 +257,8 @@ export class MapComponent implements OnDestroy {
       this.syncRoute(this.route());
       this.syncZones(this.zones(), this.highlightZoneIds());
       this.syncSource(this.airspaceSource());
-      this.syncBoundary(this.boundary(), this.boundaryMissing());
+      this.syncBoundary(this.boundary());
+      this.applyVisibility(this.layerVisibility());
     });
 
     effect(() => this.render(this.layers()));
@@ -235,35 +269,92 @@ export class MapComponent implements OnDestroy {
     effect(() => this.syncZones(this.zones(), this.highlightZoneIds()));
     effect(() => this.syncSource(this.airspaceSource()));
     effect(() => this.focus(this.focusZoneId()));
-    effect(() => this.syncBoundary(this.boundary(), this.boundaryMissing()));
+    effect(() => this.syncBoundary(this.boundary()));
+    effect(() => this.applyVisibility(this.layerVisibility()));
+  }
+
+  // --- controls -------------------------------------------------------------------
+
+  /** Turns an Angular-rendered element into a Leaflet corner control (Angular keeps its bindings). */
+  private hostControl(el: HTMLElement, position: L.ControlPosition): L.Control {
+    const c = new L.Control({ position });
+    c.onAdd = () => {
+      el.classList.add('leaflet-control');
+      L.DomEvent.disableClickPropagation(el);
+      L.DomEvent.disableScrollPropagation(el);
+      return el;
+    };
+    return c;
+  }
+
+  private showWarsawControl(): L.Control {
+    const c = new L.Control({ position: 'topleft' });
+    c.onAdd = () => {
+      const bar = L.DomUtil.create('div', 'leaflet-bar show-warsaw');
+      const btn = L.DomUtil.create('button', 'show-warsaw-btn', bar) as HTMLButtonElement;
+      btn.type = 'button';
+      btn.title = 'Show entire Warsaw';
+      btn.setAttribute('aria-label', 'Show entire Warsaw');
+      btn.setAttribute('data-testid', 'show-warsaw');
+      btn.innerHTML = iconSvg('expand');
+      L.DomEvent.disableClickPropagation(bar);
+      L.DomEvent.on(btn, 'click', () => this.showEntireWarsaw());
+      return bar;
+    };
+    return c;
+  }
+
+  /** One <defs> with the zone fill patterns, shared by the zone renderer and the legend. */
+  private installPatternDefs(): void {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'zone-pattern-defs');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('width', '0');
+    svg.setAttribute('height', '0');
+    svg.innerHTML = `<defs>${zonePatternDefs()}</defs>`;
+    this.mapEl().nativeElement.parentElement?.appendChild(svg);
+    this.defs = svg;
+  }
+
+  private applyVisibility(v: Record<LayerKey, boolean>): void {
+    const map = this.map;
+    if (!map) return;
+    for (const key of Object.keys(v) as LayerKey[]) {
+      const layer = this.keyed[key];
+      if (!layer) continue;
+      if (v[key] && !map.hasLayer(layer)) layer.addTo(map);
+      if (!v[key] && map.hasLayer(layer)) layer.remove();
+    }
+    this.enforceOrder();
+    this.syncBuildingTiles();
+  }
+
+  private addKeyed(key: LayerKey, layer: L.Layer): void {
+    this.keyed[key]?.remove();
+    this.keyed[key] = layer;
+    if (this.map && this.layerVisibility()[key]) layer.addTo(this.map);
   }
 
   // --- city boundary ------------------------------------------------------------
 
-  private syncBoundary(boundary: BoundaryResponse | undefined, missing: boolean): void {
+  private syncBoundary(boundary: BoundaryResponse | undefined): void {
     const map = this.map;
-    const control = this.layerControl;
-    if (!map || !control) return;
-    if (this.coverageBanner) {
-      this.coverageBanner.hidden = !missing;
-      this.coverageBanner.innerHTML = missing
-        ? '<b>Warsaw boundary data unavailable.</b> Showing an approximate view; routing coverage cannot be validated.'
-        : '';
-    }
-    if (!boundary || this.cityLayer) return;
-    this.districtLayer = L.geoJSON(boundary.districts, {
-      style: { color: COLORS.district, weight: 1.2, opacity: 0.8, fill: false },
+    if (!map || !boundary || this.keyed.city) return;
+    this.addKeyed(
+      'districts',
+      L.geoJSON(boundary.districts, {
+        style: { color: MAP_COLORS.district, weight: 1.2, opacity: 0.8, fill: false },
+        interactive: false,
+        onEachFeature: (f, l) =>
+          l.bindTooltip(String(f.properties.name), { permanent: true, direction: 'center', className: 'district-label' }),
+      }),
+    );
+    const city = L.geoJSON(boundary.city, {
+      style: { color: MAP_COLORS.city, weight: 2.5, opacity: 0.9, fill: false },
       interactive: false,
-      onEachFeature: (f, l) =>
-        l.bindTooltip(String(f.properties.name), { permanent: true, direction: 'center', className: 'district-label' }),
-    }).addTo(map);
-    this.cityLayer = L.geoJSON(boundary.city, {
-      style: { color: COLORS.city, weight: 3, opacity: 0.9, fill: false },
-      interactive: false,
-    }).addTo(map);
-    control.addOverlay(this.cityLayer, this.swatch(COLORS.city, 'Warsaw boundary (GUGiK PRG)', true));
-    control.addOverlay(this.districtLayer, this.swatch(COLORS.district, '18 districts', true));
-    this.cityBounds = this.cityLayer.getBounds();
+    });
+    this.addKeyed('city', city);
+    this.cityBounds = city.getBounds();
     if (!this.fittedCity) {
       this.fittedCity = true;
       this.showEntireWarsaw();
@@ -280,37 +371,11 @@ export class MapComponent implements OnDestroy {
     else this.map.setView(FALLBACK_VIEW.center, FALLBACK_VIEW.zoom);
   }
 
-  private showWarsawControl(): L.Control {
-    const c = new L.Control({ position: 'topleft' });
-    c.onAdd = () => {
-      const btn = L.DomUtil.create('button', 'show-warsaw-btn') as HTMLButtonElement;
-      btn.type = 'button';
-      btn.title = 'Show Entire Warsaw';
-      btn.setAttribute('data-testid', 'show-warsaw');
-      btn.innerHTML = '<span class="material-icons">zoom_out_map</span><span>Show Entire Warsaw</span>';
-      L.DomEvent.disableClickPropagation(btn);
-      L.DomEvent.on(btn, 'click', () => this.showEntireWarsaw());
-      return btn;
-    };
-    return c;
-  }
-
-  private coverageBannerControl(): L.Control {
-    const c = new L.Control({ position: 'topleft' });
-    c.onAdd = () => {
-      this.coverageBanner = L.DomUtil.create('div', 'coverage-banner');
-      this.coverageBanner.setAttribute('data-testid', 'coverage-banner');
-      this.coverageBanner.hidden = true;
-      return this.coverageBanner;
-    };
-    return c;
-  }
-
   // --- building tiles ------------------------------------------------------------
 
   private buildingStyle = (f?: GeoJSON.Feature): L.PathOptions => {
     const tall = (f?.properties as BuildingProps).height_m >= TALL_BUILDING_M;
-    const color = tall ? COLORS.tallBuilding : COLORS.building;
+    const color = tall ? MAP_COLORS.tallBuilding : MAP_COLORS.building;
     return { color, weight: tall ? 1 : 0.5, fillColor: color, fillOpacity: tall ? 0.85 : 0.45 };
   };
 
@@ -319,12 +384,12 @@ export class MapComponent implements OnDestroy {
     l.bindTooltip(`<b>${p.height_m} m</b><br>${HEIGHT_SOURCE_LABEL[p.height_source]}`, { sticky: true });
   };
 
-  /** Loads/shows z14 footprint tiles in view at street zoom; hides them when zoomed out. */
+  /** Loads/shows z14 footprint tiles in view at street zoom; hides them when zoomed out or switched off. */
   private syncBuildingTiles(): void {
     const map = this.map;
     const group = this.tileGroup;
     if (!map || !group) return;
-    if (map.getZoom() < BUILDING_MIN_ZOOM || map.getSize().x === 0) {
+    if (!this.layerVisibility().buildings || map.getZoom() < BUILDING_MIN_ZOOM || map.getSize().x === 0) {
       group.clearLayers();
       return;
     }
@@ -350,7 +415,7 @@ export class MapComponent implements OnDestroy {
             }) as L.GeoJSON & { tileKey?: string };
             layer.tileKey = key;
             this.tiles.set(key, layer);
-            if (map.getZoom() >= BUILDING_MIN_ZOOM) group.addLayer(layer);
+            if (map.getZoom() >= BUILDING_MIN_ZOOM && this.layerVisibility().buildings) group.addLayer(layer);
             this.enforceOrder();
           },
           error: () => this.pendingTiles.delete(key),
@@ -364,22 +429,40 @@ export class MapComponent implements OnDestroy {
 
   private syncZones(zones: AirspaceZone[], highlighted: string[]): void {
     const layer = this.zoneLayer;
-    if (!layer) return;
+    const decor = this.zoneDecor;
+    if (!layer || !decor) return;
     layer.clearLayers();
+    decor.clearLayers();
     layer.addData({
       type: 'FeatureCollection',
       features: zones.map((z) => ({
         type: 'Feature',
-        properties: { id: z.id, zone: z, highlighted: highlighted.includes(z.id) },
+        properties: { id: z.id, zone: z, kind: zoneKind(z.evaluation), highlighted: highlighted.includes(z.id) },
         geometry: z.geojsonGeometry,
       })),
     } as GeoJSON.FeatureCollection);
-    this.enforceOrder();
+    // Chart-style ticks on borders that must not be crossed, and a glyph per zone.
+    layer.eachLayer((l) => {
+      const path = l as L.Polygon;
+      const kind = path.feature?.properties.kind as ZoneKind;
+      if (ZONE_KINDS[kind].border === 'ticked') {
+        decor.addLayer(L.polygon(path.getLatLngs() as L.LatLngExpression[][], { renderer: this.zoneRenderer, ...zoneTickStyle(kind) }));
+      }
+      const glyph = zoneGlyphSvg(kind);
+      if (glyph) {
+        decor.addLayer(
+          L.marker(path.getBounds().getCenter(), {
+            icon: L.divIcon({ className: 'zone-glyph', html: glyph, iconSize: [22, 22], iconAnchor: [11, 11] }),
+            interactive: false,
+            keyboard: false,
+          }),
+        );
+      }
+    });
   }
 
-  /** Canvas draw order = hit-test order: corridors, zones, then buildings on top. */
+  /** Canvas draw order = hit-test order: corridors at the back, buildings on top. */
   private enforceOrder(): void {
-    this.zoneLayer?.bringToBack();
     for (const c of this.corridorLayers) c.bringToBack();
     this.tallLayer?.bringToFront();
     this.tileGroup?.eachLayer((l) => (l as L.GeoJSON).bringToFront());
@@ -397,76 +480,18 @@ export class MapComponent implements OnDestroy {
     this.focusDone.emit();
   }
 
+  /** Where the zone dataset ends: outside it zones are unknown, not "clear". */
   private syncSource(src: AirspaceSource | undefined): void {
-    if (!this.banner || !this.legendSource) return;
-    if (!src) {
-      this.banner.hidden = true;
-      this.legendSource.textContent = 'Airspace data: not loaded';
-      return;
-    }
-    this.banner.hidden = false;
-    this.banner.className = `airspace-banner source-${src.sourceType.toLowerCase()}`;
-    this.banner.innerHTML =
-      src.sourceType === 'DEMO'
-        ? '<b>DEMO airspace</b>: synthetic zones, <u>not</u> official PAŻP boundaries'
-        : `<b>${esc(SOURCE_LABEL[src.sourceType])}</b>: ${esc(src.label)}. Not a legality check.`;
-    this.legendSource.textContent = `Airspace data: ${SOURCE_LABEL[src.sourceType]} (v${src.datasetVersion})`;
-    // Where the zone dataset ends: outside it zones are unknown, not "clear".
-    if (this.map && this.layerControl && !this.extentLayer && src.extent) {
-      this.extentLayer = L.geoJSON(src.extent as GeoJSON.Geometry, {
-        style: { color: COLORS.bbox, weight: 2, dashArray: '6 6', fill: false },
-        interactive: false,
-      }).addTo(this.map);
-      this.extentLayer.bindTooltip(src.extentLabel ?? 'Airspace data extent');
-      this.layerControl.addOverlay(this.extentLayer, this.swatch(COLORS.bbox, 'Airspace data extent', true));
-    }
+    if (!this.map || this.keyed.extent || !src?.extent) return;
+    const extent = L.geoJSON(src.extent as GeoJSON.Geometry, {
+      style: { color: MAP_COLORS.extent, weight: 2, dashArray: '6 6', fill: false },
+      interactive: false,
+    });
+    extent.bindTooltip(src.extentLabel ?? 'Zone data extent');
+    this.addKeyed('extent', extent);
   }
 
-  private zonePopup(z: AirspaceZone): string {
-    const e = z.evaluation;
-    const alt = (v: number | null, unknown: string) => (v === null ? unknown : `${v} m`);
-    const band = `${alt(z.lowerAltitude, 'unknown floor')} – ${alt(z.upperAltitude, 'unknown ceiling')} ${z.altitudeReference}`;
-    const validity =
-      z.validityStart || z.validityEnd
-        ? `${z.validityStart ? new Date(z.validityStart).toISOString().slice(0, 16).replace('T', ' ') : '…'} → ${
-            z.validityEnd ? new Date(z.validityEnd).toISOString().slice(0, 16).replace('T', ' ') : '…'
-          } UTC`
-        : 'Permanent / not specified';
-    const demo =
-      z.sourceType === 'DEMO'
-        ? '<div class="zone-demo">DEMO: synthetic boundary, NOT an official geographical zone</div>'
-        : '';
-    return `
-      <div class="zone-popup" data-zone-id="${esc(z.id)}">
-        ${demo}
-        <div class="title">${esc(z.name)}</div>
-        <div class="row"><span class="chip chip-${e.displayClass.toLowerCase()}">${esc(z.draCategory)}</span>
-          <span class="status">${esc(STATUS_LABEL[e.status])}</span></div>
-        <ul class="reasons">${e.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
-        <dl>
-          <dt>Restriction</dt><dd>${esc(z.restrictionType)}</dd>
-          <dt>Altitude</dt><dd>${esc(band)}</dd>
-          <dt>Validity</dt><dd>${esc(validity)}</dd>
-          <dt>Authorization</dt><dd>${z.authorizationRequired === null ? 'unknown' : z.authorizationRequired ? 'required' : 'not required'}</dd>
-          ${z.operationalConditions ? `<dt>Conditions</dt><dd>${esc(z.operationalConditions)}</dd>` : ''}
-          ${z.circle ? `<dt>Circle</dt><dd>${z.circle.radiusM} m radius around ${z.circle.center[1].toFixed(5)}, ${z.circle.center[0].toFixed(5)}</dd>` : ''}
-          <dt>Source</dt><dd>${esc(z.source ?? 'unknown')} (${esc(SOURCE_LABEL[z.sourceType])})</dd>
-          <dt>Source time</dt><dd>${esc(z.sourceTimestamp ?? 'unknown')}</dd>
-          <dt>Verification</dt><dd>${esc(z.verificationStatus)}</dd>
-        </dl>
-      </div>`;
-  }
-
-  private airspaceBanner(): L.Control {
-    const c = new L.Control({ position: 'topleft' });
-    c.onAdd = () => {
-      this.banner = L.DomUtil.create('div', 'airspace-banner');
-      this.banner.hidden = true;
-      L.DomEvent.disableClickPropagation(this.banner);
-      return this.banner;
-    };
-    return c;
-  }
+  // --- markers and route ---------------------------------------------------------
 
   private syncMarker(role: 'start' | 'destination', loc: SelectedLocation | null): void {
     const map = this.map;
@@ -478,7 +503,7 @@ export class MapComponent implements OnDestroy {
       return;
     }
     const latlng = L.latLng(loc.coordinate.latitude, loc.coordinate.longitude);
-    const tooltip = `<b>${role === 'start' ? 'Point A' : 'Point B'}</b><br>${loc.label}`;
+    const tooltip = `<b>${role === 'start' ? 'Point A' : 'Point B'}</b><br>${esc(loc.label)}`;
     if (existing) {
       existing.setLatLng(latlng).setTooltipContent(tooltip);
     } else {
@@ -515,24 +540,20 @@ export class MapComponent implements OnDestroy {
     if (!response?.geometry) return;
 
     const stale = state.phase !== 'ready';
-    const color = stale
-      ? COLORS.routeStale
-      : response.mode === 'EMERGENCY'
-        ? COLORS.routeEmergency
-        : COLORS.routeNormal;
+    const color = stale ? MAP_COLORS.routeStale : ROUTE_COLORS[response.mode];
     const latlngs = response.geometry.coordinates.map(([lon, lat]) => L.latLng(lat, lon));
     const line = L.polyline(latlngs, {
       renderer: this.routeRenderer,
       color,
       weight: 5,
-      opacity: stale ? 0.6 : 0.95,
+      opacity: stale ? 0.7 : 0.95,
       dashArray: stale ? '8 8' : undefined,
       className: `route-line ${stale ? 'route-stale' : 'route-' + response.mode.toLowerCase()}`,
       interactive: false,
     });
     // Halo for contrast on the busy basemap.
     group.addLayer(
-      L.polyline(latlngs, { renderer: this.routeRenderer, color: '#fff', weight: 9, opacity: stale ? 0.3 : 0.8, interactive: false }),
+      L.polyline(latlngs, { renderer: this.routeRenderer, color: MAP_COLORS.halo, weight: 9, opacity: stale ? 0.3 : 0.85, interactive: false }),
     );
     group.addLayer(line);
 
@@ -556,22 +577,18 @@ export class MapComponent implements OnDestroy {
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();
+    this.defs?.remove();
     this.map?.remove();
   }
 
+  // --- static data layers ---------------------------------------------------------
+
   private render(layers: Layers | undefined): void {
     const map = this.map;
-    const control = this.layerControl;
-    if (!map || !control || !layers) return;
+    if (!map || !layers) return;
 
-    for (const layer of this.dataLayers) {
-      control.removeLayer(layer);
-      layer.remove();
-    }
-
-    // Thousands of building/park polygons share the canvas with the zones,
-    // which sit *below* buildings: canvas hit-testing picks the topmost shape,
-    // so building tooltips work inside zones and zone popups in the gaps.
+    // Thousands of building/park polygons share one canvas; canvas hit-testing picks
+    // the topmost shape, so buildings are drawn last (tooltips work in the gaps).
     const onCanvas: L.PathOptions = { renderer: this.canvas };
 
     const corridors = (type: CorridorProps['corridor_type'], color: string, opacity: number) =>
@@ -581,89 +598,50 @@ export class MapComponent implements OnDestroy {
         style: { color, weight: 0, fillColor: color, fillOpacity: opacity },
         onEachFeature: (f, l) => {
           const p = f.properties as CorridorProps;
-          if (p.name) l.bindTooltip(p.name, { sticky: true });
+          if (p.name) l.bindTooltip(esc(p.name), { sticky: true });
         },
       });
 
-    // Citywide overview: buildings >= 50 m are always shown; all footprints come as tiles.
+    // Citywide overview: buildings >= 50 m are always available; all footprints come as tiles.
     const tall = L.geoJSON(layers.tallBuildings, { ...onCanvas, style: this.buildingStyle, onEachFeature: this.buildingTooltip });
-
     const stations = L.geoJSON(layers.stations, {
       pointToLayer: (f, latlng) =>
-        L.marker(latlng, { icon: this.stationIcon((f.properties as StationProps).station_type) }),
+        L.marker(latlng, {
+          icon: this.stationIcon((f.properties as StationProps).station_type),
+          alt: (f.properties as StationProps).name,
+        }),
       onEachFeature: (f, l) => l.bindPopup(this.stationPopup(f.properties as StationProps)),
     });
 
-    const river = corridors('RIVER', COLORS.river, 0.35);
-    const parks = corridors('PARK', COLORS.park, 0.3);
+    const river = corridors('RIVER', MAP_COLORS.river, 0.35);
+    const parks = corridors('PARK', MAP_COLORS.park, 0.3);
     this.corridorLayers = [parks, river];
-    const overlays: [string, L.Layer][] = [
-      [this.swatch(COLORS.river, 'River'), river],
-      [this.swatch(COLORS.park, 'Parks / green'), parks],
-      [this.swatch(COLORS.tallBuilding, `Buildings ≥ ${TALL_BUILDING_M} m`), tall],
-      [this.swatch('#1565c0', 'Landing stations'), stations],
-    ];
-    this.dataLayers = overlays.map(([name, layer]) => {
-      layer.addTo(map);
-      control.addOverlay(layer, name);
-      return layer;
-    });
     this.tallLayer = tall;
+    this.addKeyed('river', river);
+    this.addKeyed('parks', parks);
+    this.addKeyed('tallBuildings', tall);
+    this.addKeyed('stations', stations);
     this.enforceOrder();
   }
 
   private stationIcon(type: StationType): L.DivIcon {
     return L.divIcon({
       className: '',
-      html: `<div class="station-icon station-${type.toLowerCase()}"><span class="material-icons">${STATION_ICON[type]}</span></div>`,
-      iconSize: [30, 30],
-      iconAnchor: [15, 15],
-      popupAnchor: [0, -16],
+      html: `<div class="station-icon station-${type.toLowerCase()}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STATION_GLYPH[type]}"/></svg></div>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+      popupAnchor: [0, -14],
     });
   }
 
   private stationPopup(p: StationProps): string {
     return `
       <div class="station-popup">
-        <div class="title">${p.name}</div>
+        <div class="title">${esc(p.name)}</div>
         <div>${STATION_LABEL[p.station_type]}</div>
-        <div>Status: <span class="status status-${p.status.toLowerCase()}">${p.status}</span></div>
+        <div>Status: <span class="status status-${p.status.toLowerCase()}">${esc(p.status)}</span></div>
         <div>Capacity: ${p.capacity} drone${p.capacity === 1 ? '' : 's'}</div>
-        <div class="demo-tag">DEMO DATA</div>
+        <span class="badge badge-demo">Demo data</span>
       </div>`;
-  }
-
-  private swatch(color: string, label: string, dashed = false): string {
-    const style = dashed ? `border:2px dashed ${color}` : `background:${color}`;
-    return `<span class="swatch" style="${style}"></span>${label}`;
-  }
-
-  private legend(): L.Control {
-    const legend = new L.Control({ position: 'bottomright' });
-    legend.onAdd = () => {
-      const el = L.DomUtil.create('div', 'map-legend');
-      el.innerHTML = `
-        <div class="legend-title">Airspace (for the planned flight)</div>
-        ${this.swatch(ZONE_COLORS.RED, 'RED: blocked / prohibited')}<br>
-        ${this.swatch(ZONE_COLORS.ORANGE, 'ORANGE: conditional / authorization required')}<br>
-        ${this.swatch(ZONE_COLORS.YELLOW, 'YELLOW: technical or informational')}<br>
-        ${this.swatch(ZONE_COLORS.GRAY, 'GRAY: insufficient verification')}<br>
-        <span class="swatch" style="border:2.5px solid ${OBSTACLE_OUTLINE}"></span>Red outline: routing obstacle<br>
-        <span class="swatch" style="border:2px dashed #757575"></span>Dashed: not active (time / altitude)<br>
-        <div class="legend-source" data-testid="legend-source">Airspace data: not loaded</div>
-        <div class="legend-title">Map</div>
-        ${this.swatch(COLORS.routeNormal, 'Route NORMAL')} ${this.swatch(COLORS.routeEmergency, 'EMERGENCY')}<br>
-        ${this.swatch(COLORS.river, 'River corridor')}<br>
-        ${this.swatch(COLORS.park, 'Park / green corridor')}<br>
-        ${this.swatch(COLORS.building, 'Building')}<br>
-        ${this.swatch(COLORS.tallBuilding, `Building ≥ ${TALL_BUILDING_M} m`)}<br>
-        ${this.swatch(COLORS.city, 'Warsaw boundary', true)} ${this.swatch(COLORS.district, 'districts', true)}<br>
-        ${this.swatch(COLORS.bbox, 'Airspace data extent', true)}<br>
-        <span class="legend-icon station-icon station-hospital"><span class="material-icons">local_hospital</span></span>Landing station
-        <div class="legend-note">Avoiding the loaded zones does not confirm real-world flight legality.</div>`;
-      this.legendSource = el.querySelector<HTMLElement>('.legend-source')!;
-      return el;
-    };
-    return legend;
   }
 }

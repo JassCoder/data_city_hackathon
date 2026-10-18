@@ -1,6 +1,9 @@
 import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { httpResource } from '@angular/common/http';
 import { MapComponent } from './map/map';
+import { LayersPanelComponent } from './map/layers-panel';
+import { MapLegendComponent } from './map/map-legend';
+import { MapLayersService } from './core/map-layers';
 import { API_BASE_URL, Health, safeValue } from './core/api';
 import { LayersService } from './core/layers';
 import { PlannerStore } from './core/planner.store';
@@ -18,6 +21,8 @@ const NEXT_SHEET: Record<SheetState, SheetState> = { peek: 'half', half: 'full',
 @Component({
   imports: [
     MapComponent,
+    LayersPanelComponent,
+    MapLegendComponent,
     PlannerPanelComponent,
     RouteResultsComponent,
     AirspacePanelComponent,
@@ -25,6 +30,7 @@ const NEXT_SHEET: Record<SheetState, SheetState> = { peek: 'half', half: 'full',
     IconComponent,
   ],
   selector: 'app-root',
+  host: { '(document:keydown.escape)': 'cancelPick()' },
   styleUrl: './app.scss',
   templateUrl: './app.html',
 })
@@ -34,6 +40,14 @@ export class App {
   protected readonly planner = inject(PlannerStore);
   protected readonly airspace = inject(AirspaceService);
   protected readonly mapData = inject(MapDataService);
+  protected readonly mapLayers = inject(MapLayersService);
+
+  /** Pick mode banner (never drawn over the map: it is a strip above it). */
+  protected readonly pickHint = computed(() => {
+    const t = this.planner.pickTarget();
+    return t ? `Click the map to set ${t === 'start' ? 'Point A (start)' : 'Point B (destination)'}.` : null;
+  });
+  protected readonly flightLabel = computed(() => `the planned flight at ${this.planner.altitude()} m AGL`);
 
   protected readonly healthInfo = computed(() => safeValue(this.health));
 
@@ -71,6 +85,10 @@ export class App {
       const r = this.planner.route();
       if (r.phase === 'ready' || r.phase === 'error') untracked(() => this.drawerDismissed.set(false));
     });
+  }
+
+  protected cancelPick(): void {
+    if (this.planner.pickTarget()) this.planner.pickTarget.set(null);
   }
 
   protected cycleSheet(): void {

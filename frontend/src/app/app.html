@@ -28,6 +28,19 @@
   </aside>
 
   <main class="map-col" id="map-region" tabindex="-1" aria-label="Map">
+    @if (pickHint(); as hint) {
+      <div class="map-strip strip-pick" role="status" data-testid="pick-hint">
+        <app-icon name="crosshair" />
+        <span>{{ hint }}</span>
+        <button type="button" class="btn btn-s btn-ghost" (click)="cancelPick()">Cancel <kbd>Esc</kbd></button>
+      </div>
+    }
+    @if (mapData.boundaryMissing()) {
+      <div class="map-strip strip-error" role="alert" data-testid="coverage-banner">
+        <app-icon name="alert" />
+        <span>Warsaw boundary data unavailable. Showing an approximate view; routing coverage cannot be checked.</span>
+      </div>
+    }
     <app-map
       [layers]="layers.data()"
       [start]="planner.start()"
@@ -39,10 +52,14 @@
       [highlightZoneIds]="airspace.highlightZoneIds()"
       [focusZoneId]="airspace.focusZoneId()"
       [boundary]="mapData.boundaryData()"
-      [boundaryMissing]="mapData.boundaryMissing()"
+      [layerVisibility]="mapLayers.visible()"
+      [flightLabel]="flightLabel()"
       (mapClick)="planner.handleMapClick($event)"
       (focusDone)="airspace.focusZoneId.set(null)"
-    />
+    >
+      <app-layers-panel mapTopRight />
+      <app-map-legend mapBottomRight [flightLabel]="flightLabel()" />
+    </app-map>
   </main>
 
   <aside class="drawer" aria-label="Route details" [attr.aria-hidden]="!drawerOpen()" [attr.inert]="drawerOpen() ? null : ''"

@@ -102,6 +102,40 @@
   outline: none;
 }
 
+.map-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--strip-h);
+  padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-3);
+  border-bottom: 1px solid var(--c-line);
+  font-size: var(--fs-13);
+
+  span {
+    flex: 1;
+    min-width: 0;
+  }
+
+  kbd {
+    padding: 0 4px;
+    border: 1px solid var(--c-line-strong);
+    border-radius: var(--radius-s);
+    font: inherit;
+    font-size: var(--fs-11);
+  }
+
+  &.strip-pick {
+    background: var(--c-accent-soft);
+    color: var(--c-accent);
+    font-weight: var(--fw-medium);
+  }
+
+  &.strip-error {
+    background: var(--c-danger-soft);
+    color: var(--c-danger);
+  }
+}
+
 .drawer {
   overflow: hidden;
   border-left: 1px solid var(--c-line);

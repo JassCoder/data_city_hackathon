@@ -56,7 +56,10 @@ describe('App', () => {
     expect(el.querySelector('[data-testid="route-idle"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="location-start"]')).not.toBeNull();
     expect(el.querySelector('[data-testid="airspace-source"]')?.textContent).toContain('DEMO');
-    expect(el.querySelector('.airspace-banner')?.textContent).toContain('not official');
+    // One Layers panel and one legend, both collapsed by default; no airspace banner over the map.
+    expect(el.querySelector('[data-testid="layers-toggle"]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('[data-testid="legend-toggle"]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(el.querySelector('.airspace-banner')).toBeNull();
     expect(el.querySelector('[data-testid="show-warsaw"]')).not.toBeNull();
   });
 });

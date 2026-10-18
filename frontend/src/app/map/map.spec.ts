@@ -7,6 +7,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { stubCanvas } from '../../testing/canvas-stub';
 import { AirspaceZone } from '../core/airspace';
 import { BUILDING_MIN_ZOOM, MapComponent, tilesFor } from './map';
+import { DEFAULT_LAYERS } from '../core/map-layers';
 import { Coordinate, RouteRequest } from '../core/models';
 
 const REQUEST: RouteRequest = {
@@ -107,35 +108,49 @@ describe('MapComponent', () => {
     expect(fixture.componentInstance.route()).toEqual({ phase: 'idle' });
   });
 
-  it('styles blocked zones red with a solid red outline', async () => {
+  it('gives every zone kind its own pattern and border, not only a colour', async () => {
     await set('zones', ZONES.zones);
     const sejm = byId('DEMO-P-SEJM').options;
-    expect(sejm.fillColor).toBe('#d32f2f');
-    expect(sejm.color).toBe('#c62828');
+    expect(sejm.fillColor).toBe('url(#zp-prohibited)');
     expect(sejm.dashArray).toBeUndefined();
-    const pkin = byId('DEMO-RM-PKIN').options;
-    expect(pkin.fillColor).toBe('#f57c00'); // orange classification...
-    expect(pkin.color).toBe('#c62828'); // ...but a red-outlined obstacle for this route
+    expect(byId('DEMO-RM-PKIN').options.fillColor).toBe('url(#zp-conditional)'); // authorization required
+    expect(byId('DEMO-X-INCOMPLETE').options.fillColor).toBe('url(#zp-unverified)');
     const info = byId('DEMO-I-VISTULA').options;
-    expect(info.fillColor).toBe('#f9a825');
-    expect(info.dashArray).toBeTruthy(); // not an obstacle
-    expect(byId('DEMO-X-INCOMPLETE').options.fillColor).toBe('#757575');
-    expect(byId('DEMO-RH-SCHOOL').options.dashArray).toBe('4 6'); // inactive at this altitude
+    expect(info.fillColor).toBe('transparent'); // information: outline only, may be crossed
+    expect(byId('DEMO-RH-SCHOOL').options.dashArray).toBe('5 5'); // inactive at this altitude
+    // The shared pattern definitions exist once in the document.
+    expect(document.querySelectorAll('#zp-prohibited').length).toBe(1);
   });
 
-  it('popups show name, DRA category, status, altitude, source and DEMO label', async () => {
+  it('adds glyphs for every active kind and chart ticks on borders a route must not cross', async () => {
     await set('zones', ZONES.zones);
-    const html = byId('DEMO-P-SEJM').getPopup()!.getContent() as string;
+    const decor = (fixture.componentInstance as unknown as { zoneDecor: L.LayerGroup }).zoneDecor.getLayers();
+    const glyphs = decor.filter((l) => l instanceof L.Marker);
+    const ticks = decor.filter((l) => l instanceof L.Polygon);
+    const inactive = ZONES.zones.filter((z) => z.evaluation.status.startsWith('NOT_')).length;
+    expect(glyphs.length).toBe(ZONES.zones.length - inactive);
+    expect(ticks.length).toBe(ZONES.zones.filter((z) => z.evaluation.isObstacle && z.evaluation.status !== 'UNVERIFIED').length);
+  });
+
+  const popup = (id: string) => {
+    const layer = byId(id);
+    return (layer.getPopup()!.getContent() as (l: L.Layer) => string)(layer);
+  };
+
+  it('popups say what the zone means for the selected flight, with details on demand', async () => {
+    await set('zones', ZONES.zones);
+    await set('flightLabel', 'Drone 2 at 80 m AGL');
+    const html = popup('DEMO-P-SEJM');
     expect(html).toContain('DEMO prohibited area: Sejm / Wiejska');
     expect(html).toContain('DRA-P');
-    expect(html).toContain('Blocked: prohibited for the planned operation');
+    expect(html).toContain('For Drone 2 at 80 m AGL:');
+    expect(html).toContain('Blocked for this flight');
     expect(html).toContain('0 m – 300 m AGL');
-    expect(html).toContain('SkyRoute DEMO dataset (synthetic)');
-    expect(html).toContain('NOT an official geographical zone');
-    const circle = byId('DEMO-RH-SCHOOL').getPopup()!.getContent() as string;
-    expect(circle).toContain('100 m radius');
-    const unknown = byId('DEMO-X-INCOMPLETE').getPopup()!.getContent() as string;
-    expect(unknown).toContain('unknown floor');
+    expect(html).toContain('Demo, not official');
+    expect(html).toContain('Blocked: prohibited for the planned operation'); // in Details
+    expect(popup('DEMO-RH-SCHOOL')).toContain('100 m radius');
+    expect(popup('DEMO-RH-SCHOOL')).toContain('Not active at this altitude or time');
+    expect(popup('DEMO-X-INCOMPLETE')).toContain('unknown floor');
   });
 
   it('only draws the zones it is given (category filters)', async () => {
@@ -149,10 +164,21 @@ describe('MapComponent', () => {
     expect(byId('DEMO-P-SEJM').options.weight).toBe(5);
   });
 
-  it('shows the airspace source in the banner and legend', async () => {
-    await set('airspaceSource', ZONES.source);
-    expect(el.querySelector('.airspace-banner')!.textContent).toContain('not official PAŻP boundaries');
-    expect(el.querySelector('[data-testid="legend-source"]')!.textContent).toContain('DEMO');
+  it('hides and shows layers from the Layers panel state', async () => {
+    await set('zones', ZONES.zones);
+    const zones = () => leaflet().hasLayer((fixture.componentInstance as unknown as { zoneLayer: L.Layer }).zoneLayer);
+    expect(zones()).toBe(true);
+    await set('layerVisibility', { ...DEFAULT_LAYERS, zones: false });
+    expect(zones()).toBe(false);
+    await set('layerVisibility', { ...DEFAULT_LAYERS });
+    expect(zones()).toBe(true);
+  });
+
+  it('puts projected overlays into Leaflet corners, so they stack instead of overlapping', () => {
+    const hosts = el.querySelectorAll('.map-overlay-host.leaflet-control');
+    expect(hosts.length).toBe(2);
+    expect(el.querySelector('.leaflet-top.leaflet-right [data-overlay="top-right"]')).not.toBeNull();
+    expect(el.querySelector('.leaflet-bottom.leaflet-right [data-overlay="bottom-right"]')).not.toBeNull();
   });
 
   it('a click inside a zone picks a point while picking is armed', async () => {
@@ -192,12 +218,8 @@ describe('MapComponent', () => {
     expect(fit).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a labelled fallback view when the boundary is missing', async () => {
-    await set('boundaryMissing', true);
-    const banner = el.querySelector<HTMLElement>('[data-testid="coverage-banner"]')!;
-    expect(banner.hidden).toBe(false);
-    expect(banner.textContent).toContain('boundary data unavailable');
-    expect(leaflet().getZoom()).toBe(11); // approximate city view, not a blank map
+  it('starts on the approximate city view until the boundary loads', () => {
+    expect(leaflet().getZoom()).toBe(11); // never a blank map, even if the boundary is missing
   });
 
   it('computes the z14 building tiles covering a view', () => {

@@ -156,6 +156,8 @@ class RoutePlanner:
         key = (objective, start, destination, mode, altitude_m, profile.id, profile.vertical_clearance_m,
                profile.cruise_speed_mps, profile.max_wind_kmh, profile.cruise_power_w,
                profile.payload_power_w_per_kg, profile.battery_wh, payload,
+               # the cost model can be swapped (e.g. other weights): its config is part of the key
+               self.risk.cfg.model_dump_json(), self.risk.data_available,
                tuple((s.latitude, s.longitude, s.wind_speed_kmh, s.wind_direction_deg) for s in weather.samples),
                weather.wind_speed_kmh, weather.wind_direction_deg, weather.wind_gust_kmh,
                state.version, at.replace(second=0, microsecond=0))

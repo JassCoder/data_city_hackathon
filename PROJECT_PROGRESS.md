@@ -346,6 +346,32 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - With no points selected, the scenario shows the message and sends nothing.
   - An independent Shapely check: no trip-1 route touches any obstacle zone. No page errors.
 
+## Phase 7: Multi-criteria SAFEST objective (done, 2026-10-18)
+
+**Built: backend** (`app/routing/risk/`, UI-free, depends only on its provider protocols)
+- `data/cost_model.json` holds every weight and parameter (pydantic, unknown keys rejected, weights ≥ 0). JSON instead of YAML so no dependency was added. Startup fails if `defaultCruiseM` > `legalCeilingM` (120 m) or the API accepts altitudes above the ceiling. The altitude stays per request; omitted = `defaultCruiseM`.
+- Providers: `PopulationDensityProvider`, `LandUseProvider`, `ObstacleProvider`, `WindProvider` (rasters on the routing grid). Synthetic providers for tests; OSM providers from the new `data/osm/risk_warsaw_25m.npz` (`scripts/fetch_risk_layers.py`: Overpass land use, schools/hospitals/stadiums, transit stops + floor area from the building tiles).
+- Cell terms (each 0..1): population `(density × hourly multiplier / 800 per ha)²`, obstacle proximity, noise (residential × day/night), distance to emergency landing space, sensitive sites. Direction terms: energy (P / ground speed, wind triangle, payload) and time, normalised by the worst case the hard limits allow.
+- Edge cost = length × (1 + Σ wᵢ·termᵢ) + length × (energy and time terms). A* heuristic = octile × (1 + min direction cost): admissible, checked against Dijkstra on random grids.
+- Every route gets a `costBreakdown`; route energy above battery × (1 − 20 % reserve) → `INSUFFICIENT_BATTERY` for all objectives (user decision). Optional `payloadKg`. Missing risk raster → the app still starts and SAFEST answers `RISK_DATA_UNAVAILABLE`.
+- Drone profiles gained DEMO energy fields (cruise power, payload power, battery).
+
+**Built: frontend:** "Safest" route optimisation, cost breakdown panel (open for SAFEST), new status labels.
+
+**Crowd-weight sweep** (`scripts/sweep_crowd_weight.py`, depot → hospital pad, Delivery Drone, 80 m, DEMO wind, 12:00 local):
+
+| Crowd weight | Length | Energy | Population exposure (people/ha·km) |
+|---|---|---|---|
+| 0 | 3,299 m | 38.5 Wh | 1,816 |
+| 0.5 | 3,360 m | 39.1 Wh | 1,317 |
+| 1 | 3,410 m | 39.6 Wh | 1,047 |
+| 2 | 3,465 m | 40.1 Wh | 448 |
+| 5 | 3,565 m | 41.0 Wh | 274 |
+
+At weight 5 the route takes 85 % less crowd exposure for 8 % more distance and 6.5 % more energy. The sweep exposed a route-cache bug (the key ignored the cost model), now fixed with a regression test.
+
+**Verified:** pytest **311 passed** (new: config, providers, terms/energy, search incl. Dijkstra comparison and determinism, OSM provider, planner integration, API). `ng test` 104 passed; `ng build` clean. Density is a proxy from OSM floor area and stops, not census data; the UI and API say so.
+
 ## Next
 - Obtain a permitted official zone export from PAŻP and validate the ED-269 mapping against it (see DATA_SOURCES.md).
 - Spec phase 4 remainder: `/routes/compare`.

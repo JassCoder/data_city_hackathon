@@ -148,3 +148,15 @@ def test_build_planner_starts_without_the_risk_raster(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "RISK_RASTER_FILE", tmp_path / "missing.npz")
     planner = main.build_planner(COST_MODEL)
     assert not planner.risk.data_available and "Missing risk raster" in planner.risk.unavailable_reason
+
+
+def test_route_cache_distinguishes_cost_models():
+    """Regression: swapping the cost model (other weights) must not return a cached route."""
+    from app.routing.risk.surface import CostModel
+
+    planner = make_planner(world={"crowded": [(CROWD, 700.0)]}, cost_model=weights(population=0.0))
+    through = plan(planner)
+    planner.risk = CostModel(weights(population=10.0), planner.risk.spec, planner.risk.providers)
+    around = plan(planner)
+    assert around.search is not None and not around.search.cached
+    assert around.breakdown.population_exposure < through.breakdown.population_exposure

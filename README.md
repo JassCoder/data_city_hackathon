@@ -124,7 +124,8 @@ POST /api/v1/routes/calculate
 
 `start` and `destination` are always the user's selected points; nothing on the server replaces them.
 - **With `scenario`:** the scenario's configuration sets `mode` and `routeObjective`. An explicitly sent `mode` or `routeObjective` that contradicts the scenario gets a 422 rather than being silently overridden.
-- **Without `scenario`:** `mode` and `routeObjective` (`CORRIDORS` default, `SHORTEST`, `FASTEST`) are used as sent, so existing clients keep working. The optional `departureTime` (ISO 8601) evaluates zone validity periods at that time.
+- **Without `scenario`:** `mode` and `routeObjective` (`CORRIDORS` default, `SHORTEST`, `FASTEST`, `SAFEST`) are used as sent, so existing clients keep working. The optional `departureTime` (ISO 8601) evaluates zone validity periods and the time-of-day costs at that time.
+- `flightAltitudeMeters` is optional (default: `altitude.defaultCruiseM` in `data/cost_model.json`). `payloadKg` is optional (default `energy.defaultPayloadKg`, at most the profile's `maxPayloadKg`, else 422).
 
 The response contains:
 - `start` and `destination`, echoed exactly as submitted; `scenario`, `scenarioDisplayName` and `optimizationGoal`.
@@ -133,6 +134,7 @@ The response contains:
 - `coverage`: whether both points are inside the official boundary, their districts, and the route length outside the airspace dataset extent.
 - `search`: resolution, window size, attempts, A* expansions, time, and whether the result came from the cache.
 - `zoneConflicts`, `airspace` (source, timestamp, version) and `planningVerificationStatus`. The last is always "SIMULATION_ONLY…", and adds "PARTIAL AIRSPACE DATA" when part of the route lies outside the zone dataset.
+- `costBreakdown`: the multi-criteria cost per term (weight, mean 0..1, cost), energy (Wh) against the usable battery, flight time, population exposure (people/ha × km, an OSM-based estimate), and the departure hour used.
 - `warnings` and `dataSources`.
 
 Planning outcomes come back as HTTP 200 with one of these statuses:
@@ -143,6 +145,8 @@ Planning outcomes come back as HTTP 200 with one of these statuses:
 - `BLOCKED_WEATHER`
 - `SEARCH_LIMIT`: the search budget ran out, so no route is shown and nothing is proven.
 - `COVERAGE_UNAVAILABLE`: the boundary is missing, so routing is disabled.
+- `INSUFFICIENT_BATTERY`: the route needs more energy than the battery minus the 20 % reserve.
+- `RISK_DATA_UNAVAILABLE`: SAFEST was requested but the OSM risk raster is not loaded (other objectives still work).
 
 A route never comes back as a straight line if it can't be calculated. Invalid requests get HTTP 422.
 
@@ -155,6 +159,7 @@ A route never comes back as a straight line if it can't be calculated. Invalid r
    - **Safe corridors:** river 1 / parks 2 / open 5 per metre (EMERGENCY: 1 / 1 / 2).
    - **Shortest:** 1 everywhere.
    - **Fastest:** each move's cost is *cruise speed ÷ ground speed* for that direction, using the nearest wind sample.
+   - **Safest:** length × (1 + Σ weight × term) for estimated crowds (density², time of day), noise over homes (stronger at night), distance to emergency landing space, schools/hospitals/stadiums and tall structures, plus wind- and payload-aware energy. Weights: `data/cost_model.json`. The cost breakdown is reported for every objective.
    - **Always blocked:** obstacle zones, the city edge, and buildings at or above *altitude − the profile's vertical clearance*.
 4. **Corridor search:** A* runs only on a window around A–B, with a margin of at least 1.5 km and 35% of the distance.
    - If no path exists inside the window, the window is widened (×2.5) up to the whole city.
@@ -178,14 +183,15 @@ Typical times on a laptop, measured end to end on real data:
 - **Buildings, river and parks:** © OpenStreetMap contributors (ODbL), a citywide snapshot fetched via Overpass. Building height comes from `height`, else `building:levels × 3 m`, else an estimated 15 m.
 - **Geocoding:** © OpenStreetMap contributors via [Nominatim](https://nominatim.org/). It runs backend-only, at most 1 request/s, cached, on explicit search only, following the [usage policy](https://operations.osmfoundation.org/policies/nominatim/).
 - **Weather:** [Open-Meteo](https://open-meteo.com/) (LIVE mode).
+- **Population density (SAFEST):** an estimate from OSM building floor area (residential vs other land use) and public transport stops, not census data. Land use, schools, hospitals, stadiums and stops © OpenStreetMap contributors (ODbL), fetched once via Overpass (`scripts/fetch_risk_layers.py`).
 - **Airspace zones, landing stations and drone profiles:** synthetic DEMO data; see **[DATA_SOURCES.md](DATA_SOURCES.md)** for the official-data situation and how to load an official zone file.
 - **Map tiles:** © OpenStreetMap contributors.
 
 ## Tests
 
 ```bash
-cd backend  && .venv/Scripts/python -m pytest          # 205 tests, external APIs mocked
-cd frontend && npx ng test --watch=false                # 102 tests (Vitest)
+cd backend  && .venv/Scripts/python -m pytest          # 311 tests, external APIs mocked
+cd frontend && npx ng test --watch=false                # 104 tests (Vitest)
 ```
 
 ## Limitations
@@ -198,6 +204,7 @@ cd frontend && npx ng test --watch=false                # 102 tests (Vitest)
 - **Building heights:** OSM heights include spires and masts. 12,897 of 189,276 buildings use the estimated 15 m.
 - **Weather:** samples follow the straight A–B line (nearest sample per segment), with no gust modelling, and the ETA ignores take-off, landing, climb and descent. *Fastest* equals *Shortest* in open air under uniform wind.
 - **Geocoding:** public Nominatim allows 1 request/s for the whole server, and the cache is in memory.
+- **SAFEST costs are DEMO values:** the density proxy ignores time-of-use per building type, the energy model holds a constant airspeed (no climb, hover or temperature), and the battery check applies to the chosen route, not the lowest-energy one.
 - **Routing engine:** a hand-written A* on a NumPy grid, as the project spec requires (no NetworkX at runtime).
 - **Scenarios differ only by optimisation goal and cost profile.** Blood, AED and Emergency share the same goal and give the same route. There is no AED-location dataset in the repository (none was added).
 - **Not built yet:** drone animation, normal-vs-emergency comparison, and choosing a landing station or drop point as the route end.

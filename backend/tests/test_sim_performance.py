@@ -52,3 +52,21 @@ def test_real_world_runs_are_deterministic(run, world):
     again = SimulationEngine.create(SCENARIO, world=world)
     again.run_until(3600)
     assert again.log.to_jsonl() == e.log.to_jsonl()
+
+
+@pytest.mark.parametrize("path", sorted(SIM_SCENARIOS_DIR.glob("*.json")), ids=lambda p: p.stem)
+def test_every_bundled_scenario_fits_the_real_world(path, world):
+    e = SimulationEngine.create(load_scenario(path), world=world)  # world checks: stations, capacity, Warsaw
+    assert e.drones
+
+
+def test_twenty_drones_fly_together_without_rejections(world):
+    e = SimulationEngine.create(load_scenario(SIM_SCENARIOS_DIR / "twenty_drones.json"), world=world)
+    from app.sim.states import AIRBORNE
+
+    most = 0
+    while e.time_s < 900:
+        e.advance(1)
+        most = max(most, sum(d.state in AIRBORNE for d in e.drones.values()))
+    assert len(e.drones) == 20 and most == 20
+    assert not [x for x in e.get_event_log() if x["type"] == "MISSION_REJECTED"]

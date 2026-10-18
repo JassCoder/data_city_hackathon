@@ -70,6 +70,19 @@ Zones are drawn by what they mean **for the selected drone's flight** (its altit
 
 Click a zone for a popover with its name, DRA category, what it means for the selected flight, its altitude band and validity, and further details. Points inside a blocked zone are refused (never moved), and that zone is shown.
 
+## Simulation view
+
+Open **Simulate** in the top bar (or press **Simulate** under the drone list to fly your planned drones):
+
+1. Choose a scenario (`demo_city`, `ten_drones_hour`, `twenty_drones`, or *My planned drones*) and a seed, then **Start simulation**.
+2. The bar under the map plays, pauses (**Space**), steps one tick (**.**), resets, and runs at 1×, 5×, 20× or 60× real time. The clock shows Warsaw time and time since the start.
+3. **LIVE** means you see the newest simulated time. Drag the timeline (or click an event) to **REPLAY** stored history; **Go live** (**L**) returns.
+4. On the map each drone is an arrow in its colour, turned to its heading, with its name, state and battery (hidden when zoomed out). Routes are solid where flown and dashed ahead, with a short trail. HOLDING, EMERGENCY_LANDING and FAILED each have their own ring and glyph. Stations get a ring while a drone lands or charges there.
+5. The sidebar lists live telemetry (click a drone to select and follow it), the event feed (filter by drone and severity), and **Change the simulation**: draw a temporary restricted zone (altitude cap and duration), change the wind, or fail the selected drone. Drones that react to a drawn zone are listed and appear in the feed.
+6. The right drawer shows the selected drone's mission, planned vs. actual energy and the route cost per leg.
+
+Changes apply at the newest simulated time (the view jumps there before you draw), are refused while replaying, and are recorded: `GET /api/v1/simulations/{id}/scenario` returns a scenario file that repeats the session exactly. On a phone the telemetry sits in a bottom sheet under the playback bar.
+
 ## Drone simulation (headless)
 
 A deterministic simulation runs DEMO drones through their missions on the same planner, without a UI or network:
@@ -84,7 +97,7 @@ backend/.venv/bin/python scripts/run_simulation.py data/sim_scenarios/ten_drones
 - **Energy** depends on speed, payload, climb/descent/hover and the wind relative to the heading, using the planner's own model, so planned and simulated energy agree.
 - **Safety:** a pre-flight energy check, a reserve check every tick, and emergency landings at the nearest reachable station, else open green space. Temporary zones make drones re-plan, hold or divert.
 - **Repeatable:** the same scenario and seed give the same event log. Parameters live in `data/sim_config.json` and `data/drone_profiles.json`; scenarios in `data/sim_scenarios/`.
-- **Speed:** 10 drones for one simulated hour take about 2 seconds.
+- **Speed:** 10 drones for one simulated hour take about 2 seconds; `twenty_drones.json` (20 drones in the air at once) about 3 seconds.
 - Airspace is synthetic DEMO data: a simulated flight says nothing about real-world legality.
 
 ## API
@@ -187,11 +200,13 @@ Typical times on a laptop, measured end to end on real data:
 ## Tests
 
 ```bash
-cd backend  && .venv/Scripts/python -m pytest          # 391 tests, external APIs mocked
-cd frontend && npx ng test --watch=false                # 79 tests (Vitest)
+cd backend  && .venv/Scripts/python -m pytest          # 419 tests, external APIs mocked
+cd frontend && npx ng test --watch=false                # 146 tests (Vitest)
 # Browser checks (Playwright in the backend venv, uses your installed Chrome; servers must be running):
 backend/.venv/bin/python frontend/e2e/ui_check.py --out /tmp/shots   # no overlay overlaps, 1280x720 + 390x844
 backend/.venv/bin/python frontend/e2e/flows.py --out /tmp/shots      # acceptance flows (20 checks)
+backend/.venv/bin/python frontend/e2e/sim_flows.py --out /tmp/shots  # simulation view flows (32 checks)
+backend/.venv/bin/python frontend/e2e/sim_perf.py                    # frame rate, 20 drones at 60x
 ```
 
 ## Limitations

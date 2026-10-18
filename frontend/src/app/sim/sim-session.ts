@@ -355,11 +355,27 @@ export class SimSession implements OnDestroy {
     this.focus.set({ droneId: e.droneId, place: eventPlace(e), nonce: ++this.focusNonce });
   }
 
+  /**
+   * Shows the newest simulated time. Live playback runs a little behind what the server has
+   * computed (the read-ahead buffer); changes apply at the server's time, so before drawing or
+   * sending one the playhead jumps there and pauses: what you see is what the change meets.
+   */
+  catchUp(): void {
+    if (this.mode() !== 'LIVE' || this.phase() !== 'ready') return;
+    this.pause();
+    if (this.clockT < this.headT() && this.buffer.covers(this.headT())) {
+      this.clockT = this.headT();
+      this.dirty = true;
+      this.refreshUi(true);
+    }
+  }
+
   /** Sends a command; resolves with the scheduled events or rejects with a plain message. */
   inject(cmd: SimCommand): Promise<InjectResponse> {
     const info = this.info();
     if (!info) return Promise.reject(new Error('No simulation is running.'));
     if (this.mode() !== 'LIVE') return Promise.reject(new Error('Go live to change the simulation.'));
+    this.catchUp();
     return new Promise((resolve, reject) => {
       this.http.post<InjectResponse>(`${this.base}/${info.id}/events`, cmd).subscribe({
         next: (res) => {

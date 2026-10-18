@@ -275,6 +275,23 @@ describe('SimSession', () => {
     await expect(fail).rejects.toThrow('only a flying drone');
   });
 
+  it('catches up with the newest simulated time before a change is drawn or sent', () => {
+    started();
+    session.setSpeed(60);
+    session.play();
+    clock.advance(16);
+    http.expectOne(STEP).flush(stepResponse(0, 72, 5));
+    run(100);
+    http.expectOne(STEP).flush(stepResponse(72, 102, 5));
+    expect(session.clockT).toBeLessThan(20); // playing behind the read-ahead buffer
+    session.catchUp();
+    expect(session.playing()).toBe(false);
+    expect(session.clockT).toBe(102);
+    expect(session.playT()).toBe(102);
+    void session.inject({ type: 'wind', speedKmh: 5, directionDeg: 0 });
+    http.expectOne(`${BASE}/sess1/events`).flush({ scheduled: [], zone: null, tick: 102, timeS: 102, simTime: '', finished: false, history: { fromS: 0, toS: 102 } });
+  });
+
   it('jumps to an event: selects its drone, seeks to its time and asks the map to centre', () => {
     started();
     session.setSpeed(60);

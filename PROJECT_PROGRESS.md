@@ -401,8 +401,17 @@ At weight 5 the route takes 85 % less crowd exposure for 8 % more distance and 6
 
 **Verified:** pytest 391 passed (new: config/scenarios 25, state machine/log 14, kinematics/energy 8, engine 13, safety 10, performance 3). Simulated cruise energy is within 1 % of the planner's and flight time within 1 s. Headwind costs more energy than tailwind over the same route. A low battery leads to an emergency landing, and the battery never goes below 0. Same seed → identical logs (synthetic and real data). **10 drones × 1 simulated hour: 1.9 s** engine time on the development laptop (+0.6 s loading the world), 82 route plans, 19 of 20 missions delivered (one correctly rejected by the pre-flight check).
 
+## Phase 10: Simulation view in the UI (done, 2026-10-18, branch `sim-ui`)
+
+**Decisions** (approved): client-paced REST stepping (no WebSocket); engine additions (runtime injection recorded for replay, airborne-only `drone_failure`, zone duration, history ring buffer, per-mission energy and breakdowns, leg ids/geometry, `zoneId`s on reactions); lazy `/simulate` route; REPLAY is read-only; "Simulate my planned drones"; reuse the installed Playwright; branch `sim-ui`; PR description written to a file, pushing only after asking.
+
+**Built:** session API (`app/sim/session.py`, `routers/simulations.py`) on one simulation world with its own planner (simulated zones never reach `/routes/calculate`); Angular routing (planner page + lazy simulation page); playback bar, telemetry list, event feed with jump-to, drone details drawer, zone drawing, wind, failure; map layer with per-frame markers, state visuals, split routes, trails, zones and station rings; `data/sim_scenarios/twenty_drones.json`.
+
+**Verified:** pytest 419 passed (new: `test_sim_api.py` 25, engine injection/failure/legs 3). Vitest 146 passed (new sim specs: interpolation, buffer, timeline, commands, event feed, geometry, fleet scenario, session service, layer, panels, zone draft). `frontend/e2e/sim_flows.py` 32/32, planner `flows.py` 20/20 and `ui_check.py` 0 overlaps after the routing refactor. **Frame rate: 20 drones at 60x, 60 fps average, 95th-percentile frame 16.7 ms, no frames > 50 ms, no long tasks; also 60 fps with Chrome CPU throttling at 4x and 59.6 fps at 6x** (headless Chrome on the development Mac, street zoom with all tags visible). Initial bundle 152 kB gzipped (+24 kB for the router); the simulation view is a 25 kB lazy chunk.
+
 ## Next
 - Obtain a permitted official zone export from PAŻP and validate the ED-269 mapping against it (see DATA_SOURCES.md).
 - Spec phase 4 remainder: `/routes/compare`.
-- Spec phase 5: drone animation (route `playbackPoints` are ready; per-segment times need a backend field), landing station / drop-point selection, "Holding position".
+- Spec phase 5: landing station / drop-point selection in the planner.
+- Simulation: branching from the past (runs are deterministic, so a session could be rewound and changed), WebSocket push if many viewers share a session.
 - Spec phase 6: polish and optional Docker.

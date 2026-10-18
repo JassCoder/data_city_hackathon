@@ -26,6 +26,7 @@ export class ZoneDraft {
   readonly canFinish = computed(() => this.points().length >= 3 && !this.sending());
 
   start(): void {
+    this.sim.catchUp(); // draw on the drones where the engine has them
     this.points.set([]);
     this.error.set(null);
     this.sent.set(null);

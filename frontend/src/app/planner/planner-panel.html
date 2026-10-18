@@ -109,6 +109,7 @@
     <mat-button-toggle value="CORRIDORS">Safe corridors</mat-button-toggle>
     <mat-button-toggle value="SHORTEST">Shortest</mat-button-toggle>
     <mat-button-toggle value="FASTEST">Fastest</mat-button-toggle>
+    <mat-button-toggle value="SAFEST">Safest</mat-button-toggle>
   </mat-button-toggle-group>
   <p class="hint" data-testid="objective-hint">
     @switch (store.routeObjective()) {
@@ -118,6 +119,10 @@
       @case ('FASTEST') {
         Minimises flight time using cruise speed and the wind at your altitude for each direction of travel
         (LIVE wind varies along the route; DEMO wind is uniform, so it then matches Shortest except around obstacles).
+      }
+      @case ('SAFEST') {
+        Minimises a weighted risk cost: estimated crowds (OSM proxy, not census), noise over homes, distance to
+        emergency landing space, schools/hospitals, tall structures and wind-aware energy. Same hard limits.
       }
       @default {
         Prefers the river and parks (weights depend on the flight mode).

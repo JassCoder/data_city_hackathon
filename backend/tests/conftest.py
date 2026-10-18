@@ -13,7 +13,12 @@ from app.airspace.repository import AirspaceRepository
 from app.geo.coverage import bbox_coverage
 from app.main import app
 from app.routing.grid import build_grid
+from app.config import COST_MODEL_FILE
 from app.routing.planner import RoutePlanner
+from app.routing.risk.config import load_cost_model
+from app.routing.risk.providers import ArrayObstacles, GridSpec
+from app.routing.risk.surface import CostModel
+from app.routing.risk.synthetic import synthetic_world
 from app.schemas.layers import BuildingProperties, CorridorProperties
 from app.schemas.planning import DroneProfile
 from app.services.data_loader import Layer
@@ -27,8 +32,10 @@ NOW = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
 
 PROFILE = DroneProfile(
     id="TEST", name="Test drone", description="", cruise_speed_mps=10, max_wind_kmh=40,
-    vertical_clearance_m=10, max_range_km=50, max_payload_kg=1, source="DEMO",
+    vertical_clearance_m=10, max_range_km=50, max_payload_kg=1, cruise_power_w=200, payload_power_w_per_kg=50,
+    battery_wh=500, source="DEMO",
 )
+COST_MODEL = load_cost_model(COST_MODEL_FILE)
 # No per-location samples: the planner then uses the top-level wind values.
 CALM = demo_weather().model_copy(update={"wind_speed_kmh": 0.0, "wind_gust_kmh": None, "samples": []})
 
@@ -92,15 +99,20 @@ class StaticProvider:
         return dataset.version != f"v{self.revision}"
 
 
-def make_planner(zones=(), buildings=(), river=None, margin_m=20.0) -> RoutePlanner:
-    """zones: [AirspaceZone], buildings: [(polygon, height_m)], lon/lat polygons."""
+def make_planner(zones=(), buildings=(), river=None, margin_m=20.0, world=None, cost_model=None) -> RoutePlanner:
+    """zones: [AirspaceZone], buildings: [(polygon, height_m)], lon/lat polygons.
+    world: synthetic_world() keyword arguments (crowded blocks etc., grid cells) for the cost model."""
     b_props = [BuildingProperties(id=f"b{i}", height_m=h, height_source="osm_height") for i, (_, h) in enumerate(buildings)]
     c_props, c_geoms = [], []
     if river is not None:
         c_props, c_geoms = [CorridorProperties(id="river", corridor_type="RIVER")], [river]
     area = box(TEST_BBOX["minLon"], TEST_BBOX["minLat"], TEST_BBOX["maxLon"], TEST_BBOX["maxLat"])
     grid = build_grid(Layer(c_props, c_geoms, {}), Layer(b_props, [g for g, _ in buildings], {}), area)
-    return RoutePlanner(grid, AirspaceRepository(StaticProvider(zones), grid, margin_m), bbox_coverage(TEST_BBOX))
+    spec = GridSpec(grid.rows, grid.cols, grid.cell, grid.min_x, grid.min_y)
+    providers = synthetic_world(spec, **(world or {}))
+    providers.obstacles = ArrayObstacles(grid.building_height)  # same heights as the hard constraint
+    risk = CostModel(cost_model or COST_MODEL, spec, providers)
+    return RoutePlanner(grid, AirspaceRepository(StaticProvider(zones), grid, margin_m), bbox_coverage(TEST_BBOX), risk)
 
 
 @pytest.fixture(scope="session")

@@ -132,4 +132,33 @@ describe('RouteResultsComponent', () => {
     expect(q('route-status')?.textContent).toContain('Search limit reached');
     expect(q('route-message')?.textContent).toContain('supported limits');
   });
+
+  it('shows the cost breakdown, open for SAFEST routes', () => {
+    const safest: RouteRequest = { ...REQUEST, routeObjective: 'SAFEST' };
+    store.route.set({ phase: 'ready', request: safest, response: routeResponse(safest) });
+    fixture.detectChanges();
+    const details = q('route-breakdown') as HTMLDetailsElement;
+    expect(details.open).toBe(true);
+    expect(q('route-objective')?.textContent).toContain('Safest (multi-criteria)');
+    expect(q('breakdown-energy')?.textContent).toContain('14.1 Wh of 80 Wh usable');
+    expect(q('breakdown-exposure')?.textContent).toContain('412.3 people/ha');
+    expect(details.textContent).toContain('Crowds (estimated)');
+    expect(details.textContent).toContain('not census data');
+  });
+
+  it('labels an insufficient-battery result and keeps its breakdown', () => {
+    store.route.set({
+      phase: 'ready',
+      request: REQUEST,
+      response: routeResponse(REQUEST, {
+        status: 'INSUFFICIENT_BATTERY',
+        geometry: null,
+        message: 'The route needs about 95 Wh, but only 80 Wh is usable.',
+      }),
+    });
+    fixture.detectChanges();
+    expect(q('route-status')?.textContent).toContain('Insufficient battery');
+    expect(q('route-message')?.textContent).toContain('only 80 Wh');
+    expect((q('route-breakdown') as HTMLDetailsElement).open).toBe(false);
+  });
 });

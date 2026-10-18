@@ -1,0 +1,53 @@
+{
+  "description": "DEMO multi-criteria cost model for the SAFEST route objective. Weights multiply normalized 0..1 terms: edge cost = length * (1 + sum(weight * term)) + length * (energy * energyTerm + time * timeTerm). Values are illustrative, not regulatory.",
+  "timezone": "Europe/Warsaw",
+  "altitude": {
+    "defaultCruiseM": 80,
+    "legalCeilingM": 120
+  },
+  "weights": {
+    "population": 4.0,
+    "obstacleProximity": 0.3,
+    "noise": 0.5,
+    "emergencyLanding": 0.5,
+    "sensitiveAreas": 1.0,
+    "energy": 1.0,
+    "time": 0.0
+  },
+  "population": {
+    "referenceDensityPerHa": 800,
+    "exponent": 2.0,
+    "hourlyMultiplier": [
+      0.5, 0.4, 0.4, 0.4, 0.4, 0.5,
+      0.7, 1.0, 1.2, 1.1, 1.0, 1.0,
+      1.1, 1.1, 1.0, 1.0, 1.1, 1.2,
+      1.1, 1.0, 0.9, 0.8, 0.7, 0.6
+    ]
+  },
+  "densityProxy": {
+    "residentialFloorM2PerPerson": 35,
+    "otherFloorM2PerPerson": 25,
+    "transitStopPeople": 150,
+    "transitStopRadiusM": 100
+  },
+  "obstacleProximity": {
+    "radiusM": 50,
+    "minHeightM": 30
+  },
+  "noise": {
+    "dayFactor": 0.4,
+    "nightFactor": 1.0,
+    "nightStartHour": 22,
+    "nightEndHour": 6
+  },
+  "emergencyLanding": {
+    "radiusM": 300
+  },
+  "sensitiveAreas": {
+    "radiusM": 150
+  },
+  "energy": {
+    "defaultPayloadKg": 0.0,
+    "batteryReserveFraction": 0.2
+  }
+}

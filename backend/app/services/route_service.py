@@ -18,12 +18,14 @@ from app.routing.planner import RoutePlanner, plan_timed
 from app.routing.scenarios import SCENARIOS, ScenarioConfig
 from app.schemas.planning import (
     Coordinate,
+    CostBreakdown,
     CoverageCheck,
     LineStringGeometry,
     RouteRequest,
     RouteResponse,
     RouteStatus,
     SearchInfo,
+    TermCostInfo,
     WeatherSource,
 )
 from app.services.drone_profiles import DroneProfileRegistry
@@ -31,6 +33,7 @@ from app.services.weather import WeatherService
 
 BASE_SOURCES = [
     "Buildings, river & parks: © OpenStreetMap contributors (ODbL)",
+    "Population density, land use, schools/hospitals, stops: estimated proxy from OpenStreetMap (ODbL), not a census",
     "Landing stations: synthetic DEMO DATA",
     "Drone profiles: sample DEMO data",
 ]
@@ -50,8 +53,35 @@ WEATHER_SOURCE_LABEL = {
 }
 
 
-class UnknownProfileError(ValueError):
+BREAKDOWN_NOTE = ("Cost model: data/cost_model.json (DEMO weights). Population density is an estimate from OSM "
+                  "floor area and stops, not census data. Only the SAFEST objective minimises this cost.")
+
+
+class InvalidRouteRequestError(ValueError):
+    """A request that is well-formed but invalid for the chosen profile (HTTP 422)."""
+
+
+class UnknownProfileError(InvalidRouteRequestError):
     pass
+
+
+DEGRADED_NOTE = ("Risk layers not loaded (run scripts/fetch_risk_layers.py): crowd, noise and sensitive-site "
+                 "terms are 0 and open space comes from the park mask. Energy and battery figures are complete.")
+
+
+def cost_breakdown(result, risk_data_available: bool = True) -> CostBreakdown | None:
+    b = result.breakdown
+    if b is None:
+        return None
+    return CostBreakdown(
+        total_cost=round(b.total_cost, 1), length_m=round(b.length_m, 1),
+        terms=[TermCostInfo(term=name, weight=t.weight, mean=round(t.mean, 4), cost=round(t.cost, 1))
+               for name, t in b.terms.items()],
+        energy_wh=round(b.energy_wh, 1), battery_usable_wh=round(result.battery_usable_wh, 1),
+        payload_kg=result.payload_kg, flight_time_s=round(b.flight_time_s, 1),
+        population_exposure=round(b.population_exposure, 2), max_density_per_ha=round(b.max_density_per_ha, 1),
+        local_hour=result.local_hour, note=BREAKDOWN_NOTE if risk_data_available else DEGRADED_NOTE,
+    )
 
 
 def resolve_settings(req: RouteRequest) -> tuple[ScenarioConfig | None, FlightMode, RouteObjective]:
@@ -76,18 +106,24 @@ class RouteService:
             raise UnknownProfileError(
                 f"Unknown droneProfileId '{req.drone_profile_id}'. Available: {', '.join(self.profiles.ids)}."
             )
+        if req.payload_kg is not None and req.payload_kg > profile.max_payload_kg:
+            raise InvalidRouteRequestError(f"payloadKg {req.payload_kg:g} exceeds the {profile.name} maximum of "
+                                           f"{profile.max_payload_kg:g} kg.")
         scenario, mode, objective = resolve_settings(req)
+        altitude = req.flight_altitude_meters
+        if altitude is None:
+            altitude = int(self.planner.risk.cfg.altitude.default_cruise_m)
         start = (req.start.longitude, req.start.latitude)
         destination = (req.destination.longitude, req.destination.latitude)
 
         # Wind sampled along the A-B line at the flight altitude (LIVE), or fixed DEMO wind.
-        weather = await self.weather.get_for_route(req.weather_mode, req.flight_altitude_meters, start, destination)
+        weather = await self.weather.get_for_route(req.weather_mode, altitude, start, destination)
         at = req.departure_time or datetime.now(timezone.utc)
         if at.tzinfo is None:
             at = at.replace(tzinfo=timezone.utc)
         result, ms = await run_in_threadpool(
-            plan_timed, self.planner, start, destination, mode, req.flight_altitude_meters, profile, weather, at,
-            objective,
+            plan_timed, self.planner, start, destination, mode, altitude, profile, weather, at, objective,
+            req.payload_kg,
         )
 
         warnings = list(result.warnings)
@@ -118,7 +154,7 @@ class RouteService:
             eta_s=result.eta_s,
             mode=mode,
             route_objective=objective,
-            flight_altitude_meters=req.flight_altitude_meters,
+            flight_altitude_meters=altitude,
             drone_profile_id=profile.id,
             weather=weather,
             route_start=Coordinate(longitude=path[0][0], latitude=path[0][1]) if path else None,
@@ -133,6 +169,7 @@ class RouteService:
             ),
             search=SearchInfo(**vars(result.search)) if result.search else None,
             zone_conflicts=result.conflicts,
+            cost_breakdown=cost_breakdown(result, self.planner.risk.data_available),
             airspace=source,
             planning_verification_status=verification,
             warnings=warnings,

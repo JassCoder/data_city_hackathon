@@ -41,10 +41,11 @@ from app.routing import costs
 from app.routing.astar import MOVES, SearchLimitExceeded, astar, smooth
 from app.routing.costs import BLOCKED, FlightMode, RouteObjective
 from app.routing.grid import Grid, lonlat_to_xy, pool_blocked, xy_to_lonlat
+from app.routing.risk.energy import DroneEnergy, ground_speed
+from app.routing.risk.providers import CostContext, SampledWind, WindVector
+from app.routing.risk.surface import CostModel, CostSurface, RouteBreakdown
 from app.schemas.planning import DroneProfile, RouteStatus, WeatherInfo
 from app.services.weather import WindField
-
-MIN_GROUND_SPEED_FACTOR = 0.3  # never assume less than 30 % of cruise speed
 
 
 @dataclass
@@ -73,6 +74,11 @@ class PlanResult:
     start_district: str | None = None
     destination_district: str | None = None
     airspace_outside_extent_m: float = 0.0
+    # Multi-criteria cost of the route (all objectives) and the energy context it was computed in.
+    breakdown: RouteBreakdown | None = None
+    payload_kg: float | None = None
+    local_hour: int | None = None
+    battery_usable_wh: float | None = None
 
 
 def _fmt(lon: float, lat: float) -> str:
@@ -88,18 +94,22 @@ class _Endpoint:
 
 
 class RoutePlanner:
-    def __init__(self, grid: Grid, airspace: AirspaceRepository, coverage: Coverage):
+    def __init__(self, grid: Grid, airspace: AirspaceRepository, coverage: Coverage, risk: CostModel):
         self.grid = grid
         self.airspace = airspace
         self.coverage = coverage
+        self.risk = risk  # multi-criteria cost model (SAFEST objective, breakdown, battery check)
         self._cost_cache: OrderedDict[tuple, np.ndarray] = OrderedDict()
         self._route_cache: OrderedDict[tuple, PlanResult] = OrderedDict()
 
     # --- cost model -----------------------------------------------------------
     def base_cost(self, mode: FlightMode, altitude_m: float, clearance_m: float,
-                  objective: RouteObjective = RouteObjective.CORRIDORS) -> np.ndarray:
+                  objective: RouteObjective = RouteObjective.CORRIDORS,
+                  surface: CostSurface | None = None) -> np.ndarray:
         g = self.grid
-        if objective == RouteObjective.CORRIDORS:
+        if objective == RouteObjective.SAFEST:  # 1 + weighted risk terms (direction terms added in A*)
+            cost = surface.cell_cost.copy()
+        elif objective == RouteObjective.CORRIDORS:
             t = costs.TERRAIN_COSTS[mode]
             cost = np.full((g.rows, g.cols), t["open"], dtype=np.float32)
             cost[g.park] = t["park"]
@@ -110,13 +120,15 @@ class RoutePlanner:
         cost[~g.coverage] = BLOCKED
         return cost
 
-    def _costs(self, mode, altitude_m, clearance_m, state: AirspaceState, obstacles: list[int], objective):
-        key = (mode, altitude_m, clearance_m, state.version, tuple(obstacles), objective)
+    def _costs(self, mode, altitude_m, clearance_m, state: AirspaceState, obstacles: list[int], objective,
+               surface: CostSurface):
+        risk_key = surface.key if objective == RouteObjective.SAFEST else None
+        key = (mode, altitude_m, clearance_m, state.version, tuple(obstacles), objective, risk_key)
         hit = self._cost_cache.get(key)
         if hit is not None:
             self._cost_cache.move_to_end(key)
             return hit
-        base = self.base_cost(mode, altitude_m, clearance_m, objective)
+        base = self.base_cost(mode, altitude_m, clearance_m, objective, surface)
         cost = base.copy()
         flat = cost.reshape(-1)
         for i in obstacles:
@@ -137,10 +149,13 @@ class RoutePlanner:
         weather: WeatherInfo,
         at: datetime,
         objective: RouteObjective = RouteObjective.CORRIDORS,
+        payload_kg: float | None = None,  # None = cost model default, capped at the profile maximum
     ) -> PlanResult:
         state = self.airspace.refresh()
+        payload = self.resolve_payload(profile, payload_kg)
         key = (objective, start, destination, mode, altitude_m, profile.id, profile.vertical_clearance_m,
-               profile.cruise_speed_mps, profile.max_wind_kmh,
+               profile.cruise_speed_mps, profile.max_wind_kmh, profile.cruise_power_w,
+               profile.payload_power_w_per_kg, profile.battery_wh, payload,
                tuple((s.latitude, s.longitude, s.wind_speed_kmh, s.wind_direction_deg) for s in weather.samples),
                weather.wind_speed_kmh, weather.wind_direction_deg, weather.wind_gust_kmh,
                state.version, at.replace(second=0, microsecond=0))
@@ -148,14 +163,38 @@ class RoutePlanner:
         if hit is not None:
             self._route_cache.move_to_end(key)
             return replace(hit, search=replace(hit.search, cached=True) if hit.search else None)
-        result = self._plan(start, destination, mode, altitude_m, profile, weather, at, state, objective)
-        if result.status not in (RouteStatus.SEARCH_LIMIT, RouteStatus.COVERAGE_UNAVAILABLE):
+        result = self._plan(start, destination, mode, altitude_m, profile, weather, at, state, objective, payload)
+        if result.status not in (RouteStatus.SEARCH_LIMIT, RouteStatus.COVERAGE_UNAVAILABLE,
+                                 RouteStatus.RISK_DATA_UNAVAILABLE):
             self._route_cache[key] = result
             while len(self._route_cache) > ROUTE_CACHE_SIZE:
                 self._route_cache.popitem(last=False)
         return result
 
-    def _plan(self, start, destination, mode, altitude_m, profile, weather, at, state, objective) -> PlanResult:
+    def resolve_payload(self, profile: DroneProfile, payload_kg: float | None) -> float:
+        if payload_kg is None:
+            return min(self.risk.cfg.energy.default_payload_kg, profile.max_payload_kg)
+        if not 0 <= payload_kg <= profile.max_payload_kg:
+            raise ValueError(f"payload {payload_kg:g} kg is outside 0..{profile.max_payload_kg:g} kg for {profile.name}")
+        return payload_kg
+
+    @staticmethod
+    def drone_energy(profile: DroneProfile) -> DroneEnergy:
+        return DroneEnergy(
+            cruise_speed_mps=profile.cruise_speed_mps, cruise_power_w=profile.cruise_power_w,
+            payload_power_w_per_kg=profile.payload_power_w_per_kg, battery_wh=profile.battery_wh,
+            max_wind_kmh=profile.max_wind_kmh, max_payload_kg=profile.max_payload_kg,
+        )
+
+    @staticmethod
+    def wind_provider(weather: WeatherInfo) -> SampledWind:
+        """The request's wind samples in grid metres (top-level wind if none)."""
+        vectors = [WindVector(*lonlat_to_xy(s.longitude, s.latitude), s.wind_speed_kmh, s.wind_direction_deg)
+                   for s in weather.samples]
+        return SampledWind(vectors or [WindVector(0.0, 0.0, weather.wind_speed_kmh, weather.wind_direction_deg)])
+
+    def _plan(self, start, destination, mode, altitude_m, profile, weather, at, state, objective,
+              payload) -> PlanResult:
         t0 = time.perf_counter()
         ctx = FlightContext(altitude_agl_m=altitude_m, at=at, mode=mode)
         evals = state.evaluations(ctx)
@@ -170,6 +209,10 @@ class RoutePlanner:
 
         if not self.coverage.available:
             return result(RouteStatus.COVERAGE_UNAVAILABLE, self.coverage.message)
+        if objective == RouteObjective.SAFEST and not self.risk.data_available:
+            return result(RouteStatus.RISK_DATA_UNAVAILABLE,
+                          f"The Safest objective needs the OSM risk layers, which are not loaded: "
+                          f"{self.risk.unavailable_reason} Choose another route optimisation meanwhile.")
         for label, (lon, lat) in (("Start", start), ("Destination", destination)):
             if not self.coverage.contains(lon, lat):
                 return result(
@@ -197,8 +240,14 @@ class RoutePlanner:
         if gust and gust > profile.max_wind_kmh:
             warnings.append(f"Gusts up to {gust:.0f} km/h exceed the profile limit of {profile.max_wind_kmh:.0f} km/h.")
 
+        # Multi-criteria cost surface for this departure (recomputed when time, payload or wind change).
+        drone = self.drone_energy(profile)
+        surface = self.risk.surface(CostContext(at, altitude_m, payload), drone, wind=self.wind_provider(weather))
+        energy_info = {"payload_kg": payload, "local_hour": surface.ctx.local_hour(self.risk.cfg.timezone),
+                       "battery_usable_wh": drone.usable_wh(self.risk.cfg.energy.battery_reserve_fraction)}
+
         ceiling = altitude_m - profile.vertical_clearance_m
-        base, cost = self._costs(mode, altitude_m, profile.vertical_clearance_m, state, obstacles, objective)
+        base, cost = self._costs(mode, altitude_m, profile.vertical_clearance_m, state, obstacles, objective, surface)
         s = self._resolve_endpoint("Start", *start, cost, base, ceiling, warnings)
         if isinstance(s, PlanResult):
             return result(s.status, s.message)
@@ -215,14 +264,20 @@ class RoutePlanner:
                                                 f"{evals[i].status.value.replace('_', ' ').lower()}."))
 
         search = SearchInfo()
-        wind_model = self._wind_model(profile, weather, wind) if objective == RouteObjective.FASTEST else None
-        if wind_model:
+        move, additive = None, False
+        if objective == RouteObjective.FASTEST:
+            wind_model = self._wind_model(profile, weather, wind)
             min_cost = wind_model[1]
+            move = lambda r0, c0, factor, shape: self._move_cost(wind_model, (r0, c0), factor, shape)  # noqa: E731
+        elif objective == RouteObjective.SAFEST:
+            # Admissible: every cell costs >= 1 and every heading >= the table minimum (see risk/surface.py).
+            min_cost, additive = surface.min_cost_per_m, True
+            move = lambda r0, c0, factor, shape: (surface.regions(r0, c0, shape, factor), surface.table)  # noqa: E731
         elif objective == RouteObjective.CORRIDORS:
             min_cost = costs.min_cost(mode)
         else:
             min_cost = 1.0
-        found = self._corridor_search(cost, s, d, min_cost, search, t0, wind_model)
+        found = self._corridor_search(cost, s, d, min_cost, search, t0, move, additive)
         search.elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
         if isinstance(found, str):  # budget exhausted
             return result(RouteStatus.SEARCH_LIMIT,
@@ -246,6 +301,16 @@ class RoutePlanner:
             return result(RouteStatus.NO_ROUTE, "No route found that stays clear of all blocked zones and buildings.",
                           search=search)
 
+        breakdown = surface.breakdown(list(line.coords))
+        if breakdown.energy_wh > energy_info["battery_usable_wh"]:
+            reserve = self.risk.cfg.energy.battery_reserve_fraction
+            return result(
+                RouteStatus.INSUFFICIENT_BATTERY,
+                f"The route ({breakdown.length_m / 1000:.1f} km) needs about {breakdown.energy_wh:.0f} Wh, but the "
+                f"{profile.name} can use only {energy_info['battery_usable_wh']:.0f} Wh while keeping a "
+                f"{reserve:.0%} battery reserve. Flight not planned. Try closer points or a smaller payload.",
+                search=search, breakdown=breakdown, **energy_info,
+            )
         self._route_zone_notes(line, state, evals, obstacles, warnings, conflicts)
         outside = self._outside_airspace_extent(line, state, warnings)
         distance, eta = self._distance_and_eta(line, profile, weather, wind)
@@ -257,25 +322,19 @@ class RoutePlanner:
         path = [(round(float(lo), 6), round(float(la), 6)) for lo, la in zip(lons, lats)]
         avoided = sum(1 for c in conflicts if c.relation == "DIRECT_LINE_BLOCKED")
         label = {RouteObjective.CORRIDORS: "safe corridors", RouteObjective.SHORTEST: "shortest",
-                 RouteObjective.FASTEST: "fastest, wind-aware"}[objective]
+                 RouteObjective.FASTEST: "fastest, wind-aware", RouteObjective.SAFEST: "safest, multi-criteria"}[objective]
         msg = f"Route calculated ({label}, {mode.value}, {altitude_m} m)"
         msg += f", avoiding {avoided} blocked zone{'s' if avoided != 1 else ''} on the direct line." if avoided else "."
         search.elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
         return result(RouteStatus.OK, msg, path_lonlat=path, distance_m=round(distance, 1), eta_s=round(eta, 1),
-                      search=search, airspace_outside_extent_m=round(outside, 1))
+                      search=search, airspace_outside_extent_m=round(outside, 1), breakdown=breakdown, **energy_info)
 
     # --- corridor search ----------------------------------------------------------
     # --- FASTEST: direction-dependent time cost -----------------------------------
     @staticmethod
     def _time_factor(v: float, speed_kmh: float, direction_deg: float, ux: float, uy: float) -> float:
         """Seconds per metre relative to still-air cruise (v / ground speed)."""
-        w = speed_kmh / 3.6
-        to_rad = math.radians((direction_deg + 180.0) % 360.0)
-        wx, wy = w * math.sin(to_rad), w * math.cos(to_rad)
-        along = wx * ux + wy * uy
-        cross = abs(wx * uy - wy * ux)
-        ground = max(math.sqrt(max(v * v - cross * cross, 0.0)) + along, v * MIN_GROUND_SPEED_FACTOR)
-        return v / ground
+        return v / ground_speed(v, speed_kmh, direction_deg, ux, uy)
 
     def _wind_model(self, profile, weather, wind):
         """(sample xy list, smallest factor, table[sample][move]) for wind-aware A*."""
@@ -303,9 +362,10 @@ class RoutePlanner:
         return np.argmin(d2, axis=-1).ravel().tolist(), table
 
     def _corridor_search(self, cost, s: _Endpoint, d: _Endpoint, min_cost, search: SearchInfo, t0: float,
-                         wind_model=None):
+                         move=None, additive: bool = False):
         """Returns (coarse_cost, window, factor, coarse_path), None (proven: no path
-        in the whole coverage at the final resolution) or a str (budget exhausted)."""
+        in the whole coverage at the final resolution) or a str (budget exhausted).
+        `move(r0, c0, factor, shape)` gives A*'s direction-dependent (regions, table)."""
         g = self.grid
         (sr, sc), (dr, dc) = s.cell, d.cell
         margin = max(ROUTE_MIN_MARGIN_M, ROUTE_MARGIN_FACTOR * math.hypot(sr - dr, sc - dc) * g.cell) / g.cell
@@ -330,9 +390,9 @@ class RoutePlanner:
                     search.limited_by = f"time limit of {ROUTE_TIME_LIMIT_S:.0f} s reached"
                     return search.limited_by
                 stats: dict = {}
-                move_cost = self._move_cost(wind_model, (r0, c0), factor, coarse.shape) if wind_model else None
+                move_cost = move(r0, c0, factor, coarse.shape) if move else None
                 try:
-                    path = astar(coarse, cs, cd, min_cost, ROUTE_MAX_EXPANSIONS, remaining, stats, move_cost)
+                    path = astar(coarse, cs, cd, min_cost, ROUTE_MAX_EXPANSIONS, remaining, stats, move_cost, additive)
                 except SearchLimitExceeded as exc:
                     search.expansions += exc.expansions
                     search.limited_by = exc.reason
@@ -527,13 +587,8 @@ class RoutePlanner:
                 speed_kmh, direction = sample.wind_speed_kmh, sample.wind_direction_deg
             else:
                 speed_kmh, direction = weather.wind_speed_kmh, weather.wind_direction_deg
-            w = speed_kmh / 3.6
-            to_rad = math.radians((direction + 180.0) % 360.0)  # direction the wind blows TO
-            wx, wy = w * math.sin(to_rad), w * math.cos(to_rad)  # x east, y north
             ux, uy = (x1 - x0) / seg, (y1 - y0) / seg
-            along = wx * ux + wy * uy
-            cross = abs(wx * uy - wy * ux)
-            ground = max(math.sqrt(max(v * v - cross * cross, 0.0)) + along, v * MIN_GROUND_SPEED_FACTOR)
+            ground = ground_speed(v, speed_kmh, direction, ux, uy)
             distance += seg
             eta += seg / ground
         return distance, eta

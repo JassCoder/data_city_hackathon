@@ -6,3 +6,4 @@ class HealthResponse(BaseModel):
     version: str
     mapCenter: list[float]  # [lat, lon]
     coverageAvailable: bool  # official Warsaw boundary loaded
+    riskDataAvailable: bool = False  # OSM risk raster loaded (SAFEST objective)

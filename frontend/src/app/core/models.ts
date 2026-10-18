@@ -5,7 +5,7 @@ import type { AirspaceSource, ZoneConflict } from './airspace';
 export type FlightMode = 'NORMAL' | 'EMERGENCY';
 export type WeatherMode = 'DEMO' | 'LIVE';
 /** What the route minimises (hard restrictions always apply). */
-export type RouteObjective = 'CORRIDORS' | 'SHORTEST' | 'FASTEST';
+export type RouteObjective = 'CORRIDORS' | 'SHORTEST' | 'FASTEST' | 'SAFEST';
 /** Routing scenario: configuration only. It never carries or changes Point A/B. */
 export type ScenarioId = 'NORMAL' | 'BLOOD_DELIVERY' | 'AED_DELIVERY' | 'AVOID_PROHIBITED_ZONE' | 'EMERGENCY';
 export type OptimizationGoal = 'PREFER_SAFE_CORRIDORS' | 'MINIMIZE_DISTANCE' | 'MINIMIZE_ETA';
@@ -61,7 +61,9 @@ export type RouteStatus =
   | 'DESTINATION_BLOCKED'
   | 'BLOCKED_WEATHER'
   | 'SEARCH_LIMIT'
-  | 'COVERAGE_UNAVAILABLE';
+  | 'COVERAGE_UNAVAILABLE'
+  | 'INSUFFICIENT_BATTERY'
+  | 'RISK_DATA_UNAVAILABLE';
 
 export interface WeatherInfo {
   mode: WeatherMode;
@@ -96,6 +98,31 @@ export interface SearchInfo {
   cached: boolean;
 }
 
+export type CostTerm =
+  | 'population'
+  | 'obstacle_proximity'
+  | 'noise'
+  | 'emergency_landing'
+  | 'sensitive_areas'
+  | 'energy'
+  | 'time';
+
+/** Multi-criteria cost of a route (reported for every objective; SAFEST minimises it). */
+export interface CostBreakdown {
+  totalCost: number;
+  lengthM: number;
+  terms: { term: CostTerm; weight: number; mean: number; cost: number }[];
+  energyWh: number;
+  batteryUsableWh: number;
+  payloadKg: number;
+  flightTimeS: number;
+  /** Integral of the estimated density along the route: people/ha x km. */
+  populationExposure: number;
+  maxDensityPerHa: number;
+  localHour: number;
+  note: string;
+}
+
 export interface RouteResponse {
   status: RouteStatus;
   message: string;
@@ -118,6 +145,7 @@ export interface RouteResponse {
   routeStart: Coordinate | null;
   routeDestination: Coordinate | null;
   zoneConflicts: ZoneConflict[];
+  costBreakdown: CostBreakdown | null;
   airspace: AirspaceSource;
   planningVerificationStatus: string;
   warnings: string[];
@@ -152,6 +180,9 @@ export interface DroneProfile {
   verticalClearanceM: number;
   maxRangeKm: number;
   maxPayloadKg: number;
+  cruisePowerW: number;
+  payloadPowerWPerKg: number;
+  batteryWh: number;
   source: 'DEMO';
 }
 

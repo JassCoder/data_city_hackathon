@@ -2,7 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { RouteResponse } from '../core/models';
+import { CostTerm, RouteResponse } from '../core/models';
 import { PlannerApi } from '../core/planner-api';
 import { PlannerStore } from '../core/planner.store';
 import { AirspaceService, ZoneConflict } from '../core/airspace';
@@ -24,12 +24,25 @@ const STATUS_LABEL: Record<RouteResponse['status'], string> = {
   BLOCKED_WEATHER: 'Blocked by weather',
   SEARCH_LIMIT: 'Search limit reached',
   COVERAGE_UNAVAILABLE: 'Coverage unavailable',
+  INSUFFICIENT_BATTERY: 'Insufficient battery',
+  RISK_DATA_UNAVAILABLE: 'Safest unavailable',
 };
 
 const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
   CORRIDORS: 'Safe corridors',
   SHORTEST: 'Shortest',
   FASTEST: 'Fastest (wind-aware)',
+  SAFEST: 'Safest (multi-criteria)',
+};
+
+const TERM_LABEL: Record<CostTerm, string> = {
+  population: 'Crowds (estimated)',
+  obstacle_proximity: 'Near tall structures',
+  noise: 'Noise over homes',
+  emergency_landing: 'Far from landing space',
+  sensitive_areas: 'Schools, hospitals, stadiums',
+  energy: 'Energy (wind, payload)',
+  time: 'Flight time',
 };
 
 @Component({
@@ -74,6 +87,32 @@ const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
           </dl>
         } @else {
           <p class="error-box" data-testid="route-message">{{ r.message }}</p>
+        }
+        @if (r.costBreakdown; as b) {
+          <details class="breakdown" data-testid="route-breakdown" [open]="r.routeObjective === 'SAFEST'">
+            <summary>Cost breakdown (why this route)</summary>
+            <dl class="stats">
+              <dt>Energy</dt>
+              <dd data-testid="breakdown-energy">{{ b.energyWh | number: '1.0-1' }} Wh of {{ b.batteryUsableWh | number: '1.0-0' }} Wh usable</dd>
+              <dt>Crowd exposure</dt>
+              <dd data-testid="breakdown-exposure">{{ b.populationExposure | number: '1.0-1' }} people/ha·km (peak {{ b.maxDensityPerHa | number: '1.0-0' }}/ha)</dd>
+              <dt>Payload</dt><dd>{{ b.payloadKg }} kg · departure {{ b.localHour }}:00 local</dd>
+            </dl>
+            <table class="terms">
+              <thead><tr><th>Term</th><th>Weight</th><th>Mean</th><th>Cost</th></tr></thead>
+              <tbody>
+                <tr><td>Distance</td><td>1</td><td>—</td><td>{{ b.lengthM | number: '1.0-0' }}</td></tr>
+                @for (t of b.terms; track t.term) {
+                  <tr [class.off]="!t.weight">
+                    <td>{{ termLabel[t.term] }}</td><td>{{ t.weight }}</td>
+                    <td>{{ t.mean | number: '1.2-2' }}</td><td>{{ t.cost | number: '1.0-0' }}</td>
+                  </tr>
+                }
+                <tr class="total"><td>Total</td><td></td><td></td><td>{{ b.totalCost | number: '1.0-0' }}</td></tr>
+              </tbody>
+            </table>
+            <p class="hint">{{ b.note }}</p>
+          </details>
         }
         <p class="verification" data-testid="route-verification">{{ r.planningVerificationStatus }}</p>
         @if (r.zoneConflicts.length) {
@@ -127,6 +166,7 @@ export class RouteResultsComponent {
   protected readonly airspace = inject(AirspaceService);
   protected readonly relationLabel = RELATION_LABEL;
   protected readonly objectiveLabel = OBJECTIVE_LABEL;
+  protected readonly termLabel = TERM_LABEL;
 
   protected readonly state = this.store.route;
   protected readonly stale = computed(() => {

@@ -1,6 +1,6 @@
 {
   "source": "DEMO",
-  "disclaimer": "SAMPLE drone profiles for the prototype. Performance values are illustrative assumptions, not manufacturer or regulatory data.",
+  "disclaimer": "SAMPLE drone profiles for the prototype. Performance and energy values (cruise power, payload power, battery) are illustrative assumptions, not manufacturer or regulatory data.",
   "profiles": [
     {
       "id": "DEMO_DRONE_01",
@@ -11,6 +11,9 @@
       "verticalClearanceM": 10.0,
       "maxRangeKm": 12.0,
       "maxPayloadKg": 0.5,
+      "cruisePowerW": 250.0,
+      "payloadPowerWPerKg": 60.0,
+      "batteryWh": 100.0,
       "source": "DEMO"
     },
     {
@@ -22,6 +25,9 @@
       "verticalClearanceM": 15.0,
       "maxRangeKm": 20.0,
       "maxPayloadKg": 2.5,
+      "cruisePowerW": 600.0,
+      "payloadPowerWPerKg": 80.0,
+      "batteryWh": 400.0,
       "source": "DEMO"
     }
   ]

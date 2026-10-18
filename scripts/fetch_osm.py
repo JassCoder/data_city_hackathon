@@ -19,6 +19,7 @@ written unless every tile succeeds, so a failed run never clobbers the snapshot.
 from __future__ import annotations
 
 import gzip
+import hashlib
 import json
 import math
 import os
@@ -96,7 +97,10 @@ def overpass(query: str, label: str) -> list[dict]:
     raise FetchError(f"All Overpass endpoints failed for {label}:\n  " + "\n  ".join(errors[-3:]))
 
 
-def tiled_query(body: str, label: str, bounds) -> list[dict]:
+def tiled_query(body: str, label: str, bounds, cache_dir: Path | None = None) -> list[dict]:
+    """Runs `body` over QUERY_TILES x QUERY_TILES bboxes. With `cache_dir`, each
+    tile's response is saved there (keyed by the query hash), so a rerun after
+    an Overpass outage only fetches the missing tiles."""
     w, s, e, n = bounds
     seen: dict[tuple[str, int], dict] = {}
     for i in range(QUERY_TILES):
@@ -104,9 +108,19 @@ def tiled_query(body: str, label: str, bounds) -> list[dict]:
             ts, tn = s + (n - s) * i / QUERY_TILES, s + (n - s) * (i + 1) / QUERY_TILES
             tw, te = w + (e - w) * j / QUERY_TILES, w + (e - w) * (j + 1) / QUERY_TILES
             q = f"[out:json][timeout:{TIMEOUT_S}][bbox:{ts:.5f},{tw:.5f},{tn:.5f},{te:.5f}];\n({body});\nout geom;"
-            for el in overpass(q, f"{label} {i * QUERY_TILES + j + 1}/{QUERY_TILES ** 2}"):
+            tile_label = f"{label} {i * QUERY_TILES + j + 1}/{QUERY_TILES ** 2}"
+            cached = cache_dir / f"{hashlib.sha256(q.encode()).hexdigest()[:24]}.json" if cache_dir else None
+            if cached and cached.is_file():
+                elements = json.loads(cached.read_text(encoding="utf-8"))
+                print(f"  [{tile_label}] {len(elements)} elements (cached)", flush=True)
+            else:
+                elements = overpass(q, tile_label)
+                if cached:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    cached.write_text(json.dumps(elements), encoding="utf-8")
+                time.sleep(2)
+            for el in elements:
                 seen[(el["type"], el["id"])] = el
-            time.sleep(2)
     return list(seen.values())
 
 

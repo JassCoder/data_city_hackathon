@@ -40,8 +40,9 @@ def pt(name):
 
 
 def body(start, dest, **over):
+    # Delivery Drone: cross-city trips (21-27 km) exceed the Standard Drone's battery (see the battery test).
     return {"start": start, "destination": dest, "mode": "NORMAL", "flightAltitudeMeters": 80,
-            "droneProfileId": "DEMO_DRONE_01", "weatherMode": "DEMO", **over}
+            "droneProfileId": "DEMO_DRONE_02", "weatherMode": "DEMO", **over}
 
 
 @pytest.fixture(scope="module")
@@ -99,6 +100,13 @@ def test_long_distance_route_performance(client):
     assert r["search"]["elapsedMs"] < ROUTE_TIME_LIMIT_S * 1000
     again = client.post(URL, json=body(pt("Ursynów"), pt("Białołęka"))).json()
     assert again["search"]["cached"] is True and again["geometry"] == r["geometry"]
+
+
+def test_cross_city_trip_exceeds_the_standard_drone_battery(client):
+    r = client.post(URL, json=body(pt("Ursynów"), pt("Białołęka"), droneProfileId="DEMO_DRONE_01")).json()
+    assert r["status"] == "INSUFFICIENT_BATTERY" and r["geometry"] is None
+    b = r["costBreakdown"]
+    assert b["energyWh"] > b["batteryUsableWh"] and "reserve" in r["message"]
 
 
 def test_route_outside_demo_airspace_extent_is_flagged(client):

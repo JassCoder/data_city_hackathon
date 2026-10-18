@@ -56,6 +56,10 @@ class DroneProfile(CamelModel):
     vertical_clearance_m: float = Field(ge=0)
     max_range_km: float = Field(gt=0)
     max_payload_kg: float = Field(ge=0)
+    # Energy model (app/routing/risk/energy.py): P = cruisePowerW + payloadPowerWPerKg x payload.
+    cruise_power_w: float = Field(gt=0)
+    payload_power_w_per_kg: float = Field(ge=0)
+    battery_wh: float = Field(gt=0)
     source: Literal["DEMO"]
 
 
@@ -109,14 +113,17 @@ class RouteStatus(StrEnum):
     BLOCKED_WEATHER = "BLOCKED_WEATHER"
     SEARCH_LIMIT = "SEARCH_LIMIT"  # node/time budget exhausted: no route shown, nothing proven
     COVERAGE_UNAVAILABLE = "COVERAGE_UNAVAILABLE"  # official boundary missing: routing disabled
+    INSUFFICIENT_BATTERY = "INSUFFICIENT_BATTERY"  # route energy exceeds the battery minus the reserve
+    RISK_DATA_UNAVAILABLE = "RISK_DATA_UNAVAILABLE"  # SAFEST requested but the OSM risk raster is not loaded
 
 
 class RouteRequest(CamelModel):
     start: Coordinate
     destination: Coordinate
     mode: FlightMode = FlightMode.NORMAL
-    flight_altitude_meters: int = Field(
-        80, strict=True, ge=ALTITUDE_MIN_M, le=ALTITUDE_MAX_M, multiple_of=ALTITUDE_STEP_M
+    # Omitted = the cost model's altitude.defaultCruiseM (data/cost_model.json).
+    flight_altitude_meters: int | None = Field(
+        None, strict=True, ge=ALTITUDE_MIN_M, le=ALTITUDE_MAX_M, multiple_of=ALTITUDE_STEP_M
     )
     drone_profile_id: str = Field("DEMO_DRONE_01", min_length=1)
     weather_mode: WeatherMode = WeatherMode.DEMO
@@ -125,8 +132,10 @@ class RouteRequest(CamelModel):
     # Optional routing scenario. It sets mode/routeObjective from its configuration;
     # it never changes start/destination. Omitted = use mode/routeObjective as sent.
     scenario: Scenario | None = None
-    # Planned departure, used to evaluate zone validity periods. Default: now.
+    # Planned departure: zone validity periods and time-of-day costs. Default: now.
     departure_time: datetime | None = None
+    # Carried payload; omitted = the cost model's energy.defaultPayloadKg, capped at the profile maximum.
+    payload_kg: float | None = Field(None, ge=0, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def _distinct_points(self):
@@ -185,6 +194,30 @@ class ScenariosResponse(CamelModel):
     note: str
 
 
+class TermCostInfo(CamelModel):
+    term: str
+    weight: float
+    mean: float  # length-weighted mean of the normalized 0..1 term along the route
+    cost: float  # weight x integral of the term along the route (cost units = metres)
+
+
+class CostBreakdown(CamelModel):
+    """Why the route costs what it does: edge cost = length x (1 + sum(weight x term))
+    + length x (energy and time terms). Reported for every objective; only SAFEST minimises it."""
+
+    total_cost: float
+    length_m: float
+    terms: list[TermCostInfo]
+    energy_wh: float
+    battery_usable_wh: float  # battery minus the configured reserve
+    payload_kg: float
+    flight_time_s: float
+    population_exposure: float  # integral of estimated density along the route: people/ha x km
+    max_density_per_ha: float
+    local_hour: int  # departure hour in the cost model's timezone (time-of-day multipliers)
+    note: str
+
+
 class LineStringGeometry(CamelModel):
     type: Literal["LineString"] = "LineString"
     coordinates: list[list[float]]  # [lon, lat]
@@ -211,6 +244,7 @@ class RouteResponse(CamelModel):
     coverage: CoverageCheck
     search: SearchInfo | None
     zone_conflicts: list[ZoneConflict]
+    cost_breakdown: CostBreakdown | None  # set when a route was found (and for INSUFFICIENT_BATTERY)
     airspace: AirspaceSourceInfo  # zone dataset used for this plan (source, timestamp, version)
     planning_verification_status: str
     warnings: list[str]

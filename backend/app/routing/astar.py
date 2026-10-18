@@ -39,6 +39,7 @@ def astar(
     time_limit_s: float | None = None,
     stats: dict | None = None,
     move_cost: tuple[list[int], list[list[float]]] | None = None,
+    additive: bool = False,
 ) -> list[Cell] | None:
     """Cheapest 8-connected path, or None if unreachable.
 
@@ -53,6 +54,9 @@ def astar(
     for wind-aware FASTEST routing): entering cell v with move k costs
     length x table[regions[v]][k]; `cost` then only marks blocked cells, and
     `min_cost` must be the smallest table entry to keep the heuristic admissible.
+    With `additive=True` the step costs length x (cost[v] + table[regions[v]][k])
+    instead (risk-aware SAFEST routing); `min_cost` must then be a lower bound on
+    that sum, i.e. min(cost) + min(table).
     """
     rows, cols = cost.shape
     flat = cost.ravel().tolist()
@@ -109,7 +113,9 @@ def astar(
                 continue
             if dr and dc and (flat[u + dr * cols] == inf or flat[u + dc] == inf):
                 continue  # corner cutting
-            ng = g_cur + ln * (table[regions[v]][k] if regions is not None else cv)
+            if regions is not None:
+                cv = cv + table[regions[v]][k] if additive else table[regions[v]][k]
+            ng = g_cur + ln * cv
             if ng < g[v]:
                 g[v] = ng
                 parent[v] = u

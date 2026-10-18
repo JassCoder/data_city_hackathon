@@ -14,7 +14,7 @@ from app.schemas.planning import (
     WeatherMode,
 )
 from app.services.drone_profiles import DroneProfileRegistry
-from app.services.route_service import RouteService, UnknownProfileError
+from app.services.route_service import InvalidRouteRequestError, RouteService
 from app.services.weather import WeatherService
 
 router = APIRouter(tags=["planning"])
@@ -56,5 +56,5 @@ async def calculate_route(
 ) -> RouteResponse:
     try:
         return await service.calculate(req)
-    except UnknownProfileError as exc:
+    except InvalidRouteRequestError as exc:
         raise HTTPException(422, str(exc)) from exc

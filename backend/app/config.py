@@ -33,6 +33,8 @@ DATA_FILES = {
 }
 
 DRONE_PROFILES_FILE = "drone_profiles.json"
+# Weights and parameters of the multi-criteria SAFEST objective (app/routing/risk).
+COST_MODEL_FILE = DATA_DIR / "cost_model.json"
 
 # Citywide coverage: the official Warsaw boundary (GUGiK PRG, TERYT 1465) and
 # its 18 districts, cached by scripts/fetch_boundaries.py.
@@ -44,6 +46,7 @@ FALLBACK_VIEW = {"center": [52.2297, 21.0122], "zoom": 11}
 # Citywide OSM products written by scripts/fetch_osm.py.
 OSM_DIR = DATA_DIR / "osm"
 CITY_GRID_FILE = OSM_DIR / "grid_warsaw_25m.npz"  # routing raster (buildings, river, parks)
+RISK_RASTER_FILE = OSM_DIR / "risk_warsaw_25m.npz"  # SAFEST: floor area, land use, POIs (scripts/fetch_risk_layers.py)
 BUILDING_TILES_DIR = OSM_DIR / "tiles"  # {z}/{x}/{y}.json.gz, display only
 BUILDING_TILE_ZOOM = 14
 BUILDINGS_INDEX_FILE = OSM_DIR / "buildings_index.json"

@@ -14,4 +14,5 @@ def health(request: Request) -> HealthResponse:
         version=APP_VERSION,
         mapCenter=list(MAP_CENTER),
         coverageAvailable=bool(planner and planner.coverage.available),
+        riskDataAvailable=bool(planner and planner.risk.data_available),
     )

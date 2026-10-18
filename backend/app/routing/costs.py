@@ -19,6 +19,10 @@ SNAP_RADIUS_M = 150.0
 # costs at most this factor more, so preferences (river, parks) survive.
 SMOOTHING_COST_TOLERANCE = 1.02
 
+# Ground speed (ETA, wind-aware costs, energy) never drops below this share of
+# cruise speed, even in a headwind stronger than the drone.
+MIN_GROUND_SPEED_FACTOR = 0.3
+
 
 class FlightMode(StrEnum):
     NORMAL = "NORMAL"
@@ -31,6 +35,7 @@ class RouteObjective(StrEnum):
     CORRIDORS = "CORRIDORS"  # prefer river/parks (TERRAIN_COSTS per mode)
     SHORTEST = "SHORTEST"  # minimise distance
     FASTEST = "FASTEST"  # minimise flight time: cruise speed + wind per direction of travel
+    SAFEST = "SAFEST"  # multi-criteria risk cost (crowds, noise, landing options, energy...): app/routing/risk
 
 
 # Terrain costs (cells not blocked by a zone or a too-tall building).

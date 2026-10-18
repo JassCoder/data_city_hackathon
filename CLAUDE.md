@@ -16,6 +16,8 @@ The aim is a reliable end-to-end demo, not completeness. Working features beat p
 - The request contract uses `flightAltitudeMeters` (20–120, step 5, default 80), `droneProfileId` and `weatherMode` (DEMO|LIVE), replacing `altitudeM` and `wind`.
 - EMERGENCY gets no special access: hard airspace restrictions are identical for both modes.
 - Settings changes **invalidate** the route instead of auto-recalculating it.
+- `flightAltitudeMeters` stays per request; when omitted it defaults to `altitude.defaultCruiseM` in `data/cost_model.json`. Startup fails if that default exceeds `legalCeilingM` (120 m) or the API range exceeds the ceiling.
+- `routeObjective` also accepts `SAFEST` (multi-criteria risk cost, `app/routing/risk/`). Its weights and parameters live only in `data/cost_model.json` (JSON, not YAML: no extra dependency). Optional `payloadKg` (≤ the profile's `maxPayloadKg`, else 422).
 
 ## Stack and hard constraints
 
@@ -32,7 +34,7 @@ The aim is a reliable end-to-end demo, not completeness. Working features beat p
 
 ## Commands
 
-The repo root is this folder. The Python venv is `backend/.venv` (Windows layout, `Scripts/`). Angular CLI is not global, so use `npx ng`.
+The repo root is this folder. The Python venv is `backend/.venv` (`Scripts/` on Windows, `bin/` on macOS/Linux; commands below use the Windows layout). Angular CLI is not global, so use `npx ng`.
 
 ```bash
 # Backend (from backend/)
@@ -53,12 +55,14 @@ npx ng test --watch=false --include src/app/app.spec.ts   # single spec file
 backend/.venv/Scripts/python scripts/fetch_boundaries.py  # official boundary + 18 districts (GUGiK PRG OGC API)
 backend/.venv/Scripts/python scripts/fetch_osm.py         # citywide OSM: raster + building tiles + corridors (~40 min)
 backend/.venv/Scripts/python scripts/build_demo_data.py   # synthetic zones + stations (edit the tables in this file)
+backend/.venv/Scripts/python scripts/fetch_risk_layers.py # SAFEST risk raster: Overpass land use/POIs + floor area from tiles (~25 min)
+backend/.venv/Scripts/python scripts/sweep_crowd_weight.py --out sweep.csv  # crowd-weight trade-off CSV (real planner)
 ```
 
 Backend tests use `tests/conftest.py`:
 - `client` is a session TestClient over the real `/data`.
 - `overrides` is `app.dependency_overrides`. Inject fakes for `get_geocoder`, `get_weather` and `get_planner` from `app/dependencies.py`.
-- `make_planner(zones=[zone(...)], buildings=..., river=..., margin_m=...)` builds a small synthetic world for routing tests.
+- `make_planner(zones=[zone(...)], buildings=..., river=..., margin_m=..., world=..., cost_model=...)` builds a small synthetic world for routing tests. `world` takes `synthetic_world()` kwargs (crowded blocks, residential, sensitive, open space as grid-cell slices); `cost_model` overrides `COST_MODEL` (e.g. other weights).
 - `zone(id, polygon | circle=(lon, lat, r), category=..., lower=..., upper=..., ref=..., start=..., end=..., source=...)` builds a normalized `AirspaceZone`.
 - `StaticProvider.set_zones()` (reached through `planner.airspace.provider`) simulates a dataset update.
 - External HTTP is always mocked with `httpx.MockTransport`, so no test touches the network.
@@ -86,7 +90,8 @@ The FastAPI lifespan in `app/main.py` builds all the singletons once and stores 
 - `data`: `load_demo_data()` returns `DemoData`: citywide display corridors, tall buildings (≥ 50 m), stations, and `building_stats`. It has **no zones and no full building set**. The `/layers` body is pre-serialised and is for display only.
 - `coverage`: `app/geo/coverage.py` `load_city_coverage()` gives the official polygon plus districts. If missing, `available=False`: `/map/warsaw-boundary` returns 503 and routes return `COVERAGE_UNAVAILABLE`. There is never a silent fallback.
 - `route service`: `app/services/route_service.py` `RouteService`, built per request by `dependencies.get_route_service` from planner, profiles and weather. It is the **only** route pipeline: resolve the scenario (`app/routing/scenarios.py`) → profile → wind → the shared `RoutePlanner` → `RouteResponse`. Never add per-scenario routing functions or stored routes.
-- `planner`: `RoutePlanner(load_city_grid(CITY_GRID_FILE, coverage.geom), AirspaceRepository(make_provider(), grid), coverage)`. The grid is the precomputed citywide raster (terrain + buildings).
+- `cost_model`: `load_validated_cost_model()` (`data/cost_model.json`, validated, altitude check).
+- `planner`: `build_planner(cost_model)` = `RoutePlanner(grid, AirspaceRepository(make_provider(), grid), coverage, CostModel(...))`. The grid is the precomputed citywide raster (terrain + buildings); the `CostModel` reads the OSM risk raster. Scripts reuse `build_planner`.
 - `profiles`: `data/drone_profiles.json` (DEMO), the only place profiles are defined.
 - `weather`: `WeatherService` (DEMO, or LIVE Open-Meteo with an explicit fallback).
 - `geocoder`: `GeocodingService` (a `GeocodingProvider` protocol, currently Nominatim, plus `TTLCache` and `RateLimiter`).
@@ -104,6 +109,15 @@ The FastAPI lifespan in `app/main.py` builds all the singletons once and stores 
   - The result is a `ZoneEvaluation{status, displayClass, isObstacle, reasons}`. RH/RM/RL are consent *likelihoods*, never permissions. `FlightContext.authorizations` is the hook for modelled authorizations (none today).
 - **`repository.py`:** `AirspaceRepository.refresh()` reloads when the provider's data changed (a broken update keeps the last good version). It returns an immutable `AirspaceState`: zones, metric geometry, an STRtree, and per-zone flat grid cell indices including the `AIRSPACE_SAFETY_MARGIN_M` (20 m) buffer. Request handlers call `refresh()`, so editing the data file takes effect without a restart.
 
+### Multi-criteria costs (`app/routing/risk/`, UI-free)
+- **`config.py`:** pydantic models for `data/cost_model.json` (`extra="forbid"`, weights ≥ 0, no numeric defaults in code).
+- **`providers.py`:** `GridSpec`, `CostContext` (departure time, altitude, payload: a new context = a new surface, the recompute hook), and the `PopulationDensityProvider`, `LandUseProvider`, `ObstacleProvider`, `WindProvider` protocols. Providers return **rasters on the routing grid**, not point lookups. `Array*` implementations; `synthetic.py` builds test worlds; `osm.py` loads `data/osm/risk_warsaw_25m.npz` (density proxy from floor area + stops, coefficients from `densityProxy`).
+- **`terms.py`:** each cell term is 0..1: population `(density × hourly multiplier / reference)^exponent`, obstacle proximity, noise (residential × day/night factor), emergency landing (distance to open space / radius), sensitive sites. `distance_within` gives exact capped distances.
+- **`energy.py`:** P = cruisePowerW + payloadPowerWPerKg × payload at cruise airspeed; energy/m = P / ground speed (wind triangle, `ground_speed` is shared with the planner's ETA/FASTEST). Energy and time terms are normalised by the worst case the hard limits allow, so they stay ≤ 1.
+- **`surface.py`:** `CostModel` (static terms cached) → `CostSurface` per context: `cell_cost = 1 + Σ wᵢ·termᵢ`, a direction table `[wind sample][move]`, `min_cost_per_m = 1 + min(table)` (admissible heuristic factor), and `breakdown(points)` per term along the flown line.
+- **`search.py`:** standalone `find_route` with a structured `RiskRoute` (`WIND_LIMIT`, `START_BLOCKED`, `GOAL_BLOCKED`, `NO_ROUTE`, `BATTERY_RESERVE`).
+- **In the planner:** every request builds (or reuses) the surface. SAFEST searches `cell_cost` with `astar(..., additive=True)` (step = length × (cell + table)). Every OK route gets a breakdown; route energy above battery × (1 − reserve) → `INSUFFICIENT_BATTERY` for **all** objectives (user decision 2026-10-18; the Standard Drone cannot fly the 21–27 km cross-city pairs, so `test_citywide.py` uses the Delivery Drone).
+
 Endpoints (all under `/api/v1`):
 - `GET /health`
 - `GET /layers` returns `{corridors, tallBuildings, stations, buildingStats}`, gzipped.
@@ -114,13 +128,13 @@ Endpoints (all under `/api/v1`):
 - `GET /weather?mode=DEMO|LIVE&altitude_m=`
 - `POST /routes/calculate`
 
-API models live in `app/schemas/planning.py` and use `CamelModel` (`schemas/common.py`): snake_case in Python, camelCase on the wire, `extra="forbid"`, and strict numeric coordinates. Planning outcomes are returned as **HTTP 200 with a `status`**: `OK`, `NO_ROUTE`, `OUTSIDE_COVERAGE`, `START_BLOCKED`, `DESTINATION_BLOCKED`, `BLOCKED_WEATHER`, `SEARCH_LIMIT` (budget exhausted, nothing proven) or `COVERAGE_UNAVAILABLE`, plus a human-readable `message` and `geometry: null` when there is no route. Contract violations (bad coordinates, enum values, altitude, unknown profile, identical points) return **422**.
+API models live in `app/schemas/planning.py` and use `CamelModel` (`schemas/common.py`): snake_case in Python, camelCase on the wire, `extra="forbid"`, and strict numeric coordinates. Planning outcomes are returned as **HTTP 200 with a `status`**: `OK`, `NO_ROUTE`, `OUTSIDE_COVERAGE`, `START_BLOCKED`, `DESTINATION_BLOCKED`, `BLOCKED_WEATHER`, `SEARCH_LIMIT` (budget exhausted, nothing proven), `COVERAGE_UNAVAILABLE`, `INSUFFICIENT_BATTERY` or `RISK_DATA_UNAVAILABLE` (SAFEST without the risk raster), plus a human-readable `message` and `geometry: null` when there is no route. Contract violations (bad coordinates, enum values, altitude, unknown profile, identical points) return **422**.
 
-Request: `{start:{latitude,longitude}, destination:{...}, mode, flightAltitudeMeters, droneProfileId, weatherMode, routeObjective (CORRIDORS|SHORTEST|FASTEST, default CORRIDORS), scenario?, departureTime?}`.
+Request: `{start:{latitude,longitude}, destination:{...}, mode, flightAltitudeMeters?, droneProfileId, weatherMode, routeObjective (CORRIDORS|SHORTEST|FASTEST|SAFEST, default CORRIDORS), scenario?, departureTime?, payloadKg?}`.
 - **Scenarios** (`NORMAL|BLOOD_DELIVERY|AED_DELIVERY|AVOID_PROHIBITED_ZONE|EMERGENCY`, served by `GET /scenarios`) are configuration only. `ScenarioConfig` carries goal, mode and a suggested profile, and **never coordinates**.
 - A scenario sets mode/objective; an explicit contradicting `mode`/`routeObjective` → 422. Start and destination are always the request's own, and the response echoes them (`start`, `destination`).
 - `respect_restricted_zones` is asserted True for every scenario, so no scenario may relax hard restrictions.
-Response: `status`, `message`, `geometry` (GeoJSON LineString, **lon/lat order**), `distanceM`, `etaS`, the echoed settings, `weather` (with along-route `samples`), `routeStart` and `routeDestination`, `coverage` (valid, area, start and destination districts, `airspaceOutsideExtentM`), `search` (attempts, resolutionM, windowKm2, expansions, wholeCity, limitedBy, elapsedMs, cached), `zoneConflicts[]`, `airspace` (source + `datasetVersion`), `planningVerificationStatus` (always `SIMULATION_ONLY…`), `warnings[]`, `dataSources[]`, `computeMs`. Conflict relations are `START_INSIDE`, `DESTINATION_INSIDE`, `DIRECT_LINE_BLOCKED`, `ROUTE_CROSSES_INFO` and `NEAR_ROUTE`.
+Response: `status`, `message`, `geometry` (GeoJSON LineString, **lon/lat order**), `distanceM`, `etaS`, the echoed settings, `weather` (with along-route `samples`), `routeStart` and `routeDestination`, `coverage` (valid, area, start and destination districts, `airspaceOutsideExtentM`), `search` (attempts, resolutionM, windowKm2, expansions, wholeCity, limitedBy, elapsedMs, cached), `zoneConflicts[]`, `costBreakdown` (totalCost, lengthM, terms[{term, weight, mean, cost}], energyWh, batteryUsableWh, payloadKg, flightTimeS, populationExposure, maxDensityPerHa, localHour, note; null when no route), `airspace` (source + `datasetVersion`), `planningVerificationStatus` (always `SIMULATION_ONLY…`), `warnings[]`, `dataSources[]`, `computeMs`. Conflict relations are `START_INSIDE`, `DESTINATION_INSIDE`, `DIRECT_LINE_BLOCKED`, `ROUTE_CROSSES_INFO` and `NEAR_ROUTE`.
 
 ### Routing pipeline (`app/routing/`)
 1. **Grid (`grid.py`):** a precomputed raster (`data/osm/grid_warsaw_25m.npz`, built by `fetch_osm.py`) of **1,198 × 1,151 cells at 25 m** (EPSG:2180), covering the city bounds.
@@ -129,10 +143,11 @@ Response: `status`, `message`, `geometry` (GeoJSON LineString, **lon/lat order**
    - Arrays are indexed `[row, col]` with row 0 at the south.
    - **Zones:** rasterised by the airspace repository, not the grid (cells touching the zone plus its 20 m margin).
    - **Tests:** `build_grid(corridors, buildings, area)` rasterises small synthetic worlds.
-2. **Costs (`costs.py`, the only place for weights)** depend on the `RouteObjective`:
+2. **Costs (`costs.py` for CORRIDORS/SHORTEST/FASTEST; `data/cost_model.json` for SAFEST)** depend on the `RouteObjective`:
    - **CORRIDORS:** river 1 / park 2 / open 5 for NORMAL; 1 / 1 / 2 for EMERGENCY.
    - **SHORTEST:** 1 everywhere.
    - **FASTEST:** 1 everywhere, plus a direction-dependent move cost.
+   - **SAFEST:** `CostSurface.cell_cost` plus the additive energy/time direction table (see Multi-criteria costs).
    - **Always blocked:** obstacle zones (plus margin), buildings ≥ altitude − `verticalClearanceM`, and cells outside the city.
    - `base_cost` and the full cost array are cached per (mode, altitude, clearance, dataset version, obstacles, objective).
 3. **Endpoints:** checked in this order: coverage (polygon), then the zone check, then weather (wind above the limit at **any** sample → `BLOCKED_WEATHER`).
@@ -166,7 +181,9 @@ Schemas are in `app/schemas/layers.py`.
   - The 11 DEMO zones cover P (Sejm polygon; Castle circle with an AMSL ceiling), RM (Palace of Culture block only), three RH school circles (0–60 m AGL, so inactive at 80 m), T, U, I (Vistula, where the depot station sits), an expired RL zone, and an UNKNOWN zone.
   - The script and a pytest both enforce that no station lies inside a non-information zone.
   - Don't enlarge the PKiN zone over Warszawa Centralna or Marszałkowska, which are example addresses.
-- `drone_profiles.json`: sample DEMO profiles (`DEMO_DRONE_01` Standard, `DEMO_DRONE_02` Delivery).
+- `drone_profiles.json`: sample DEMO profiles (`DEMO_DRONE_01` Standard, `DEMO_DRONE_02` Delivery), including DEMO energy fields (`cruisePowerW`, `payloadPowerWPerKg`, `batteryWh`).
+- `cost_model.json`: SAFEST weights and parameters (DEMO values), default cruise altitude and legal ceiling, battery reserve.
+- `osm/risk_warsaw_25m.npz`: built by `scripts/fetch_risk_layers.py` on exactly the routing grid's cells: residential/other floor area, residential, open space (no forests, ≥ 2,000 m²), sensitive sites, transit stops. Facts only; density and costs are computed at runtime from `cost_model.json`. A missing or misaligned file does **not** stop the app: it starts with `grid_only_providers` (logged warning, `/health` `riskDataAvailable: false`), SAFEST returns `RISK_DATA_UNAVAILABLE`, other objectives work and their breakdown note says the crowd/noise/sensitive terms are not loaded. The fetch caches tiles in `scripts/.cache/overpass` (gitignored), so a rerun after an Overpass outage resumes.
 
 ### Frontend structure
 - **`core/models.ts`:** wire types, plus the shared `ALTITUDE` constants and validators.
@@ -210,7 +227,7 @@ Schemas are in `app/schemas/layers.py`.
 - **Depot → hospital pad:** depot → hospital pad, Delivery Drone, 80 m. About 4.4 km; it crosses the DRA-I Vistula zone with a warning.
 - **Across the Sejm zone:** (52.2255, 21.0205) → (52.2250, 21.0370). The straight line crosses DEMO-P-SEJM, and the route goes around it (about 1.37 km).
 - **Enclosed courtyard:** a courtyard in Praga-Północ at (52.25549, 21.04532) → hospital at 20 m gives NO_ROUTE after a whole-city search, because it is enclosed by buildings ≥ 10 m; at 80 m the same trip routes. If `fetch_osm.py` is rerun, re-check it, because OSM edits can open the courtyard.
-- Pytest pins all three (`test_routes_api.py`) plus 5 district pairs (`test_citywide.py`). Re-check them if you change zones, costs, buildings or search limits.
+- Pytest pins all three (`test_routes_api.py`) plus 5 district pairs (`test_citywide.py`, Delivery Drone). Re-check them if you change zones, costs, buildings or search limits.
 
 ## Workflow
 

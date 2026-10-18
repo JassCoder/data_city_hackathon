@@ -5,6 +5,7 @@ import { Layers } from '../app/core/layers';
 import { BoundaryResponse, CoverageResponse } from '../app/core/map-data';
 import { AirspaceSource, AirspaceZone, ZonesResponse } from '../app/core/airspace';
 import {
+  CostBreakdown,
   DroneProfilesResponse,
   GeocodingResponse,
   RouteRequest,
@@ -41,8 +42,8 @@ export const LAYERS: Layers = {
 export const PROFILES: DroneProfilesResponse = {
   disclaimer: 'sample',
   profiles: [
-    { id: 'DEMO_DRONE_01', name: 'Standard Drone', description: '', cruiseSpeedMps: 15, maxWindKmh: 36, verticalClearanceM: 10, maxRangeKm: 12, maxPayloadKg: 0.5, source: 'DEMO' },
-    { id: 'DEMO_DRONE_02', name: 'Delivery Drone', description: '', cruiseSpeedMps: 18, maxWindKmh: 45, verticalClearanceM: 15, maxRangeKm: 20, maxPayloadKg: 2.5, source: 'DEMO' },
+    { id: 'DEMO_DRONE_01', name: 'Standard Drone', description: '', cruiseSpeedMps: 15, maxWindKmh: 36, verticalClearanceM: 10, maxRangeKm: 12, maxPayloadKg: 0.5, cruisePowerW: 250, payloadPowerWPerKg: 60, batteryWh: 100, source: 'DEMO' },
+    { id: 'DEMO_DRONE_02', name: 'Delivery Drone', description: '', cruiseSpeedMps: 18, maxWindKmh: 45, verticalClearanceM: 15, maxRangeKm: 20, maxPayloadKg: 2.5, cruisePowerW: 600, payloadPowerWPerKg: 80, batteryWh: 400, source: 'DEMO' },
   ],
 };
 
@@ -193,6 +194,28 @@ export const SCENARIOS: ScenariosResponse = {
   ],
 };
 
+export const COST_BREAKDOWN: CostBreakdown = {
+  totalCost: 4210.5,
+  lengthM: 3035.2,
+  terms: [
+    { term: 'population', weight: 4, mean: 0.06, cost: 728.4 },
+    { term: 'obstacle_proximity', weight: 0.3, mean: 0.02, cost: 18.2 },
+    { term: 'noise', weight: 0.5, mean: 0.1, cost: 151.8 },
+    { term: 'emergency_landing', weight: 0.5, mean: 0.05, cost: 75.9 },
+    { term: 'sensitive_areas', weight: 1, mean: 0.0, cost: 0 },
+    { term: 'energy', weight: 1, mean: 0.4, cost: 1214.1 },
+    { term: 'time', weight: 0, mean: 0.6, cost: 0 },
+  ],
+  energyWh: 14.1,
+  batteryUsableWh: 80,
+  payloadKg: 0,
+  flightTimeS: 175.6,
+  populationExposure: 412.3,
+  maxDensityPerHa: 640,
+  localHour: 12,
+  note: 'Cost model: data/cost_model.json (DEMO weights). Population density is an estimate from OSM floor area and stops, not census data.',
+};
+
 export function routeResponse(req: RouteRequest, over: Partial<RouteResponse> = {}): RouteResponse {
   return {
     status: 'OK',
@@ -225,6 +248,7 @@ export function routeResponse(req: RouteRequest, over: Partial<RouteResponse> = 
     },
     search: { attempts: 1, resolutionM: 25, windowKm2: 12.5, expansions: 4200, wholeCity: false, limitedBy: null, elapsedMs: 85, cached: false },
     zoneConflicts: [],
+    costBreakdown: COST_BREAKDOWN,
     airspace: AIRSPACE_SOURCE,
     planningVerificationStatus: 'SIMULATION_ONLY: DEMO airspace (synthetic zones). Not a check of real-world flight legality.',
     warnings: [],

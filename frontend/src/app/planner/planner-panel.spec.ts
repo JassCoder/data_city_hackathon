@@ -216,7 +216,7 @@ describe('PlannerPanelComponent', () => {
     http.expectNone(ROUTE_URL);
   });
 
-  it('route optimisation selector sends CORRIDORS / SHORTEST / FASTEST', async () => {
+  it('route optimisation selector sends CORRIDORS / SHORTEST / FASTEST / SAFEST', async () => {
     store.setLocation('start', CENTRALNA);
     store.setLocation('destination', KOPERNIK);
     expect(store.routeObjective()).toBe('CORRIDORS');
@@ -225,5 +225,8 @@ describe('PlannerPanelComponent', () => {
     expect(q('objective-hint').textContent).toContain('wind at your altitude');
     await (await loader.getHarness(MatButtonToggleHarness.with({ text: 'Shortest' }))).check();
     expect(store.request()?.routeObjective).toBe('SHORTEST');
+    await (await loader.getHarness(MatButtonToggleHarness.with({ text: 'Safest' }))).check();
+    expect(store.request()?.routeObjective).toBe('SAFEST');
+    expect(q('objective-hint').textContent).toContain('not census');
   });
 });

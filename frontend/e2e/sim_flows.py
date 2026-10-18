@@ -64,7 +64,8 @@ def desktop(browser, out: Path) -> None:
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(URL)
     expect(page.get_by_test_id("sim-start")).to_be_visible()
-    check(page.get_by_test_id("scenario-twenty_drones").count() == 1, "desktop: scenario picker lists the 20-drone scenario")
+    expect(page.get_by_test_id("scenario-twenty_drones")).to_have_count(1)  # waits for the list
+    check(True, "desktop: scenario picker lists the 20-drone scenario")
     page.screenshot(path=str(out / "sim-desktop-start.png"))
 
     start(page, "ten_drones_hour", 60)

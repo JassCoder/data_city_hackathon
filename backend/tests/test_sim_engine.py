@@ -3,6 +3,7 @@
 import math
 
 import pytest
+from pydantic import ValidationError
 
 from app.routing.grid import lonlat_to_xy
 from app.sim.engine import SimulationEngine
@@ -166,3 +167,52 @@ def test_wind_change_and_battery_fault_events():
 def test_scenario_must_fit_the_world(change, message):
     with pytest.raises(ScenarioError, match=message):
         engine(scenario(**change))
+
+
+def test_drone_failure_events_fail_airborne_drones_only():
+    sc = scenario(events=[{"atS": 10, "type": "drone_failure", "droneId": "d1"},  # still loading: ignored
+                          {"atS": 100, "type": "drone_failure", "droneId": "d1", "reason": "motor fault"}])
+    e = engine(sc)
+    e.run_until(200)
+    applied = [x["details"]["applied"] for x in events(e, "SCENARIO_EVENT")]
+    assert applied == [False, True]
+    assert states(e)[-1] == "FAILED" and events(e, "FAILURE")[0]["details"]["reason"] == "motor fault"
+    d = e.get_state()["drones"][0]
+    assert d["leg"] is None and d["mission"]["status"] == "ABORTED"
+    assert e.get_state()["stations"][1]["drones"] == []  # its reserved landing spot is released
+    with pytest.raises(ValidationError, match="unknown drone"):
+        scenario(events=[{"atS": 1, "type": "drone_failure", "droneId": "zz"}])
+
+
+def test_injected_events_apply_next_tick_and_are_replayable():
+    e = engine()
+    e.run_until(50)
+    with pytest.raises(ScenarioError, match="in the past"):
+        e.inject([Scenario.model_validate({**scenario().model_dump(by_alias=True, mode="json"), "events": [
+            {"atS": 10, "type": "wind_change", "speedKmh": 5, "directionDeg": 0}]}).events[0]])
+    wind = scenario(events=[{"atS": 50, "type": "wind_change", "speedKmh": 20, "directionDeg": 90}]).events[0]
+    e.inject([wind])
+    assert not events(e, "SCENARIO_EVENT")  # applied in the next tick, not now
+    e.run_until(300)
+    assert events(e, "SCENARIO_EVENT")[0]["tS"] == 50
+    again = engine(e.replay_scenario())
+    again.run_until(300)
+    assert again.log.to_jsonl() == e.log.to_jsonl()
+    e.reset()
+    assert e.injected == [] and e.replay_scenario().events == []
+
+
+def test_every_leg_has_a_unique_id_and_matching_geometry():
+    e = engine()
+    seen = {}
+    while e.time_s < 600 and not e.finished:
+        e.advance(1)
+        leg = e.drones["d1"].leg
+        if leg:
+            seen.setdefault(leg.id, leg.geometry())
+    assert list(seen) == ["L1", "L2"]  # outbound, return
+    geo = seen["L1"]
+    assert geo["kind"] == "outbound" and len(geo["path"]) == len(geo["cumM"]) and geo["cumM"][0] == 0
+    assert geo["path"][0] == pytest.approx(list(WEST), abs=1e-5)
+    m = e.missions_run["d1"][0]
+    assert m.energy_used_wh == pytest.approx(m.planned_energy_wh, rel=0.03) and m.fault_loss_wh == 0

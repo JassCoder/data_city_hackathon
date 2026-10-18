@@ -11,6 +11,8 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.airspace.factory import make_provider
+from app.airspace.repository import AirspaceRepository
 from app.config import DATA_DIR, DATA_FILES, SIM_CONFIG_FILE
 from app.routing.grid import lonlat_to_xy
 from app.routing.planner import RoutePlanner
@@ -75,3 +77,15 @@ def load_world(config: SimConfig | None = None, planner: RoutePlanner | None = N
 
         planner = build_planner(load_validated_cost_model())
     return SimWorld(planner, load_drone_profiles(), load_stations(), config or load_sim_config(SIM_CONFIG_FILE))
+
+
+def sim_world_beside(planner: RoutePlanner, config: SimConfig | None = None) -> SimWorld:
+    """A world for API simulation sessions next to the routing API's planner.
+
+    It gets its own RoutePlanner (own airspace repository, cost and route caches), so the
+    temporary zones an engine installs never reach /routes/calculate, while the read-only
+    grid, coverage and cost model are shared instead of loaded twice.
+    """
+    own = RoutePlanner(planner.grid, AirspaceRepository(make_provider(), planner.grid, planner.airspace.margin_m),
+                       planner.coverage, planner.risk)
+    return SimWorld(own, load_drone_profiles(), load_stations(), config or load_sim_config(SIM_CONFIG_FILE))

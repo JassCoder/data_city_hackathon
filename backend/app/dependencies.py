@@ -9,6 +9,7 @@ from app.services.drone_profiles import DroneProfileRegistry
 from app.services.geocoding import GeocodingService
 from app.services.route_service import RouteService
 from app.services.weather import WeatherService
+from app.sim.session import SimSessionStore
 
 
 def get_geocoder(request: Request) -> GeocodingService:
@@ -33,6 +34,10 @@ def get_airspace(request: Request) -> AirspaceRepository:
 
 def get_coverage(request: Request) -> Coverage:
     return request.app.state.planner.coverage
+
+
+def get_sim_store(request: Request) -> SimSessionStore:
+    return request.app.state.sim_store
 
 
 def get_route_service(

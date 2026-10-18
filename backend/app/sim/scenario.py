@@ -123,8 +123,16 @@ class BatteryFaultEvent(_Event):
     loss_pct: float = Field(gt=0, le=100)  # share of the battery capacity lost instantly
 
 
+class DroneFailureEvent(_Event):
+    """A sudden failure of an airborne drone (for testing reactions); ignored if the drone is on the ground."""
+
+    type: Literal["drone_failure"]
+    drone_id: Identifier
+    reason: str = Field("simulated drone failure (test event)", min_length=1, max_length=200)
+
+
 ScenarioEvent = Annotated[
-    Union[WindChangeEvent, ZoneActivateEvent, ZoneDeactivateEvent, BatteryFaultEvent],
+    Union[WindChangeEvent, ZoneActivateEvent, ZoneDeactivateEvent, BatteryFaultEvent, DroneFailureEvent],
     Field(discriminator="type"),
 ]
 
@@ -164,8 +172,8 @@ class Scenario(CamelModel):
                 raise ValueError(f"drone '{d.id}' needs a position, or its first mission needs a start")
         active: set[str] = set()
         for e in sorted(self.events, key=lambda e: e.at_s):
-            if isinstance(e, BatteryFaultEvent) and e.drone_id not in drone_ids:
-                raise ValueError(f"battery_fault at {e.at_s:g} s refers to unknown drone '{e.drone_id}'")
+            if isinstance(e, (BatteryFaultEvent, DroneFailureEvent)) and e.drone_id not in drone_ids:
+                raise ValueError(f"{e.type} at {e.at_s:g} s refers to unknown drone '{e.drone_id}'")
             if isinstance(e, ZoneActivateEvent):
                 if e.zone_id in active:
                     raise ValueError(f"zone '{e.zone_id}' is activated twice without being deactivated")

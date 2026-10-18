@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import bisect
 import math
 import random
 from collections import deque
@@ -30,6 +31,7 @@ from app.routing.grid import lonlat_to_xy
 from app.routing.planner import PlanResult, RoutePlanner
 from app.routing.risk.energy import DroneEnergy, landing_energy_wh, takeoff_energy_wh
 from app.schemas.planning import DroneProfile, RouteStatus
+from app.services.route_service import cost_breakdown
 from app.sim.airspace import ScenarioZoneProvider, scenario_zone
 from app.sim.config import AfterDelivery
 from app.sim.drone import DEFAULT_COLORS, Drone
@@ -38,10 +40,12 @@ from app.sim.kinematics import Leg, cruise_step, leg_energy_wh
 from app.sim.mission import MissionRun, MissionStatus, Target
 from app.sim.scenario import (
     BatteryFaultEvent,
+    DroneFailureEvent,
     LatLon,
     Place,
     Scenario,
     ScenarioError,
+    ScenarioEvent,
     ScenarioMission,
     StationRef,
     WindChangeEvent,
@@ -84,7 +88,8 @@ class SimulationEngine:
     """create(scenario, seed) -> step(n) / run_until(t) -> get_state() / get_event_log(); reset().
 
     An engine owns its world's airspace provider while it runs: it installs a wrapper that adds
-    its active scenario zones and re-syncs it before every plan.
+    its active scenario zones and re-syncs it before every plan. inject() adds events while it
+    runs; they are recorded, and replay_scenario() returns a scenario that repeats the run.
     """
 
     def __init__(self, scenario: Scenario, world: SimWorld, seed: int | None = None):
@@ -145,6 +150,9 @@ class SimulationEngine:
             self._park(sd.id, target.station_id)
         self.events = sorted(enumerate(self.scenario.events), key=lambda ie: (ie[1].at_s, ie[0]))
         self._next_event = 0
+        self.injected: list[ScenarioEvent] = []
+        self._leg_seq = 0
+        self.missions_run: dict[str, list[MissionRun]] = {i: [] for i in self.drones}
 
     @property
     def time_s(self) -> float:
@@ -160,9 +168,54 @@ class SimulationEngine:
         )
 
     def step(self, n_ticks: int = 1) -> dict[str, Any]:
+        self.advance(n_ticks)
+        return self.get_state()
+
+    def advance(self, n_ticks: int = 1) -> None:
+        """Like step() without building the state snapshot (for callers that read the drones)."""
         for _ in range(n_ticks):
             self._tick()
-        return self.get_state()
+
+    def inject(self, events: list[ScenarioEvent]) -> None:
+        """Adds events while running. An event at the current time takes effect in the next tick,
+        exactly as if it had been in the scenario file (see replay_scenario)."""
+        known = {d.id for d in self.scenario.drones}
+        for e in events:
+            if e.at_s < self.time_s - 1e-9:
+                raise ScenarioError(f"cannot add a {e.type} event in the past ({e.at_s:g} s < {self.time_s:g} s)")
+            if getattr(e, "drone_id", None) is not None and e.drone_id not in known:
+                raise ScenarioError(f"{e.type}: unknown drone '{e.drone_id}'")
+        for e in events:
+            item = (len(self.scenario.events) + len(self.injected), e)
+            self.injected.append(e)
+            # Everything before _next_event is applied and earlier, so the order stays (time, index).
+            bisect.insort(self.events, item, lo=self._next_event, key=lambda ie: (ie[1].at_s, ie[0]))
+
+    def replay_scenario(self) -> Scenario:
+        """The scenario plus every injected event, with this run's seed: running it repeats this run."""
+        return self.scenario.model_copy(update={"seed": self.seed, "events": [*self.scenario.events, *self.injected]})
+
+    def energy_report(self, drone_id: str) -> dict[str, Any] | None:
+        """Planned vs actual energy of the drone's current (or last) mission, in Wh."""
+        d = self.drones[drone_id]
+        runs = self.missions_run[drone_id]
+        m = d.mission or (runs[-1] if runs else None)
+        if m is None:
+            return None
+        to_finish = None
+        if d.mission is not None and d.state in (S.TAKEOFF, S.CRUISE, S.DELIVERING, S.RETURNING, S.HOLDING):
+            to_finish = self._need_to_finish(d)
+        return {
+            "missionId": m.id,
+            "current": d.mission is not None,
+            "plannedWh": None if m.planned_energy_wh is None else round(m.planned_energy_wh, 2),
+            "usedWh": round(m.energy_used_wh, 2),
+            "faultLossWh": round(m.fault_loss_wh, 2),
+            "toFinishWh": None if to_finish is None else round(to_finish, 2),
+            "projectedWh": None if to_finish is None else round(m.energy_used_wh + to_finish, 2),
+            "batteryWh": round(d.battery_wh, 2),
+            "reserveWh": round(d.reserve_wh, 2),
+        }
 
     def run_until(self, time_s: float, stop_when_finished: bool = False) -> dict[str, Any]:
         while self.time_s < time_s - 1e-9:
@@ -283,8 +336,15 @@ class SimulationEngine:
         if m and m.return_target and m.return_target.station_id:
             self.station_users[m.return_target.station_id].discard(d.id)
 
-    def _drain(self, d: Drone, wh: float, now: float) -> bool:
-        """Uses energy; returns False (drone FAILED) if the battery ran empty. Never goes below 0."""
+    def _drain(self, d: Drone, wh: float, now: float, fault: bool = False) -> bool:
+        """Uses energy (or loses it to a fault); returns False (drone FAILED) if the battery ran empty.
+        Never goes below 0."""
+        if d.mission:
+            taken = min(wh, max(d.battery_wh, 0.0))
+            if fault:
+                d.mission.fault_loss_wh += taken
+            else:
+                d.mission.energy_used_wh += taken
         d.battery_wh -= wh
         if d.battery_wh <= 0:
             d.battery_wh = 0.0
@@ -303,6 +363,32 @@ class SimulationEngine:
     def _set_position(self, d: Drone, leg: Leg) -> None:
         d.longitude, d.latitude = leg.lonlat_at(leg.progress_m)
         d.heading_deg = leg.heading_at(leg.progress_m)[2]
+
+    def _new_leg(self, kind: str, target: str, path: list[tuple[float, float]], energy_wh: float | None = None) -> Leg:
+        self._leg_seq += 1
+        return Leg.from_lonlat(kind, target, path, energy_wh, leg_id=f"L{self._leg_seq}")
+
+    def _record_plan(self, m: MissionRun, kind: str, plan: PlanResult) -> None:
+        """Keeps the planner's cost breakdown of the leg the drone now flies (latest plan per kind)."""
+        b = cost_breakdown(plan, self.planner.risk.data_available)
+        if b is not None:
+            m.breakdowns[kind] = b.model_dump(mode="json", by_alias=True)
+
+    def _fail(self, d: Drone, now: float, reason: str) -> None:
+        """An airborne drone fails where it is (a test event): mission aborted, route dropped."""
+        m = d.mission
+        self._release_return_station(d)
+        self.holds.pop(d.id, None)
+        site = self.emergencies.pop(d.id, None)
+        if site and site.site.station_id:
+            self.station_users[site.site.station_id].discard(d.id)
+        self.log.append(now, d.id, EventType.FAILURE, reason=reason)
+        if m and m.status not in (MissionStatus.DELIVERED, MissionStatus.COMPLETED, MissionStatus.ABORTED):
+            m.status = MissionStatus.ABORTED
+            self.log.append(now, d.id, EventType.MISSION_ABORTED, missionId=m.id, reason=reason)
+        d.speed_mps = 0.0
+        d.leg = None
+        d.transition(S.FAILED, now, self.log, reason)
 
     @staticmethod
     def _leg_path(path: list[tuple[float, float]], here: tuple[float, float]) -> list[tuple[float, float]]:
@@ -329,6 +415,14 @@ class SimulationEngine:
             self._apply(e)
 
     def _apply(self, e) -> None:
+        if isinstance(e, DroneFailureEvent):
+            d = self.drones[e.drone_id]
+            airborne = d.state in AIRBORNE
+            self.log.append(e.at_s, d.id, EventType.SCENARIO_EVENT, kind="drone_failure", reason=e.reason,
+                            applied=airborne)
+            if airborne:
+                self._fail(d, e.at_s, e.reason)
+            return
         if isinstance(e, WindChangeEvent):
             self.wind.set(e.speed_kmh, e.direction_deg)
             self.log.append(e.at_s, None, EventType.SCENARIO_EVENT, kind="wind_change", speedKmh=e.speed_kmh,
@@ -337,7 +431,7 @@ class SimulationEngine:
             d = self.drones[e.drone_id]
             self.log.append(e.at_s, d.id, EventType.SCENARIO_EVENT, kind="battery_fault", lossPct=e.loss_pct)
             if d.state != S.FAILED:
-                self._drain(d, d.profile.battery_wh * e.loss_pct / 100, e.at_s)
+                self._drain(d, d.profile.battery_wh * e.loss_pct / 100, e.at_s, fault=True)
         elif isinstance(e, ZoneActivateEvent):
             self.active_zones[e.zone_id] = scenario_zone(e)
             self.log.append(e.at_s, None, EventType.SCENARIO_EVENT, kind="zone_activate", zoneId=e.zone_id,
@@ -345,7 +439,7 @@ class SimulationEngine:
             for drone_id in sorted(self.drones):
                 d = self.drones[drone_id]
                 if d.state in (S.CRUISE, S.RETURNING):
-                    self._check_leg(d, e.at_s, f"zone '{e.name}' activated")
+                    self._check_leg(d, e.at_s, f"zone '{e.name}' activated", e.zone_id)
         elif isinstance(e, ZoneDeactivateEvent):
             self.active_zones.pop(e.zone_id, None)
             self.log.append(e.at_s, None, EventType.SCENARIO_EVENT, kind="zone_deactivate", zoneId=e.zone_id)
@@ -403,6 +497,7 @@ class SimulationEngine:
             after_delivery=spec.after_delivery or self.config.after_delivery,
             loading_s=max(0.0, loading),
         )
+        self.missions_run[d.id].append(d.mission)
         d.payload_kg = d.mission.payload_kg
         d.warnings_sent.clear()
         self.log.append(now, d.id, EventType.MISSION_ASSIGNED, missionId=spec.id, mode=spec.mode,
@@ -487,8 +582,11 @@ class SimulationEngine:
                             energyWh=ret_plan.breakdown.energy_wh)
         if ret_target and ret_target.station_id:
             self.station_users[ret_target.station_id].add(d.id)  # reserve the landing spot
-        d.leg = Leg.from_lonlat("outbound", m.destination.label, self._leg_path(out.path_lonlat, m.start.lonlat),
-                                out.breakdown.energy_wh)
+        d.leg = self._new_leg("outbound", m.destination.label, self._leg_path(out.path_lonlat, m.start.lonlat),
+                              out.breakdown.energy_wh)
+        self._record_plan(m, "outbound", out)
+        if ret_plan:
+            self._record_plan(m, "return", ret_plan)
         # Leaving the parking spot, unless the drone comes back to the same station (its reservation stays).
         old = self.parked_at.get(d.id)
         self.parked_at[d.id] = None
@@ -558,7 +656,8 @@ class SimulationEngine:
         m.return_target = target
         m.return_energy_wh = plan.breakdown.energy_wh
         m.status = MissionStatus.RETURNING
-        d.leg = Leg.from_lonlat("return", target.label, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+        d.leg = self._new_leg("return", target.label, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+        self._record_plan(m, "return", plan)
         self.log.append(now, d.id, EventType.ROUTE_PLANNED, missionId=m.id, leg="return", target=target.label,
                         distanceM=plan.distance_m, etaS=plan.eta_s, energyWh=plan.breakdown.energy_wh)
         d.transition(S.RETURNING, now, self.log, f"returning to {target.label}", missionId=m.id)
@@ -581,7 +680,7 @@ class SimulationEngine:
             m.status = MissionStatus.COMPLETED
             self.log.append(now, d.id, EventType.MISSION_COMPLETED, missionId=m.id,
                             landedAt=station.name if station else "Point B", batteryPct=d.battery_pct,
-                            plannedEnergyWh=m.planned_energy_wh)
+                            plannedEnergyWh=m.planned_energy_wh, energyUsedWh=m.energy_used_wh)
         d.mission = None
         d.leg = None
         if station and (d.id in self.station_users[station.id] or self._has_room(station.id, d.id)):
@@ -660,7 +759,7 @@ class SimulationEngine:
         budget = d.battery_wh  # the reserve exists for exactly this
         target, plan, _ = self._nearest_station(d, here, d.payload_kg, now, SAFETY_OBJECTIVE, budget)
         if plan:
-            return EmergencyRun(target, "station"), Leg.from_lonlat("emergency", target.label, self._leg_path(plan.path_lonlat, here))
+            return EmergencyRun(target, "station"), self._new_leg("emergency", target.label, self._leg_path(plan.path_lonlat, here))
         e = self._energy(d)
         sites = open_space_sites(self.planner, *here, self.config.emergency.open_space_search_radius_m,
                                  self.config.emergency.open_space_candidates)
@@ -670,7 +769,7 @@ class SimulationEngine:
                 return EmergencyRun(Target(label, *here), "open_space"), None
             plan = self._plan(d, here, (lon, lat), d.payload_kg, now, SAFETY_OBJECTIVE)
             if plan.status == RouteStatus.OK and plan.breakdown.energy_wh + landing_energy_wh(e, d.payload_kg, d.mission.altitude_m) <= budget:
-                return EmergencyRun(Target(label, lon, lat), "open_space"), Leg.from_lonlat("emergency", label, self._leg_path(plan.path_lonlat, here))
+                return EmergencyRun(Target(label, lon, lat), "open_space"), self._new_leg("emergency", label, self._leg_path(plan.path_lonlat, here))
         return EmergencyRun(Target("current position (no safe site reachable)", *here), "in_place_unsafe"), None
 
     def _emergency_step(self, d: Drone, now: float, dt: float) -> None:
@@ -701,31 +800,36 @@ class SimulationEngine:
 
     # --- temporary zones: re-plan, hold, divert ------------------------------------------
 
-    def _leg_blocked(self, d: Drone) -> tuple[bool, bool]:
-        """(the rest of the leg crosses an active scenario zone or its margin, the drone is inside one)."""
+    def _leg_blocked(self, d: Drone) -> tuple[list[str], list[str]]:
+        """(active scenario zones the rest of the leg crosses, incl. margin; zones the drone is inside)."""
         if not d.leg or not self.active_zones:
-            return False, False
+            return [], []
         self._sync_airspace()
         state = self.planner.airspace.refresh()
         margin = self.planner.airspace.margin_m
         rest = LineString([lonlat_to_xy(*p) for p in d.leg.remaining_path()] or [lonlat_to_xy(d.longitude, d.latitude)] * 2)
         here = Point(lonlat_to_xy(d.longitude, d.latitude))
-        blocked = inside = False
+        blocked: list[str] = []
+        inside: list[str] = []
         for i, z in enumerate(state.zones):
             if z.id not in self.active_zones:
                 continue
             geom = state.geoms_m[i]
             if geom.contains(here):
-                inside = True
+                inside.append(z.id)
             elif rest.intersects(geom.buffer(margin)):
-                blocked = True
+                blocked.append(z.id)
         return blocked, inside
 
-    def _check_leg(self, d: Drone, now: float, reason: str) -> None:
-        """Re-plans around newly active zones; holds if no route exists."""
+    def _check_leg(self, d: Drone, now: float, reason: str, zone_id: str | None = None) -> None:
+        """Re-plans around newly active zones; holds if no route exists. Reactions name the zones."""
         blocked, inside = self._leg_blocked(d)
-        if inside:
-            self.log.append(now, d.id, EventType.REPLANNED, missionId=d.mission.id, applied=False,
+        if zone_id is not None:  # react only to the zone that was just activated
+            blocked = [z for z in blocked if z == zone_id]
+            if not blocked and zone_id not in inside:
+                return
+        if inside:  # leaving the zone it is in comes first
+            self.log.append(now, d.id, EventType.REPLANNED, missionId=d.mission.id, applied=False, zoneIds=inside,
                             reason=f"{reason}: the drone is already inside the zone and continues on its route to leave it")
             return
         if not blocked:
@@ -735,15 +839,17 @@ class SimulationEngine:
         target = (leg.lonlat[-1] if leg.lonlat else leg.lonlat_at(leg.length_m))
         plan = self._plan(d, here, target, d.payload_kg, now)
         if plan.status == RouteStatus.OK:
-            d.leg = Leg.from_lonlat(leg.kind, leg.target, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+            d.leg = self._new_leg(leg.kind, leg.target, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+            self._record_plan(d.mission, leg.kind, plan)
             self.log.append(now, d.id, EventType.REPLANNED, missionId=d.mission.id, leg=leg.kind, reason=reason,
-                            distanceM=plan.distance_m, energyWh=plan.breakdown.energy_wh)
+                            distanceM=plan.distance_m, energyWh=plan.breakdown.energy_wh, zoneIds=blocked)
             return
         need = self._need_to_finish(d)
         self.holds[d.id] = Hold(d.state, Target(leg.target, *target), leg.kind, now,
                                 now + self.config.holding.retry_s, need)
         d.speed_mps = 0.0
-        d.transition(S.HOLDING, now, self.log, f"{reason}: no route ({plan.status.value})", missionId=d.mission.id)
+        d.transition(S.HOLDING, now, self.log, f"{reason}: no route ({plan.status.value})", missionId=d.mission.id,
+                     zoneIds=blocked)
 
     def _hold(self, d: Drone, now: float, dt: float) -> None:
         if not self._drain(d, self._energy(d).hover_power(d.payload_kg) * dt / 3600, now) or self._monitor(d, now):
@@ -755,7 +861,8 @@ class SimulationEngine:
         plan = self._plan(d, here, h.target.lonlat, d.payload_kg, now)
         if plan.status == RouteStatus.OK:
             del self.holds[d.id]
-            d.leg = Leg.from_lonlat(h.kind, h.target.label, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+            d.leg = self._new_leg(h.kind, h.target.label, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+            self._record_plan(d.mission, h.kind, plan)
             self.log.append(now, d.id, EventType.REPLANNED, missionId=d.mission.id, leg=h.kind,
                             reason="path clear again", distanceM=plan.distance_m, energyWh=plan.breakdown.energy_wh)
             d.transition(h.resume, now, self.log, "path clear again; resuming", missionId=d.mission.id)
@@ -781,7 +888,8 @@ class SimulationEngine:
         m.return_target = target
         m.return_energy_wh = plan.breakdown.energy_wh
         self.station_users[target.station_id].add(d.id)
-        d.leg = Leg.from_lonlat("divert", target.label, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+        d.leg = self._new_leg("divert", target.label, self._leg_path(plan.path_lonlat, here), plan.breakdown.energy_wh)
+        self._record_plan(m, "divert", plan)
         self.log.append(now, d.id, EventType.REPLANNED, missionId=m.id, leg="divert", target=target.label, reason=reason,
                         distanceM=plan.distance_m)
         d.transition(S.RETURNING, now, self.log, f"diverting to {target.label}", missionId=m.id)

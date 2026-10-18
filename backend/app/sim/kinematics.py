@@ -34,9 +34,11 @@ class Leg:
     progress_m: float = 0.0
     planned_energy_wh: float | None = None  # cruise energy the planner reported for this leg
     lonlat: list[LonLat] | None = None  # the same vertices in WGS84 (for the true heading)
+    id: str = ""  # unique within a run (the engine numbers legs), so clients can cache the geometry
 
     @classmethod
-    def from_lonlat(cls, kind: str, target: str, path: Sequence[LonLat], planned_energy_wh: float | None = None) -> Leg:
+    def from_lonlat(cls, kind: str, target: str, path: Sequence[LonLat], planned_energy_wh: float | None = None,
+                    leg_id: str = "") -> Leg:
         pts = [lonlat_to_xy(lon, lat) for lon, lat in path]
         if len(pts) == 1:
             pts = pts * 2
@@ -44,7 +46,7 @@ class Leg:
         for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
             cum.append(cum[-1] + math.hypot(x1 - x0, y1 - y0))
         lonlat = list(path) if len(path) > 1 else list(path) * 2
-        return cls(kind, target, pts, cum, 0.0, planned_energy_wh, lonlat)
+        return cls(kind, target, pts, cum, 0.0, planned_energy_wh, lonlat, leg_id)
 
     @property
     def length_m(self) -> float:
@@ -107,8 +109,16 @@ class Leg:
         return [self.lonlat_at(self.progress_m)] + [(float(a), float(b)) for a, b in ahead]
 
     def snapshot(self) -> dict:
-        return {"kind": self.kind, "target": self.target, "lengthM": round(self.length_m, 1),
+        return {"id": self.id, "kind": self.kind, "target": self.target, "lengthM": round(self.length_m, 1),
                 "progressM": round(self.progress_m, 1), "remainingM": round(self.remaining_m, 1)}
+
+    def geometry(self) -> dict:
+        """The polyline ([lon, lat], like GeoJSON) with the cumulative distance at each vertex in the
+        planner's metric frame, so a client can split it at progressM exactly as the engine does."""
+        path = self.lonlat or [xy_to_lonlat(*p) for p in self.points]
+        return {"id": self.id, "kind": self.kind, "target": self.target,
+                "path": [[round(float(lon), 6), round(float(lat), 6)] for lon, lat in path],
+                "cumM": [round(c, 1) for c in self.cum]}
 
 
 def cruise_step(drone: DroneEnergy, payload_kg: float, leg: Leg, wind_at: WindAt, dt_s: float) -> tuple[float, float, float]:

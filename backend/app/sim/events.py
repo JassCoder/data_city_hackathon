@@ -66,8 +66,9 @@ class EventLog:
     def events(self) -> tuple[SimEvent, ...]:
         return tuple(self._events)
 
-    def to_dicts(self) -> list[dict[str, Any]]:
-        return [e.to_dict() for e in self._events]
+    def to_dicts(self, start: int = 0) -> list[dict[str, Any]]:
+        """Events from sequence number `start` on (all by default)."""
+        return [e.to_dict() for e in self._events[start:]]
 
     def to_jsonl(self) -> str:
         return "\n".join(json.dumps(e, ensure_ascii=False, sort_keys=True) for e in self.to_dicts())

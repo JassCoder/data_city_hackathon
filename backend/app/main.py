@@ -20,12 +20,13 @@ from app.config import (
     GEOCODING_RESULT_LIMIT,
     GEOCODING_VIEWBOX,
     NOMINATIM_URL,
+    SIM_SCENARIOS_DIR,
     USER_AGENT,
 )
 from app.airspace.factory import make_provider
 from app.airspace.repository import AirspaceRepository
 from app.geo.coverage import load_city_coverage
-from app.routers import data, geocoding, health, map, planning, zones
+from app.routers import data, geocoding, health, map, planning, simulations, zones
 from app.routing.grid import load_city_grid
 from app.routing.planner import RoutePlanner
 from app.routing.risk.config import CostModelConfig, load_cost_model, validate_altitudes
@@ -37,6 +38,8 @@ from app.services.data_loader import load_demo_data
 from app.services.drone_profiles import load_drone_profiles
 from app.services.geocoding import GeocodingService, NominatimProvider, RateLimiter, TTLCache
 from app.services.weather import WeatherService
+from app.sim.session import SimSessionStore
+from app.sim.world import sim_world_beside
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +77,8 @@ async def lifespan(app: FastAPI):
     app.state.profiles = load_drone_profiles()
     app.state.cost_model = load_validated_cost_model()
     app.state.planner = build_planner(app.state.cost_model)
+    # Simulation sessions get their own planner (built on first use) so their zones stay out of routing.
+    app.state.sim_store = SimSessionStore(lambda: sim_world_beside(app.state.planner), SIM_SCENARIOS_DIR)
     coverage = app.state.planner.coverage
     viewbox = GEOCODING_VIEWBOX
     if coverage.bounds:
@@ -111,3 +116,4 @@ app.include_router(geocoding.router, prefix=API_PREFIX)
 app.include_router(planning.router, prefix=API_PREFIX)
 app.include_router(zones.router, prefix=API_PREFIX)
 app.include_router(map.router, prefix=API_PREFIX)
+app.include_router(simulations.router, prefix=API_PREFIX)

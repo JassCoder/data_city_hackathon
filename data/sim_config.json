@@ -8,7 +8,10 @@
     "deliveringS": 30,
     "chargingS": 1800
   },
-  "batteryWarningPct": [40, 30],
+  "batteryWarningPct": [
+    40,
+    30
+  ],
   "holding": {
     "retryS": 30,
     "maxS": 300
@@ -21,5 +24,16 @@
     "openSpaceSearchRadiusM": 3000,
     "openSpaceCandidates": 5
   },
-  "positionToleranceM": 50
+  "positionToleranceM": 50,
+  "api": {
+    "maxSessions": 4,
+    "idleTimeoutS": 1800,
+    "maxTicksPerStep": 600,
+    "historyMaxFrames": 14400,
+    "historyMaxFramesPerRequest": 2400,
+    "zoneMaxVertices": 64,
+    "zoneMaxDurationS": 14400,
+    "zoneMaxUpperM": 500,
+    "windMaxKmh": 100
+  }
 }

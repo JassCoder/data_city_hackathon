@@ -49,6 +49,20 @@ class EmergencyParams(CamelModel):
     open_space_candidates: int = Field(ge=1)  # nearest open-space cells tried (a route is planned to each)
 
 
+class ApiLimits(CamelModel):
+    """Limits of the simulation session API (app/routers/simulations.py)."""
+
+    max_sessions: int = Field(ge=1)  # the least recently used session is dropped beyond this
+    idle_timeout_s: PositiveFloat  # sessions untouched this long are dropped
+    max_ticks_per_step: int = Field(ge=1)
+    history_max_frames: int = Field(ge=1)  # per-tick frames kept per session for the timeline
+    history_max_frames_per_request: int = Field(ge=1)  # larger requests get a coarser stride
+    zone_max_vertices: int = Field(ge=3)
+    zone_max_duration_s: PositiveFloat
+    zone_max_upper_m: PositiveFloat
+    wind_max_kmh: PositiveFloat
+
+
 class SimConfig(CamelModel):
     description: str = ""
     tick_s: PositiveFloat  # simulated seconds per tick (a scenario may override)
@@ -60,6 +74,7 @@ class SimConfig(CamelModel):
     randomness: Randomness
     emergency: EmergencyParams
     position_tolerance_m: PositiveFloat  # how close a drone must be to a mission's pickup point
+    api: ApiLimits
 
     @field_validator("battery_warning_pct")
     @classmethod

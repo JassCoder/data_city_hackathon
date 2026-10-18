@@ -149,8 +149,9 @@ class RouteRequest(CamelModel):
         # instead of being silently overridden.
         if self.scenario is not None:
             cfg = SCENARIOS[self.scenario]
-            if "mode" in self.model_fields_set and self.mode != cfg.mode:
-                raise ValueError(f"mode {self.mode.value} conflicts with scenario {self.scenario.value} ({cfg.mode.value})")
+            if "mode" in self.model_fields_set and self.mode not in cfg.allowed_modes:
+                allowed = "/".join(m.value for m in cfg.allowed_modes)
+                raise ValueError(f"mode {self.mode.value} conflicts with scenario {self.scenario.value} ({allowed})")
             if "route_objective" in self.model_fields_set and self.route_objective != cfg.route_objective:
                 raise ValueError(f"routeObjective {self.route_objective.value} conflicts with scenario "
                                  f"{self.scenario.value} ({cfg.route_objective.value})")
@@ -183,7 +184,8 @@ class ScenarioInfo(CamelModel):
     description: str
     optimization_goal: OptimizationGoal
     route_objective: RouteObjective
-    mode: FlightMode
+    mode: FlightMode  # default mode
+    allowed_modes: list[FlightMode]  # modes a request may choose explicitly with this scenario
     respect_restricted_zones: bool
     use_weather: bool
     recommended_profile_id: str | None

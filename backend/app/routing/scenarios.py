@@ -47,6 +47,13 @@ class ScenarioConfig:
     recommended_profile_id: str | None = None
     # Always True: listed so clients can show it, not so it can be turned off.
     respect_restricted_zones: bool = True
+    # Modes a request may choose explicitly (the first one, `mode`, is the default).
+    # Mode only changes the CORRIDORS terrain weights; airspace rules are identical.
+    extra_modes: tuple[FlightMode, ...] = ()
+
+    @property
+    def allowed_modes(self) -> tuple[FlightMode, ...]:
+        return (self.mode, *self.extra_modes)
 
     @property
     def route_objective(self) -> RouteObjective:
@@ -65,11 +72,12 @@ SCENARIOS: dict[Scenario, ScenarioConfig] = {
             Scenario.BLOOD_DELIVERY, "Blood Delivery",
             "Minimises estimated delivery time between your points (wind-aware), within all airspace limits.",
             OptimizationGoal.MINIMIZE_ETA, FlightMode.NORMAL, recommended_profile_id="DEMO_DRONE_02",
+            extra_modes=(FlightMode.EMERGENCY,),
         ),
         ScenarioConfig(
             Scenario.AED_DELIVERY, "AED / First Aid Delivery",
             "Minimises estimated response time between your points (wind-aware), within all airspace limits.",
-            OptimizationGoal.MINIMIZE_ETA, FlightMode.NORMAL,
+            OptimizationGoal.MINIMIZE_ETA, FlightMode.NORMAL, extra_modes=(FlightMode.EMERGENCY,),
         ),
         ScenarioConfig(
             Scenario.AVOID_PROHIBITED_ZONE, "Avoid Prohibited Zone",

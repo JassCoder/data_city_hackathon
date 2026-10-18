@@ -41,6 +41,7 @@ def scenarios() -> ScenariosResponse:
             ScenarioInfo(
                 id=c.id, display_name=c.display_name, description=c.description,
                 optimization_goal=c.optimization_goal, route_objective=c.route_objective, mode=c.mode,
+                allowed_modes=list(c.allowed_modes),
                 respect_restricted_zones=c.respect_restricted_zones, use_weather=c.use_weather,
                 recommended_profile_id=c.recommended_profile_id,
             )

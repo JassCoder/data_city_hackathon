@@ -102,8 +102,10 @@ def test_every_objective_reports_a_breakdown_and_safest_minimises_it():
     results = {o: plan(planner, objective=o) for o in RouteObjective}
     assert all(r.status == RouteStatus.OK and r.breakdown is not None for r in results.values())
     safest = results[SAFEST].breakdown.total_cost
+    # Compared under the same (SAFEST) weights; LOWEST_ENERGY is explained with its own preset.
     # Sampled along the smoothed line, so allow a small tolerance.
-    assert all(safest <= r.breakdown.total_cost * 1.02 for r in results.values())
+    assert all(safest <= r.breakdown.total_cost * 1.02 for o, r in results.items()
+               if o != RouteObjective.LOWEST_ENERGY)
 
 
 def test_departure_time_changes_the_cost_context():
@@ -160,3 +162,20 @@ def test_route_cache_distinguishes_cost_models():
     around = plan(planner)
     assert around.search is not None and not around.search.cached
     assert around.breakdown.population_exposure < through.breakdown.population_exposure
+
+
+def test_lowest_energy_minimises_energy_in_wind():
+    windy = CALM.model_copy(update={"wind_speed_kmh": 30.0, "wind_direction_deg": 0.0})  # from the north
+    planner = make_planner(world={"crowded": [(CROWD, 700.0)]})
+    results = {o: plan(planner, objective=o, weather=windy) for o in RouteObjective}
+    assert all(r.status == RouteStatus.OK for r in results.values())
+    lowest = results[RouteObjective.LOWEST_ENERGY].breakdown.energy_wh
+    assert all(lowest <= r.breakdown.energy_wh * 1.01 for r in results.values())
+    # Only the energy term is weighted.
+    terms = results[RouteObjective.LOWEST_ENERGY].breakdown.terms
+    assert terms["energy"].weight > 0 and terms["population"].weight == 0
+
+
+def test_lowest_energy_works_without_the_risk_raster():
+    r = plan(degraded_planner(), objective=RouteObjective.LOWEST_ENERGY)
+    assert r.status == RouteStatus.OK

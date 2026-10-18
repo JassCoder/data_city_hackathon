@@ -17,7 +17,7 @@ The aim is a reliable end-to-end demo, not completeness. Working features beat p
 - EMERGENCY gets no special access: hard airspace restrictions are identical for both modes.
 - Settings changes **invalidate** the route instead of auto-recalculating it.
 - `flightAltitudeMeters` stays per request; when omitted it defaults to `altitude.defaultCruiseM` in `data/cost_model.json`. Startup fails if that default exceeds `legalCeilingM` (120 m) or the API range exceeds the ceiling.
-- `routeObjective` also accepts `SAFEST` (multi-criteria risk cost, `app/routing/risk/`). Its weights and parameters live only in `data/cost_model.json` (JSON, not YAML: no extra dependency). Optional `payloadKg` (≤ the profile's `maxPayloadKg`, else 422).
+- `routeObjective` also accepts `SAFEST` (multi-criteria risk cost, `app/routing/risk/`) and `LOWEST_ENERGY` (same engine, `objectivePresets.lowestEnergy` weights; works without the risk raster). Blood/AED scenarios also allow `mode: EMERGENCY` (`ScenarioConfig.extra_modes`, exposed as `allowedModes` in `/scenarios`); other scenario/mode contradictions stay 422. Its weights and parameters live only in `data/cost_model.json` (JSON, not YAML: no extra dependency). Optional `payloadKg` (≤ the profile's `maxPayloadKg`, else 422).
 
 ## Stack and hard constraints
 

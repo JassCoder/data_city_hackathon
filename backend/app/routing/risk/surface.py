@@ -31,6 +31,8 @@ from app.routing.risk.energy import DroneEnergy, direction_table, energy_j_per_m
 from app.routing.risk.providers import CostContext, GridSpec, Providers, WindProvider
 
 CELL_TERMS = ("population", "obstacle_proximity", "noise", "emergency_landing", "sensitive_areas")
+# Terms that are all zero without the OSM risk raster (grid_only_providers).
+RASTER_TERMS = ("population", "noise", "sensitive_areas")
 DIRECTION_TERMS = ("energy", "time")
 Point = tuple[float, float]
 
@@ -172,6 +174,11 @@ class CostModel:
     @property
     def data_available(self) -> bool:
         return self.unavailable_reason is None
+
+    def needs_raster(self, weights: Weights) -> bool:
+        """True if these weights rely on terms the grid-only fallback cannot provide."""
+        w = weights.model_dump()
+        return any(w[t] > 0 for t in RASTER_TERMS)
 
     def obstacle_mask(self, altitude_m: float, clearance_m: float) -> np.ndarray:
         """Hard constraint: structures reaching into the flight band block the cell."""

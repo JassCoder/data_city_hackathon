@@ -40,6 +40,8 @@ from app.geo.coverage import Coverage
 from app.routing import costs
 from app.routing.astar import MOVES, SearchLimitExceeded, astar, smooth
 from app.routing.costs import BLOCKED, FlightMode, RouteObjective
+
+RISK_OBJECTIVES = (RouteObjective.SAFEST, RouteObjective.LOWEST_ENERGY)  # searched on the CostSurface
 from app.routing.grid import Grid, lonlat_to_xy, pool_blocked, xy_to_lonlat
 from app.routing.risk.energy import DroneEnergy, ground_speed
 from app.routing.risk.providers import CostContext, SampledWind, WindVector
@@ -107,7 +109,7 @@ class RoutePlanner:
                   objective: RouteObjective = RouteObjective.CORRIDORS,
                   surface: CostSurface | None = None) -> np.ndarray:
         g = self.grid
-        if objective == RouteObjective.SAFEST:  # 1 + weighted risk terms (direction terms added in A*)
+        if objective in RISK_OBJECTIVES:  # 1 + weighted risk terms (direction terms added in A*)
             cost = surface.cell_cost.copy()
         elif objective == RouteObjective.CORRIDORS:
             t = costs.TERRAIN_COSTS[mode]
@@ -122,7 +124,7 @@ class RoutePlanner:
 
     def _costs(self, mode, altitude_m, clearance_m, state: AirspaceState, obstacles: list[int], objective,
                surface: CostSurface):
-        risk_key = surface.key if objective == RouteObjective.SAFEST else None
+        risk_key = surface.key if objective in RISK_OBJECTIVES else None
         key = (mode, altitude_m, clearance_m, state.version, tuple(obstacles), objective, risk_key)
         hit = self._cost_cache.get(key)
         if hit is not None:
@@ -173,6 +175,14 @@ class RoutePlanner:
                 self._route_cache.popitem(last=False)
         return result
 
+    def objective_weights(self, objective: RouteObjective):
+        """Weights of the multi-criteria engine for this objective. Objectives that
+        do not use it (CORRIDORS, SHORTEST, FASTEST) are still explained with the
+        SAFEST weights in their cost breakdown."""
+        if objective == RouteObjective.LOWEST_ENERGY:
+            return self.risk.cfg.objective_presets.lowest_energy
+        return self.risk.cfg.weights
+
     def resolve_payload(self, profile: DroneProfile, payload_kg: float | None) -> float:
         if payload_kg is None:
             return min(self.risk.cfg.energy.default_payload_kg, profile.max_payload_kg)
@@ -211,9 +221,10 @@ class RoutePlanner:
 
         if not self.coverage.available:
             return result(RouteStatus.COVERAGE_UNAVAILABLE, self.coverage.message)
-        if objective == RouteObjective.SAFEST and not self.risk.data_available:
+        risk_weights = self.objective_weights(objective)
+        if objective in RISK_OBJECTIVES and not self.risk.data_available and self.risk.needs_raster(risk_weights):
             return result(RouteStatus.RISK_DATA_UNAVAILABLE,
-                          f"The Safest objective needs the OSM risk layers, which are not loaded: "
+                          f"This route optimisation needs the OSM risk layers, which are not loaded: "
                           f"{self.risk.unavailable_reason} Choose another route optimisation meanwhile.")
         for label, (lon, lat) in (("Start", start), ("Destination", destination)):
             if not self.coverage.contains(lon, lat):
@@ -244,7 +255,8 @@ class RoutePlanner:
 
         # Multi-criteria cost surface for this departure (recomputed when time, payload or wind change).
         drone = self.drone_energy(profile)
-        surface = self.risk.surface(CostContext(at, altitude_m, payload), drone, wind=self.wind_provider(weather))
+        surface = self.risk.surface(CostContext(at, altitude_m, payload), drone, weights=risk_weights,
+                                    wind=self.wind_provider(weather))
         energy_info = {"payload_kg": payload, "local_hour": surface.ctx.local_hour(self.risk.cfg.timezone),
                        "battery_usable_wh": drone.usable_wh(self.risk.cfg.energy.battery_reserve_fraction)}
 
@@ -271,7 +283,7 @@ class RoutePlanner:
             wind_model = self._wind_model(profile, weather, wind)
             min_cost = wind_model[1]
             move = lambda r0, c0, factor, shape: self._move_cost(wind_model, (r0, c0), factor, shape)  # noqa: E731
-        elif objective == RouteObjective.SAFEST:
+        elif objective in RISK_OBJECTIVES:
             # Admissible: every cell costs >= 1 and every heading >= the table minimum (see risk/surface.py).
             min_cost, additive = surface.min_cost_per_m, True
             move = lambda r0, c0, factor, shape: (surface.regions(r0, c0, shape, factor), surface.table)  # noqa: E731
@@ -324,7 +336,8 @@ class RoutePlanner:
         path = [(round(float(lo), 6), round(float(la), 6)) for lo, la in zip(lons, lats)]
         avoided = sum(1 for c in conflicts if c.relation == "DIRECT_LINE_BLOCKED")
         label = {RouteObjective.CORRIDORS: "safe corridors", RouteObjective.SHORTEST: "shortest",
-                 RouteObjective.FASTEST: "fastest, wind-aware", RouteObjective.SAFEST: "safest, multi-criteria"}[objective]
+                 RouteObjective.FASTEST: "fastest, wind-aware", RouteObjective.SAFEST: "safest, multi-criteria",
+                 RouteObjective.LOWEST_ENERGY: "lowest energy, wind-aware"}[objective]
         msg = f"Route calculated ({label}, {mode.value}, {altitude_m} m)"
         msg += f", avoiding {avoided} blocked zone{'s' if avoided != 1 else ''} on the direct line." if avoided else "."
         search.elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)

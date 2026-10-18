@@ -76,11 +76,18 @@ class EnergyParams(CamelModel):
     battery_reserve_fraction: float = Field(ge=0.0, lt=1.0)  # share of battery that must remain on landing
 
 
+class ObjectivePresets(CamelModel):
+    """Named weight sets for other objectives that use the multi-criteria engine."""
+
+    lowest_energy: Weights
+
+
 class CostModelConfig(CamelModel):
     description: str = ""
     timezone: str  # local time for time-of-day multipliers (IANA name)
     altitude: AltitudeLimits
-    weights: Weights
+    weights: Weights  # the SAFEST objective
+    objective_presets: ObjectivePresets
     population: PopulationParams
     density_proxy: DensityProxyParams
     obstacle_proximity: ObstacleProximityParams

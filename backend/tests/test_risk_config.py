@@ -40,6 +40,8 @@ def test_missing_file_is_a_clear_error(tmp_path):
 
 @pytest.mark.parametrize("change, message", [
     ({"weights.noise": -0.1}, "greater than or equal to 0"),
+    ({"objectivePresets.lowestEnergy.energy": -1}, "greater than or equal to 0"),
+    ({"objectivePresets.cheapest": {}}, "Extra inputs are not permitted"),
     ({"weights.crowds": 1.0}, "Extra inputs are not permitted"),
     ({"surprise": {}}, "Extra inputs are not permitted"),
     ({"population.hourlyMultiplier": [1.0] * 23}, "at least 24"),

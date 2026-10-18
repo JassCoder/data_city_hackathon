@@ -148,6 +148,23 @@ def test_explicit_conflicting_settings_are_rejected(client):
     assert ok.status_code == 200
 
 
+@pytest.mark.parametrize("scenario", ["BLOOD_DELIVERY", "AED_DELIVERY"])
+def test_delivery_missions_may_fly_in_emergency_mode(client, scenario):
+    normal = client.post(URL, json=body(scenario=scenario)).json()
+    emergency = client.post(URL, json=body(scenario=scenario, mode="EMERGENCY")).json()
+    assert (normal["mode"], emergency["mode"]) == ("NORMAL", "EMERGENCY")
+    assert emergency["scenario"] == scenario and emergency["routeObjective"] == "FASTEST"
+    # Mode only changes CORRIDORS weights: the FASTEST route and its restrictions are identical.
+    assert emergency["geometry"] == normal["geometry"]
+
+
+def test_scenarios_list_their_allowed_modes(client):
+    allowed = {s["id"]: s["allowedModes"] for s in client.get("/api/v1/scenarios").json()["scenarios"]}
+    assert allowed["BLOOD_DELIVERY"] == allowed["AED_DELIVERY"] == ["NORMAL", "EMERGENCY"]
+    assert allowed["EMERGENCY"] == ["EMERGENCY"] and allowed["AVOID_PROHIBITED_ZONE"] == ["NORMAL"]
+    assert client.post(URL, json=body(scenario="AVOID_PROHIBITED_ZONE", mode="EMERGENCY")).status_code == 422
+
+
 def test_unknown_scenario_rejected(client):
     assert client.post(URL, json=body(scenario="SIGHTSEEING")).status_code == 422
 

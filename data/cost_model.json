@@ -14,6 +14,17 @@
     "energy": 1.0,
     "time": 0.0
   },
+  "objectivePresets": {
+    "lowestEnergy": {
+      "population": 0.0,
+      "obstacleProximity": 0.0,
+      "noise": 0.0,
+      "emergencyLanding": 0.0,
+      "sensitiveAreas": 0.0,
+      "energy": 1.0,
+      "time": 0.0
+    }
+  },
   "population": {
     "referenceDensityPerHa": 800,
     "exponent": 2.0,

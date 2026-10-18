@@ -36,6 +36,7 @@ class RouteObjective(StrEnum):
     SHORTEST = "SHORTEST"  # minimise distance
     FASTEST = "FASTEST"  # minimise flight time: cruise speed + wind per direction of travel
     SAFEST = "SAFEST"  # multi-criteria risk cost (crowds, noise, landing options, energy...): app/routing/risk
+    LOWEST_ENERGY = "LOWEST_ENERGY"  # same engine, objectivePresets.lowestEnergy weights (wind + payload energy)
 
 
 # Terrain costs (cells not blocked by a zone or a too-tall building).

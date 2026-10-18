@@ -53,8 +53,9 @@ WEATHER_SOURCE_LABEL = {
 }
 
 
-BREAKDOWN_NOTE = ("Cost model: data/cost_model.json (DEMO weights). Population density is an estimate from OSM "
-                  "floor area and stops, not census data. Only the SAFEST objective minimises this cost.")
+BREAKDOWN_NOTE = ("Cost model: data/cost_model.json (DEMO weights; Lowest energy uses its own preset, every other "
+                  "objective is explained with the Safest weights). Population density is an estimate from OSM "
+                  "floor area and stops, not census data.")
 
 
 class InvalidRouteRequestError(ValueError):
@@ -91,7 +92,9 @@ def resolve_settings(req: RouteRequest) -> tuple[ScenarioConfig | None, FlightMo
     if req.scenario is None:
         return None, req.mode, req.route_objective
     cfg = SCENARIOS[req.scenario]
-    return cfg, cfg.mode, cfg.route_objective
+    # An explicit mode is honoured when the scenario allows it (validated in RouteRequest).
+    mode = req.mode if "mode" in req.model_fields_set else cfg.mode
+    return cfg, mode, cfg.route_objective
 
 
 class RouteService:

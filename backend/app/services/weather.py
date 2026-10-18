@@ -1,15 +1,16 @@
-"""DEMO (reproducible) and LIVE (Open-Meteo) wind, sampled along a route.
+"""SAMPLE (reproducible) and LIVE (Open-Meteo) wind, sampled along a route.
 
 LIVE asks Open-Meteo for the next-hour forecast at several points along the
 trip (one request, multiple locations) at 10/80/120 m and interpolates to the
-flight altitude. LIVE never pretends: if Open-Meteo fails, the result is DEMO
-wind marked source=DEMO_FALLBACK with liveAvailable=false and a message.
+flight altitude. LIVE never pretends: if Open-Meteo fails, the result is SAMPLE wind marked
+source=SAMPLE_FALLBACK with liveAvailable=false and a message.
 """
 
 from __future__ import annotations
 
 import math
 import time
+from datetime import datetime, timezone
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -17,11 +18,12 @@ from dataclasses import dataclass
 import httpx
 
 from app.config import (
-    DEMO_WEATHER,
+    _WEATHER,
     MAP_CENTER,
     OPEN_METEO_URL,
     USER_AGENT,
     WEATHER_CACHE_TTL_S,
+    WEATHER_STALE_MAX_S,
     WEATHER_SAMPLE_SPACING_KM,
     WEATHER_SAMPLE_GRID_DEG,
     WEATHER_MAX_SAMPLES,
@@ -83,21 +85,21 @@ def _interp_speed_dir(speeds: list[float], dirs: list[float], altitude: float) -
     return speed, math.degrees(math.atan2(u, v)) % 360
 
 
-def demo_weather(altitude_m: float = 80) -> WeatherInfo:
+def _weather(altitude_m: float = 80) -> WeatherInfo:
     sample = WindSample(
         latitude=MAP_CENTER[0], longitude=MAP_CENTER[1],
-        wind_speed_kmh=DEMO_WEATHER["windSpeedKmh"], wind_direction_deg=DEMO_WEATHER["windDirectionDeg"],
-        wind_gust_kmh=DEMO_WEATHER["windGustKmh"],
+        wind_speed_kmh=_WEATHER["windSpeedKmh"], wind_direction_deg=_WEATHER["windDirectionDeg"],
+        wind_gust_kmh=_WEATHER["windGustKmh"],
     )
     return WeatherInfo(
-        mode=WeatherMode.DEMO,
-        source=WeatherSource.DEMO,
+        mode=WeatherMode.SAMPLE,
+        source=WeatherSource.SAMPLE,
         wind_speed_kmh=sample.wind_speed_kmh,
         wind_direction_deg=sample.wind_direction_deg,
         wind_gust_kmh=sample.wind_gust_kmh,
         altitude_m=altitude_m,
         samples=[sample],
-        message="DEMO weather: fixed sample wind for reproducible results (same everywhere).",
+        message="SAMPLE weather: fixed sample wind for reproducible results (same everywhere).",
     )
 
 
@@ -106,12 +108,16 @@ class WeatherService:
         self._client = client
         self._clock = clock
         self._cache: OrderedDict[tuple, tuple[float, WeatherInfo]] = OrderedDict()
+        # Outcome of the latest LIVE Open-Meteo call (reported by GET /map/coverage).
+        self.last_live_success: datetime | None = None
+        self.last_live_error: str | None = None
+        self.last_live_error_at: datetime | None = None
 
     async def get(self, mode: WeatherMode, altitude_m: float = 80,
                   points: list[tuple[float, float]] | None = None) -> WeatherInfo:
         """Weather for (lon, lat) points (default: city centre) at the flight altitude."""
-        if mode == WeatherMode.DEMO:
-            return demo_weather(altitude_m)
+        if mode == WeatherMode.SAMPLE:
+            return _weather(altitude_m)
         points = points or [(MAP_CENTER[1], MAP_CENTER[0])]
         key = (tuple(points), round(altitude_m))
         hit = self._cache.get(key)
@@ -120,13 +126,26 @@ class WeatherService:
         try:
             info = await self._fetch_live(points, altitude_m)
         except (httpx.HTTPError, KeyError, TypeError, ValueError, IndexError) as exc:
-            fallback = demo_weather(altitude_m)
+            self.last_live_error = f"{type(exc).__name__}: {exc}"[:200]
+            self.last_live_error_at = datetime.now(timezone.utc)
+            if hit and self._clock() - hit[0] < WEATHER_STALE_MAX_S:
+                age_min = (self._clock() - hit[0]) / 60
+                return hit[1].model_copy(update={
+                    "source": WeatherSource.CACHED,
+                    "live_available": False,
+                    "message": f"{LIVE_UNAVAILABLE} ({type(exc).__name__}). Showing the last LIVE values "
+                               f"(forecast {hit[1].observed_at or 'time unknown'}, retrieved {age_min:.0f} min ago); "
+                               "they may not reflect current conditions.",
+                })
+            fallback = _weather(altitude_m)
             return fallback.model_copy(update={
                 "mode": WeatherMode.LIVE,
-                "source": WeatherSource.DEMO_FALLBACK,
+                "source": WeatherSource.SAMPLE_FALLBACK,
                 "live_available": False,
-                "message": f"{LIVE_UNAVAILABLE} ({type(exc).__name__}). Using DEMO wind instead.",
+                "message": f"{LIVE_UNAVAILABLE} ({type(exc).__name__}) and nothing recent is cached. "
+                           "The route uses SAMPLE wind, which is NOT live data.",
             })
+        self.last_live_success = datetime.now(timezone.utc)
         self._cache[key] = (self._clock(), info)
         while len(self._cache) > 256:
             self._cache.popitem(last=False)

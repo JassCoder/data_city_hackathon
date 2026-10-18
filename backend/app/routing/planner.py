@@ -24,7 +24,7 @@ import numpy as np
 from shapely.geometry import LineString, Point
 
 from app.airspace.evaluation import FlightContext, evaluate
-from app.airspace.models import EvaluationStatus, ZoneConflict, ZoneEvaluation
+from app.airspace.models import EvaluationStatus, SourceType, ZoneConflict, ZoneEvaluation
 from app.airspace.repository import AirspaceRepository, AirspaceState
 from app.config import (
     AIRSPACE_NEAR_ROUTE_M,
@@ -40,6 +40,9 @@ from app.geo.coverage import Coverage
 from app.routing import costs
 from app.routing.astar import MOVES, SearchLimitExceeded, astar, smooth
 from app.routing.costs import BLOCKED, FlightMode, RouteObjective
+from app.routing.constraints import LABEL as CONSTRAINT_LABEL
+from app.routing.constraints import PlanningConstraint
+from app.routing.constraints import assumption as constraint_assumption
 from app.routing.grid import Grid, lonlat_to_xy, pool_blocked, xy_to_lonlat
 from app.schemas.planning import DroneProfile, RouteStatus, WeatherInfo
 from app.services.weather import WindField
@@ -73,6 +76,7 @@ class PlanResult:
     start_district: str | None = None
     destination_district: str | None = None
     airspace_outside_extent_m: float = 0.0
+    planning_constraints_applied: bool = False
 
 
 def _fmt(lon: float, lat: float) -> str:
@@ -88,10 +92,13 @@ class _Endpoint:
 
 
 class RoutePlanner:
-    def __init__(self, grid: Grid, airspace: AirspaceRepository, coverage: Coverage):
+    def __init__(self, grid: Grid, airspace: AirspaceRepository, coverage: Coverage,
+                 constraints: list[PlanningConstraint] | None = None):
         self.grid = grid
         self.airspace = airspace
         self.coverage = coverage
+        # Optional NON-REGULATORY planning constraints (app/routing/constraints.py), used per request.
+        self.constraints: list[PlanningConstraint] = list(constraints or [])
         self._cost_cache: OrderedDict[tuple, np.ndarray] = OrderedDict()
         self._route_cache: OrderedDict[tuple, PlanResult] = OrderedDict()
 
@@ -110,8 +117,9 @@ class RoutePlanner:
         cost[~g.coverage] = BLOCKED
         return cost
 
-    def _costs(self, mode, altitude_m, clearance_m, state: AirspaceState, obstacles: list[int], objective):
-        key = (mode, altitude_m, clearance_m, state.version, tuple(obstacles), objective)
+    def _costs(self, mode, altitude_m, clearance_m, state: AirspaceState, obstacles: list[int], objective,
+               use_constraints: bool = False):
+        key = (mode, altitude_m, clearance_m, state.version, tuple(obstacles), objective, use_constraints)
         hit = self._cost_cache.get(key)
         if hit is not None:
             self._cost_cache.move_to_end(key)
@@ -121,6 +129,9 @@ class RoutePlanner:
         flat = cost.reshape(-1)
         for i in obstacles:
             flat[state.cells[i]] = BLOCKED
+        if use_constraints:
+            for c in self.constraints:
+                flat[c.cells] = BLOCKED
         self._cost_cache[key] = (base, cost)
         while len(self._cost_cache) > 6:
             self._cost_cache.popitem(last=False)
@@ -137,25 +148,29 @@ class RoutePlanner:
         weather: WeatherInfo,
         at: datetime,
         objective: RouteObjective = RouteObjective.CORRIDORS,
+        planning_constraints: bool = False,
     ) -> PlanResult:
         state = self.airspace.refresh()
+        use_constraints = planning_constraints and bool(self.constraints)
         key = (objective, start, destination, mode, altitude_m, profile.id, profile.vertical_clearance_m,
                profile.cruise_speed_mps, profile.max_wind_kmh,
                tuple((s.latitude, s.longitude, s.wind_speed_kmh, s.wind_direction_deg) for s in weather.samples),
                weather.wind_speed_kmh, weather.wind_direction_deg, weather.wind_gust_kmh,
-               state.version, at.replace(second=0, microsecond=0))
+               state.version, at.replace(second=0, microsecond=0), use_constraints)
         hit = self._route_cache.get(key)
         if hit is not None:
             self._route_cache.move_to_end(key)
             return replace(hit, search=replace(hit.search, cached=True) if hit.search else None)
-        result = self._plan(start, destination, mode, altitude_m, profile, weather, at, state, objective)
+        result = self._plan(start, destination, mode, altitude_m, profile, weather, at, state, objective,
+                            use_constraints)
         if result.status not in (RouteStatus.SEARCH_LIMIT, RouteStatus.COVERAGE_UNAVAILABLE):
             self._route_cache[key] = result
             while len(self._route_cache) > ROUTE_CACHE_SIZE:
                 self._route_cache.popitem(last=False)
         return result
 
-    def _plan(self, start, destination, mode, altitude_m, profile, weather, at, state, objective) -> PlanResult:
+    def _plan(self, start, destination, mode, altitude_m, profile, weather, at, state, objective,
+              use_constraints=False) -> PlanResult:
         t0 = time.perf_counter()
         ctx = FlightContext(altitude_agl_m=altitude_m, at=at, mode=mode)
         evals = state.evaluations(ctx)
@@ -166,7 +181,7 @@ class RoutePlanner:
 
         def result(status, message, **kw) -> PlanResult:
             return PlanResult(status, message, warnings=warnings, conflicts=conflicts, airspace=state,
-                              **districts, **kw)
+                              planning_constraints_applied=use_constraints, **districts, **kw)
 
         if not self.coverage.available:
             return result(RouteStatus.COVERAGE_UNAVAILABLE, self.coverage.message)
@@ -179,8 +194,12 @@ class RoutePlanner:
                 )
         districts = {"start_district": self.coverage.district_of(*start),
                      "destination_district": self.coverage.district_of(*destination)}
+        if use_constraints:
+            warnings.append(constraint_assumption())
         for label, (lon, lat) in (("Start", start), ("Destination", destination)):
             blocked = self._endpoint_zone_check(label, lon, lat, state, ctx, warnings, conflicts)
+            if not blocked and use_constraints:
+                blocked = self._endpoint_constraint_check(label, lon, lat)
             if blocked:
                 status = RouteStatus.START_BLOCKED if label == "Start" else RouteStatus.DESTINATION_BLOCKED
                 return result(status, blocked)
@@ -198,7 +217,8 @@ class RoutePlanner:
             warnings.append(f"Gusts up to {gust:.0f} km/h exceed the profile limit of {profile.max_wind_kmh:.0f} km/h.")
 
         ceiling = altitude_m - profile.vertical_clearance_m
-        base, cost = self._costs(mode, altitude_m, profile.vertical_clearance_m, state, obstacles, objective)
+        base, cost = self._costs(mode, altitude_m, profile.vertical_clearance_m, state, obstacles, objective,
+                                 use_constraints)
         s = self._resolve_endpoint("Start", *start, cost, base, ceiling, warnings)
         if isinstance(s, PlanResult):
             return result(s.status, s.message)
@@ -241,6 +261,8 @@ class RoutePlanner:
         coarse, window, factor, cells = found
 
         hard = [state.geoms_m[i] for i in obstacles]
+        if use_constraints:
+            hard += [c.geom_m for c in self.constraints]
         line = self._safe_line(cells, coarse, window, factor, s, d, hard, base, ceiling)
         if line is None:  # never return a path that crosses an obstacle
             return result(RouteStatus.NO_ROUTE, "No route found that stays clear of all blocked zones and buildings.",
@@ -365,6 +387,15 @@ class RoutePlanner:
             evaluation_status=ev.status, relation=relation, message=message,
         )
 
+    def _endpoint_constraint_check(self, label, lon, lat) -> str | None:
+        p = Point(lonlat_to_xy(lon, lat))
+        for c in self.constraints:
+            if c.geom_m.covers(p):
+                return (f"{label} point {_fmt(lon, lat)} lies inside '{c.name}', which is avoided as a "
+                        f"{CONSTRAINT_LABEL} (your planning option; not an official drone zone). "
+                        "Choose another point or turn planning constraints off.")
+        return None
+
     def _endpoint_zone_check(self, label, lon, lat, state, ctx, warnings, conflicts) -> str | None:
         """Error message if the point lies inside a zone that blocks take-off/landing.
         Points are never moved out of a zone."""
@@ -403,6 +434,14 @@ class RoutePlanner:
     @staticmethod
     def _outside_airspace_extent(line, state: AirspaceState, warnings) -> float:
         """Length of route outside the area the loaded zone dataset covers."""
+        if state.dataset.source_type == SourceType.NONE:
+            outside = line.length
+            if outside > 1.0:
+                warnings.append(
+                    f"No airspace dataset is loaded: {outside / 1000:.1f} km of this route was NOT checked "
+                    "against any zones. Unknown airspace is not unrestricted airspace."
+                )
+            return outside
         if state.extent_m is None:
             return 0.0
         outside = line.difference(state.extent_m).length

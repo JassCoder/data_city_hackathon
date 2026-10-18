@@ -15,9 +15,11 @@ export type DraCategory =
   | 'DRA-T'
   | 'DRA-U'
   | 'DRA-I'
-  | 'UNKNOWN';
+  | 'UNKNOWN'
+  /** Not a DRA type: SkyRoute planning constraint (OSM airport / military / government area). */
+  | 'PLANNING';
 export type DisplayClass = 'RED' | 'ORANGE' | 'YELLOW' | 'GRAY' | 'INACTIVE';
-export type SourceType = 'OFFICIAL' | 'PERMITTED_SNAPSHOT' | 'DEMO';
+export type SourceType = 'OFFICIAL' | 'PERMITTED_SNAPSHOT' | 'SYNTHETIC' | 'NONE' | 'PLANNING_CONSTRAINT';
 export type EvaluationStatus =
   | 'BLOCKED'
   | 'UNAVAILABLE_AUTHORIZATION'
@@ -69,10 +71,82 @@ export interface AirspaceSource {
   extentLabel?: string | null;
 }
 
+export type Completeness = 'COMPLETE' | 'PARTIAL' | 'NONE' | 'UNKNOWN';
+
+/** How much of Warsaw the loaded zone dataset covers (its declared extent). */
+export interface AirspaceCompleteness {
+  status: Completeness;
+  cityAreaCoveredPct: number | null;
+  verificationStatus: string;
+  message: string;
+}
+
+/** Official-airspace verification status (backend app/airspace/status.py). Synthetic zones never count. */
+export interface AirspaceStatus {
+  sourceState: 'OFFICIAL' | 'OFFICIAL_SNAPSHOT' | 'SYNTHETIC' | 'UNAVAILABLE' | 'STALE' | string;
+  officialDataAvailable: boolean;
+  officialCoveragePct: number | null;
+  coverageBasis: string;
+  ageDays: number | null;
+  staleAfterDays: number;
+  provider: string;
+  label: string;
+  message: string;
+}
+
 export interface ZonesResponse {
   source: AirspaceSource;
   flightContext: { flightAltitudeMeters: number; at: string };
+  airspaceStatus?: AirspaceStatus | null;
+  completeness?: AirspaceCompleteness | null;
+  totalZones?: number | null;
+  bbox?: number[] | null;
   zones: AirspaceZone[];
+}
+
+export type DistrictStatus = 'OFFICIAL_SNAPSHOT' | 'OFFICIAL' | 'SYNTHETIC' | 'PARTIAL' | 'UNAVAILABLE';
+
+export interface DistrictCoverage {
+  name: string;
+  teryt: string;
+  areaCoveredPct: number;
+  status: DistrictStatus;
+  zoneCount: number;
+  obstacleCount: number;
+  zoneIds: string[];
+  note: string;
+}
+
+/** GET /zones/diagnostics */
+export interface AirspaceDiagnostics {
+  source: AirspaceSource;
+  flightContext: { flightAltitudeMeters: number; at: string };
+  completeness: AirspaceCompleteness;
+  totals: {
+    features: number;
+    byGroup: Record<CategoryGroup, number>;
+    blocked: number;
+    conditional: number;
+    technical: number;
+    information: number;
+    unverified: number;
+    inactive: number;
+    obstacles: number;
+  };
+  districts: DistrictCoverage[];
+  zonesOutsideCity: string[];
+  duplicatesRemoved: number;
+  failedRequests: string[];
+  warnings: string[];
+}
+
+/** Official aeronautical data follows the 28-day AIRAC cycle: older source data is flagged. */
+export const STALE_AFTER_DAYS = 28;
+
+export function dataAgeDays(timestamp: string | null | undefined, now = Date.now()): number | null {
+  if (!timestamp) return null;
+  const t = Date.parse(timestamp);
+  return Number.isNaN(t) ? null : Math.max(0, Math.floor((now - t) / 86_400_000));
 }
 
 export interface ZoneConflict {
@@ -86,7 +160,7 @@ export interface ZoneConflict {
 }
 
 /** Filter groups for the DRA category checkboxes. */
-export type CategoryGroup = 'P' | 'R' | 'T' | 'U' | 'I' | 'UNKNOWN';
+export type CategoryGroup = 'P' | 'R' | 'T' | 'U' | 'I' | 'UNKNOWN' | 'PLANNING';
 export const CATEGORY_GROUPS: { key: CategoryGroup; label: string }[] = [
   { key: 'P', label: 'DRA-P prohibited' },
   { key: 'R', label: 'DRA-R / RH / RM / RL restricted' },
@@ -94,6 +168,7 @@ export const CATEGORY_GROUPS: { key: CategoryGroup; label: string }[] = [
   { key: 'U', label: 'DRA-U U-space' },
   { key: 'I', label: 'DRA-I information' },
   { key: 'UNKNOWN', label: 'Unknown category' },
+  { key: 'PLANNING', label: 'Planning constraints: airports, military, government (OSM, not official)' },
 ];
 
 export function categoryGroup(c: DraCategory): CategoryGroup {
@@ -102,6 +177,7 @@ export function categoryGroup(c: DraCategory): CategoryGroup {
   if (c === 'DRA-T') return 'T';
   if (c === 'DRA-U') return 'U';
   if (c === 'DRA-I') return 'I';
+  if (c === 'PLANNING') return 'PLANNING';
   return 'UNKNOWN';
 }
 
@@ -117,9 +193,11 @@ export const STATUS_LABEL: Record<EvaluationStatus, string> = {
 };
 
 export const SOURCE_LABEL: Record<SourceType, string> = {
-  DEMO: 'DEMO: synthetic, not official',
-  PERMITTED_SNAPSHOT: 'Official snapshot (permitted file)',
   OFFICIAL: 'Official',
+  PERMITTED_SNAPSHOT: 'Official snapshot (permitted file)',
+  SYNTHETIC: 'Synthetic zones, not official',
+  NONE: 'No airspace data loaded',
+  PLANNING_CONSTRAINT: 'SkyRoute planning constraint (OSM), not official',
 };
 
 /**
@@ -136,9 +214,23 @@ export class AirspaceService {
     computation: (src, prev) => (src.valid ? src.value : (prev?.value ?? ALTITUDE.default)),
   });
 
-  readonly resource = httpResource<ZonesResponse>(() => `${API_BASE_URL}/zones?altitudeM=${this.altitude()}`);
+  /** The whole city is loaded at once (never per viewport), evaluated for altitude and planned time. */
+  /** Evaluated for "now": the backend picks the time (Europe/Warsaw), as for routes. */
+  private readonly query = computed(() => `altitudeM=${this.altitude()}`);
 
-  readonly filters = signal<Record<CategoryGroup, boolean>>({ P: true, R: true, T: true, U: true, I: true, UNKNOWN: true });
+  readonly resource = httpResource<ZonesResponse>(() => `${API_BASE_URL}/zones?${this.query()}`);
+  readonly loading = computed(() => this.resource.isLoading());
+  /** Failed zone requests in this session (shown in the diagnostics). */
+  readonly failedRequests = signal(0);
+
+  /** Coverage diagnostics are only fetched while the debug panel is open. */
+  readonly diagnosticsOpen = signal(false);
+  readonly diagnostics = httpResource<AirspaceDiagnostics>(() =>
+    this.diagnosticsOpen() ? `${API_BASE_URL}/zones/diagnostics?${this.query()}` : undefined,
+  );
+  readonly diagnosticsData = computed(() => safeValue(this.diagnostics));
+
+  readonly filters = signal<Record<CategoryGroup, boolean>>({ P: true, R: true, T: true, U: true, I: true, UNKNOWN: true, PLANNING: true });
   /** Zone to focus on the map (fit + popup). */
   readonly focusZoneId = signal<string | null>(null);
 
@@ -148,13 +240,23 @@ export class AirspaceService {
     computation: (value, prev) => value ?? (this.resource.isLoading() ? prev?.value : undefined),
   });
   readonly source = computed(() => this.response()?.source);
+  readonly completeness = computed(() => this.response()?.completeness ?? null);
+  readonly evaluatedFor = computed(() => this.response()?.flightContext);
+  readonly airspaceStatus = computed(() => this.response()?.airspaceStatus ?? null);
+  /** Age of the source data; unknown or older than one AIRAC cycle counts as stale. */
+  readonly freshness = computed(() => {
+    const src = this.source();
+    if (!src) return null;
+    const ageDays = dataAgeDays(src.sourceTimestamp);
+    return { ageDays, stale: ageDays === null || ageDays > STALE_AFTER_DAYS };
+  });
   readonly zones = computed(() => this.response()?.zones ?? []);
   readonly visibleZones = computed(() => {
     const f = this.filters();
     return this.zones().filter((z) => f[categoryGroup(z.draCategory)]);
   });
   readonly counts = computed(() => {
-    const out: Record<CategoryGroup, number> = { P: 0, R: 0, T: 0, U: 0, I: 0, UNKNOWN: 0 };
+    const out: Record<CategoryGroup, number> = { P: 0, R: 0, T: 0, U: 0, I: 0, UNKNOWN: 0, PLANNING: 0 };
     for (const z of this.zones()) out[categoryGroup(z.draCategory)]++;
     return out;
   });
@@ -169,6 +271,9 @@ export class AirspaceService {
   });
 
   constructor() {
+    effect(() => {
+      if (this.resource.error()) untracked(() => this.failedRequests.update((n) => n + 1));
+    });
     // A new dataset version invalidates routes calculated on the old one.
     effect(() => {
       const v = this.source()?.datasetVersion;

@@ -12,8 +12,8 @@ const REQUEST: RouteRequest = {
   mode: 'EMERGENCY',
   flightAltitudeMeters: 90,
   droneProfileId: 'DEMO_DRONE_01',
-  weatherMode: 'DEMO',
-  routeObjective: 'FASTEST',
+  weatherMode: 'SAMPLE',
+  optimization: 'FASTEST',
 };
 
 describe('RouteResultsComponent', () => {
@@ -42,7 +42,7 @@ describe('RouteResultsComponent', () => {
     fixture.detectChanges();
     expect(q('route-distance')?.textContent).toContain('3.04 km');
     expect(q('route-eta')?.textContent).toContain('2 min 56 s');
-    expect(el.textContent).toContain('EMERGENCY');
+    expect(q('route-mode')?.textContent).toContain('Emergency');
     expect(el.textContent).toContain('90 m AGL');
     expect(q('route-warnings')?.textContent).toContain('Start moved 20 m');
   });
@@ -84,7 +84,7 @@ describe('RouteResultsComponent', () => {
       request: REQUEST,
       response: routeResponse(REQUEST, {
         zoneConflicts: [
-          { zoneId: 'DEMO-P-SEJM', name: 'Sejm', draCategory: 'DRA-P', displayClass: 'RED', evaluationStatus: 'BLOCKED',
+          { zoneId: '-P-SEJM', name: 'Sejm', draCategory: 'DRA-P', displayClass: 'RED', evaluationStatus: 'BLOCKED',
             relation: 'DIRECT_LINE_BLOCKED', message: "The direct line crosses 'Sejm' (DRA-P)." },
         ],
       }),
@@ -102,7 +102,7 @@ describe('RouteResultsComponent', () => {
       response: routeResponse(REQUEST, {
         status: 'DESTINATION_BLOCKED', geometry: null, message: "Destination lies inside 'Sejm' (DRA-P).",
         zoneConflicts: [
-          { zoneId: 'DEMO-P-SEJM', name: 'Sejm', draCategory: 'DRA-P', displayClass: 'RED', evaluationStatus: 'BLOCKED',
+          { zoneId: '-P-SEJM', name: 'Sejm', draCategory: 'DRA-P', displayClass: 'RED', evaluationStatus: 'BLOCKED',
             relation: 'DESTINATION_INSIDE', message: "Destination lies inside 'Sejm' (DRA-P)." },
         ],
       }),

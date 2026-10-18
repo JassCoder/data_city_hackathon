@@ -1,19 +1,31 @@
+import os
 from pathlib import Path
 
-from app.airspace.providers import AirspaceLoadError, AirspaceProvider, Ed269FileProvider, GeoJsonZoneFileProvider
-from app.config import AIRSPACE_DEMO_FILE, AIRSPACE_FILE, AIRSPACE_PROVIDER
+from app.airspace.providers import (
+    AirspaceLoadError,
+    AirspaceProvider,
+    CompositeProvider,
+    Ed269FileProvider,
+    EmptyProvider,
+    GeoJsonZoneFileProvider,
+)
+from app.config import AIRSPACE_FILE, AIRSPACE_PROVIDER
 
 
 def make_provider(kind: str = AIRSPACE_PROVIDER, file: str | None = AIRSPACE_FILE) -> AirspaceProvider:
-    """demo: bundled synthetic zones. geojson / ed269: an official snapshot file
-    obtained from PAŻP with permission (see DATA_SOURCES.md)."""
-    if kind == "demo":
-        return GeoJsonZoneFileProvider(AIRSPACE_DEMO_FILE)
+    """No dataset is loaded by default. geojson / ed269 load official snapshot
+    file(s) obtained from PAŻP with permission (see DATA_SOURCES.md). Several files
+    (e.g. permanent zones + temporary restrictions) are separated by the OS path
+    separator (';' on Windows, ':' elsewhere) and merged."""
+    if kind in ("", "none"):
+        return EmptyProvider()
     if kind in ("geojson", "ed269"):
-        if not file:
+        paths = [Path(p) for p in (file or "").split(os.pathsep) if p.strip()]
+        if not paths:
             raise AirspaceLoadError(
                 f"SKYROUTE_AIRSPACE_PROVIDER={kind} needs SKYROUTE_AIRSPACE_FILE=<path to the official zone file>."
             )
-        path = Path(file)
-        return GeoJsonZoneFileProvider(path) if kind == "geojson" else Ed269FileProvider(path)
-    raise AirspaceLoadError(f"Unknown SKYROUTE_AIRSPACE_PROVIDER '{kind}' (use demo, geojson or ed269).")
+        cls = GeoJsonZoneFileProvider if kind == "geojson" else Ed269FileProvider
+        providers: list[AirspaceProvider] = [cls(p) for p in paths]
+        return providers[0] if len(providers) == 1 else CompositeProvider(providers)
+    raise AirspaceLoadError(f"Unknown SKYROUTE_AIRSPACE_PROVIDER '{kind}' (use none, geojson or ed269).")

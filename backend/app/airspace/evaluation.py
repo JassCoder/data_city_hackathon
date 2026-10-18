@@ -94,6 +94,12 @@ def evaluate(zone: AirspaceZone, ctx: FlightContext, *, endpoint: bool = False) 
         )
 
     cat, rt = zone.dra_category, zone.restriction_type
+    if cat == DraCategory.PLANNING:
+        reasons.append("SkyRoute planning constraint (OSM-mapped airport, military or government area): avoided by "
+                       "the simulation's policy. Not an official UAS zone.")
+        return ZoneEvaluation(
+            status=EvaluationStatus.BLOCKED, display_class=DisplayClass.RED, is_obstacle=True, reasons=reasons
+        )
     if cat == DraCategory.P or rt == RestrictionType.PROHIBITED:
         reasons.append("Prohibited zone (DRA-P): only narrowly defined authorized operations are permitted.")
         return ZoneEvaluation(
@@ -110,9 +116,9 @@ def evaluate(zone: AirspaceZone, ctx: FlightContext, *, endpoint: bool = False) 
             f"Restricted zone: consent and conditions are required{detail}. "
             "No authorization is recorded, so it is unavailable for this route."
         )
-        return ZoneEvaluation(
+        return ZoneEvaluation(  # shown red like prohibited zones: the route may not enter it
             status=EvaluationStatus.UNAVAILABLE_AUTHORIZATION,
-            display_class=DisplayClass.ORANGE,
+            display_class=DisplayClass.RED,
             is_obstacle=True,
             reasons=reasons,
         )

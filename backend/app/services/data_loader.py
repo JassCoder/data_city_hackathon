@@ -45,7 +45,7 @@ class Layer[P: BaseModel]:
 
 
 @dataclass(frozen=True)
-class DemoData:
+class Data:
     corridors: Layer[CorridorProperties]
     tall_buildings: Layer[BuildingProperties]
     stations: Layer[StationProperties]
@@ -58,7 +58,7 @@ def _load_layer[P: BaseModel](
 ) -> Layer[P]:
     path = data_dir / DATA_FILES[key]
     if not path.is_file():
-        hint = "run `python scripts/build_demo_data.py`" if key == "stations" else "run `python scripts/fetch_osm.py`"
+        hint = "run `python scripts/build__data.py`" if key == "stations" else "run `python scripts/fetch_osm.py`"
         raise DataLoadError(f"Missing data file {path}. To create it, {hint} from the repo root.")
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -99,7 +99,7 @@ def _light_collection(layer: Layer, simplify: bool) -> dict:
     return {"type": "FeatureCollection", "metadata": layer.raw.get("metadata", {}), "features": features}
 
 
-def load_demo_data(data_dir: Path = DATA_DIR, index_file: Path = BUILDINGS_INDEX_FILE) -> DemoData:
+def load__data(data_dir: Path = DATA_DIR, index_file: Path = BUILDINGS_INDEX_FILE) -> Data:
     corridors = _load_layer(data_dir, "corridors", CorridorProperties, POLYGONAL)
     tall = _load_layer(data_dir, "tall_buildings", BuildingProperties, POLYGONAL)
     stations = _load_layer(data_dir, "stations", StationProperties, ("Point",))
@@ -112,4 +112,4 @@ def load_demo_data(data_dir: Path = DATA_DIR, index_file: Path = BUILDINGS_INDEX
         "buildingStats": stats,
     }
     layers_json = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return DemoData(corridors, tall, stations, stats, layers_json)
+    return Data(corridors, tall, stations, stats, layers_json)

@@ -12,7 +12,6 @@ from app.airspace.models import DisplayClass, EvaluationStatus, SourceType
 from app.airspace.providers import AirspaceLoadError, Ed269FileProvider, GeoJsonZoneFileProvider
 from app.airspace.factory import make_provider
 from app.airspace.repository import AirspaceRepository
-from app.config import AIRSPACE_DEMO_FILE
 from app.routing.costs import FlightMode
 from app.routing.grid import lonlat_to_xy, to_metres
 from app.schemas.planning import RouteStatus
@@ -42,10 +41,10 @@ def metric(z):
 
 @pytest.mark.parametrize("category, status, colour, obstacle", [
     ("DRA-P", EvaluationStatus.BLOCKED, DisplayClass.RED, True),
-    ("DRA-R", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.ORANGE, True),
-    ("DRA-RH", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.ORANGE, True),
-    ("DRA-RM", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.ORANGE, True),
-    ("DRA-RL", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.ORANGE, True),
+    ("DRA-R", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.RED, True),
+    ("DRA-RH", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.RED, True),
+    ("DRA-RM", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.RED, True),
+    ("DRA-RL", EvaluationStatus.UNAVAILABLE_AUTHORIZATION, DisplayClass.RED, True),
     ("DRA-T", EvaluationStatus.UNAVAILABLE_TECHNICAL, DisplayClass.YELLOW, True),
     ("DRA-U", EvaluationStatus.UNAVAILABLE_USPACE, DisplayClass.ORANGE, True),
     ("DRA-I", EvaluationStatus.INFORMATION, DisplayClass.YELLOW, False),
@@ -122,20 +121,27 @@ def test_geodesic_circle_is_accurate():
     assert area == pytest.approx(3.14159 * r * r, rel=0.005)
 
 
-def test_demo_dataset_is_labelled_and_complete():
-    ds = make_provider("demo").load()
-    assert ds.source_type == SourceType.DEMO and "SYNTHETIC" in ds.disclaimer
-    cats = {z.dra_category.value for z in ds.zones}
-    assert {"DRA-P", "DRA-RM", "DRA-RH", "DRA-RL", "DRA-T", "DRA-U", "DRA-I", "UNKNOWN"} <= cats
-    for z in ds.zones:
-        assert z.source_type == SourceType.DEMO and z.id.startswith("DEMO-") and "DEMO" in z.name
-    circles = [z for z in ds.zones if z.circle]
-    assert circles and all(len(z.geojson_geometry["coordinates"][0]) > 100 for z in circles)
+def test_default_provider_has_no_airspace_data():
+    ds = make_provider().load()
+    assert ds.source_type == SourceType.NONE
+    assert not ds.zones
+    assert "No airspace zones are loaded" in ds.disclaimer
 
 
 def test_geojson_provider_rejects_invalid_zone(tmp_path):
-    doc = json.loads(AIRSPACE_DEMO_FILE.read_text(encoding="utf-8"))
-    doc["features"][0]["properties"]["draCategory"] = "DRA-Z"
+    doc = {
+        "metadata": {"sourceType": "SYNTHETIC"},
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"draCategory": "DRA-Z"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[21, 52], [21.01, 52], [21.01, 52.01], [21, 52]]],
+                },
+            }
+        ],
+    }
     bad = tmp_path / "zones.geojson"
     bad.write_text(json.dumps(doc), encoding="utf-8")
     with pytest.raises(AirspaceLoadError, match="feature 0"):
@@ -318,7 +324,11 @@ def test_route_recomputed_after_obstacle_change():
 
 def test_broken_dataset_update_keeps_last_good_version(tmp_path):
     path = tmp_path / "zones.geojson"
-    path.write_text(AIRSPACE_DEMO_FILE.read_text(encoding="utf-8"), encoding="utf-8")
+    path.write_text(json.dumps({
+        "type": "FeatureCollection",
+        "metadata": {"sourceType": "SYNTHETIC"},
+        "features": [],
+    }), encoding="utf-8")
     planner = make_planner()
     repo = AirspaceRepository(GeoJsonZoneFileProvider(path), planner.grid)
     v1 = repo.state.version

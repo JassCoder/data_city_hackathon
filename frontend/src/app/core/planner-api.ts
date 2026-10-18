@@ -2,7 +2,7 @@ import { Injectable, computed, inject } from '@angular/core';
 import { HttpClient, httpResource } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { API_BASE_URL, safeValue } from './api';
-import { DroneProfilesResponse, GeocodingResponse, RouteRequest, RouteResponse, ScenariosResponse } from './models';
+import { DroneProfilesResponse, GeocodingResponse, RouteRequest, RouteResponse, ScenariosResponse, EntrancesResponse } from './models';
 
 @Injectable({ providedIn: 'root' })
 export class PlannerApi {
@@ -19,6 +19,12 @@ export class PlannerApi {
   /** Explicit search only: the public Nominatim policy forbids autocomplete. */
   searchAddress(query: string): Observable<GeocodingResponse> {
     return this.http.get<GeocodingResponse>(`${API_BASE_URL}/geocoding/search`, { params: { query } });
+  }
+
+  entrances(latitude: number, longitude: number, flat?: string | null): Observable<EntrancesResponse> {
+    const params: Record<string, string> = { latitude: String(latitude), longitude: String(longitude) };
+    if (flat) params['flat'] = flat;
+    return this.http.get<EntrancesResponse>(`${API_BASE_URL}/geocoding/entrances`, { params });
   }
 
   calculateRoute(request: RouteRequest): Observable<RouteResponse> {

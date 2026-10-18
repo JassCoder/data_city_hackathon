@@ -66,12 +66,17 @@ class NominatimProvider:
         self._timeout = timeout_s
 
     async def search(self, query: str, limit: int) -> list[GeocodeResult]:
+        return [r for _, r in await self.search_raw(query, limit)]
+
+    async def search_raw(self, query: str, limit: int) -> list[tuple[dict, GeocodeResult]]:
+        """Results with the raw item (address details are used to classify accuracy)."""
         try:
             res = await self._client.get(
                 self._base_url,
                 params={
                     "q": query,
                     "format": "jsonv2",
+                    "addressdetails": 1,
                     "limit": limit,
                     "countrycodes": "pl",
                     "viewbox": self._viewbox,  # official city bounds (+ margin)
@@ -85,7 +90,10 @@ class NominatimProvider:
             payload = res.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise GeocodingError(f"Nominatim request failed: {type(exc).__name__}") from exc
-        return self.parse(payload, self._contains)
+        results = self.parse(payload, self._contains)
+        raws = [item for item in payload if isinstance(item, dict) and item.get("lat") and item.get("display_name")] \
+            if isinstance(payload, list) else []
+        return list(zip(raws, results))
 
     @staticmethod
     def parse(payload: object, contains: ContainsFn = _never) -> list[GeocodeResult]:
@@ -177,12 +185,21 @@ class GeocodingService:
 
     async def search(self, query: str) -> tuple[list[GeocodeResult], bool]:
         """Returns (results, served_from_cache)."""
+        results, cached, _ = await self.search_detailed(query)
+        return results, cached
+
+    async def search_detailed(self, query: str) -> tuple[list[GeocodeResult], bool, str | None]:
+        """Returns (results, served_from_cache, note). Providers with `search_detailed`
+        (AddressGeocoder) also explain accuracy, e.g. an unmatched building number."""
         q = normalise_query(query)
         key = q.casefold()
         cached = self._cache.get(key)
         if cached is not None:
-            return cached, True
+            return cached[0], True, cached[1]
         await self._limiter.acquire()
-        results = await self.provider.search(q, self._limit)
-        self._cache.set(key, results)
-        return results, False
+        if hasattr(self.provider, "search_detailed"):
+            results, note = await self.provider.search_detailed(q, self._limit)
+        else:
+            results, note = await self.provider.search(q, self._limit), None
+        self._cache.set(key, (results, note))
+        return results, False, note

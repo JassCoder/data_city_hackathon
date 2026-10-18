@@ -15,6 +15,15 @@ h2 {
   gap: 6px;
 }
 
+/* Title and control on one line (Flight Mode). */
+.block.inline {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .block-title {
   font: var(--mat-sys-title-small);
 }
@@ -33,7 +42,12 @@ h2 {
 
 .slider-row {
   .slider { flex: 1; min-width: 0; margin: 0; }
-  .altitude-input { width: 92px; }
+  .altitude-input {
+    width: 76px;
+    --mat-form-field-container-height: 36px;
+    --mat-form-field-container-vertical-padding: 6px;
+    --mat-form-field-container-text-size: 13px;
+  }
 }
 
 .full {
@@ -55,43 +69,61 @@ h2 {
   color: var(--mat-sys-error);
 }
 
-.tag {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  padding: 0 4px;
-  border-radius: 3px;
-  background: #ffb300;
-  color: #1a1a1a;
-}
 
-mat-button-toggle-group {
-  width: 100%;
-
-  mat-button-toggle { flex: 1; }
-}
 
 .buttons {
   display: flex;
   flex-direction: column;
   gap: 8px;
 
-  .calculate {
-    height: 48px;
-    font-size: 15px;
+  .primary {
+    display: flex;
+    gap: 8px;
 
+    button { flex: 1; min-width: 0; padding: 0 10px; white-space: nowrap; }
+    /* Same size and baseline for both icons. */
+    mat-icon { font-size: 20px; width: 20px; height: 20px; margin-right: 6px; vertical-align: middle; }
+  }
+
+  .calculate {
+    height: 40px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    background: linear-gradient(135deg, #3949ab, #1e88e5);
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(30, 136, 229, 0.35);
+    transition: box-shadow 0.15s, filter 0.15s;
+
+    &:hover:not([disabled]) { box-shadow: 0 4px 12px rgba(30, 136, 229, 0.45); filter: brightness(1.05); }
+    &[disabled] { background: var(--mat-sys-surface-container-high); color: var(--mat-sys-on-surface-variant); box-shadow: none; }
+    mat-icon { margin-right: 4px; }
     mat-spinner { display: inline-block; margin-right: 8px; vertical-align: middle; }
+  }
+
+  .simulate {
+    height: 40px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    background: #2e7d32;
+    color: #fff;
+
+    &[disabled] { background: var(--mat-sys-surface-container-high); color: var(--mat-sys-on-surface-variant); }
+    mat-icon { margin-right: 4px; }
   }
 
   .secondary {
     display: flex;
     gap: 8px;
 
-    button { flex: 1; }
+    button { flex: 1; height: 34px; border-radius: 17px; font-size: 13px; }
+    mat-icon { font-size: 18px; width: 18px; height: 18px; }
   }
 }
 
-.demo-title {
+.sample-title {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -100,7 +132,7 @@ mat-button-toggle-group {
   mat-icon { font-size: 18px; width: 18px; height: 18px; }
 }
 
-.demo { justify-content: flex-start; }
+.sample-route { justify-content: flex-start; }
 
 .scenario-grid {
   display: grid;
@@ -124,4 +156,12 @@ mat-button-toggle-group {
     background: var(--mat-sys-primary-container);
     color: var(--mat-sys-on-primary-container);
   }
+}
+
+.departure {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+
+  mat-form-field { flex: 1; }
 }

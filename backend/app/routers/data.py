@@ -1,18 +1,18 @@
 from fastapi import APIRouter, Request, Response
 
-from app.services.data_loader import DemoData
+from app.services.data_loader import Data
 
 router = APIRouter(tags=["data"])
 
 
-def get_data(request: Request) -> DemoData:
+def get_data(request: Request) -> Data:
     return request.app.state.data
 
 
 @router.get(
     "/layers",
-    summary="Demo bbox plus corridors, buildings and stations as GeoJSON (zones: /zones)",
-    responses={200: {"description": "`{bbox, corridors, buildings, stations}`"}},
+    summary="Citywide display layers: corridors, tall buildings,  stations, building stats (zones: /zones)",
+    responses={200: {"description": "`{corridors, tallBuildings, stations, buildingStats}`"}},
 )
 def layers(request: Request) -> Response:
     # Pre-serialised at startup; GZip middleware compresses it.

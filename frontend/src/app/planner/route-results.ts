@@ -1,5 +1,5 @@
 import { Component, computed, inject } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { RouteResponse } from '../core/models';
@@ -27,19 +27,26 @@ const STATUS_LABEL: Record<RouteResponse['status'], string> = {
 };
 
 const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
-  CORRIDORS: 'Safe corridors',
+  CORRIDORS: 'Smart Route (safe corridors)',
   SHORTEST: 'Shortest',
   FASTEST: 'Fastest (wind-aware)',
 };
 
+const WEATHER_SOURCE_LABEL: Record<RouteResponse['weather']['source'], string> = {
+  OPEN_METEO: 'LIVE · Open-Meteo',
+  CACHED: 'Cached live values (live unavailable)',
+  SAMPLE_FALLBACK: 'Sample wind – live unavailable, NOT live data',
+  SAMPLE: 'Sample wind (fixed, not live)',
+};
+
 @Component({
   selector: 'app-route-results',
-  imports: [MatIconModule, MatProgressSpinnerModule, DecimalPipe],
+  imports: [MatIconModule, MatProgressSpinnerModule, DatePipe, DecimalPipe],
   template: `
     <h2>Route details</h2>
     @switch (state().phase) {
       @case ('idle') {
-        <p class="muted" data-testid="route-idle">No route yet. Select Point A and Point B, then Calculate Route.</p>
+        <p class="muted" data-testid="route-idle">No route calculated yet. Select Point A and Point B, then Calculate Route.</p>
       }
       @case ('loading') {
         <p class="loading" data-testid="route-loading"><mat-spinner diameter="18" /> Calculating route…</p>
@@ -55,27 +62,53 @@ const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
             <mat-icon>update</mat-icon> Inputs changed. This route is outdated; recalculate.
           </p>
         }
-        <div class="status" [class]="'status ' + (r.status === 'OK' ? 'ok' : 'bad')" data-testid="route-status">
-          {{ statusLabel(r) }}
-        </div>
-        @if (r.status === 'OK') {
-          <dl class="stats">
+        <h3>Route overview</h3>
+        <dl class="stats">
+          <dt>Point A</dt><dd data-testid="route-from">{{ label('start', r) }}</dd>
+          <dt>Point B</dt><dd data-testid="route-to">{{ label('destination', r) }}</dd>
+          <dt>Status</dt>
+          <dd><span class="status" [class]="'status ' + (r.status === 'OK' ? 'ok' : 'bad')" data-testid="route-status">{{ statusLabel(r) }}</span></dd>
+          @if (r.status === 'OK') {
             <dt>Distance</dt><dd data-testid="route-distance">{{ km(r.distanceM) }}</dd>
-            <dt>ETA</dt><dd data-testid="route-eta">{{ eta(r.etaS) }}</dd>
-            <dt>Scenario</dt><dd data-testid="route-scenario">{{ r.scenarioDisplayName }}</dd>
-            <dt>Optimised for</dt><dd data-testid="route-objective">{{ objectiveLabel[r.routeObjective] }}</dd>
-            <dt>Mode</dt><dd [class.emergency]="r.mode === 'EMERGENCY'">{{ r.mode }}</dd>
-            @if (r.coverage.startDistrict || r.coverage.destinationDistrict) {
-              <dt>Districts</dt><dd data-testid="route-districts">{{ r.coverage.startDistrict }} → {{ r.coverage.destinationDistrict }}</dd>
-            }
-            <dt>Altitude</dt><dd>{{ r.flightAltitudeMeters }} m AGL</dd>
-            <dt>Drone</dt><dd>{{ profileName(r.droneProfileId) }}</dd>
-            <dt>Wind</dt><dd>{{ r.weather.windSpeedKmh }} km/h from {{ r.weather.windDirectionDeg }}° ({{ r.weather.source }})</dd>
-          </dl>
-        } @else {
+            <dt>Flight time</dt><dd data-testid="route-eta">{{ eta(r.etaS) }}</dd>
+          }
+          <dt>Altitude</dt><dd data-testid="route-altitude">{{ r.flightAltitudeMeters }} m AGL</dd>
+          <dt>Flight mode</dt><dd [class.emergency]="r.mode === 'EMERGENCY'" data-testid="route-mode">{{ r.mode === 'EMERGENCY' ? 'Emergency' : 'Normal' }}</dd>
+          <dt>Optimisation</dt><dd data-testid="route-objective">{{ objectiveLabel[r.routeObjective] }}</dd>
+          @if (r.coverage.startDistrict || r.coverage.destinationDistrict) {
+            <dt>Districts</dt><dd data-testid="route-districts">{{ r.coverage.startDistrict }} → {{ r.coverage.destinationDistrict }}</dd>
+          }
+          @if (r.calculatedAt) {
+            <dt>Calculated</dt><dd data-testid="route-calculated">{{ r.calculatedAt | date: 'yyyy-MM-dd HH:mm' }} (Warsaw time)</dd>
+          }
+        </dl>
+        @if (r.status !== 'OK') {
           <p class="error-box" data-testid="route-message">{{ r.message }}</p>
         }
-        <p class="verification" data-testid="route-verification">{{ r.planningVerificationStatus }}</p>
+
+        <h3>Weather conditions</h3>
+        <dl class="stats" data-testid="route-weather">
+          <dt>Wind</dt><dd>{{ r.weather.windSpeedKmh }} km/h from {{ r.weather.windDirectionDeg }}°</dd>
+          @if (r.weather.windGustKmh !== null && r.weather.windGustKmh !== undefined) {
+            <dt>Gusts</dt><dd>{{ r.weather.windGustKmh }} km/h</dd>
+          }
+          <dt>Source</dt><dd [class.warn]="r.weather.source !== 'OPEN_METEO' && r.weather.mode === 'LIVE'" data-testid="route-weather-source">
+            {{ weatherSourceLabel[r.weather.source] }}</dd>
+          @if (r.weather.observedAt) {
+            <dt>Forecast time</dt><dd>{{ r.weather.observedAt | date: 'yyyy-MM-dd HH:mm' }}</dd>
+          }
+        </dl>
+
+        <h3>Drone</h3>
+        <dl class="stats" data-testid="route-drone">
+          <dt>Profile</dt><dd>{{ profile(r.droneProfileId)?.name ?? r.droneProfileId }}</dd>
+          @if (profile(r.droneProfileId); as p) {
+            <dt>Speed</dt><dd>{{ p.cruiseSpeedMps }} m/s (assumed)</dd>
+            <dt>Example range</dt><dd>{{ p.maxRangeKm }} km</dd>
+          }
+        </dl>
+
+        <h3>Safety and warnings</h3>
         @if (r.zoneConflicts.length) {
           <ul class="conflicts" data-testid="route-conflicts">
             @for (c of r.zoneConflicts; track $index) {
@@ -91,8 +124,7 @@ const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
         }
         @if (r.status === 'NO_ROUTE') {
           <p class="hint" data-testid="route-no-route-hint">
-            No path exists around the currently blocked geometry with these settings. Choose other points, change the
-            altitude, or check the zone list.
+            No path exists around the blocked areas with these settings. Choose other points or change the altitude.
           </p>
         }
         @if (r.warnings.length) {
@@ -102,10 +134,11 @@ const OBJECTIVE_LABEL: Record<RouteResponse['routeObjective'], string> = {
             }
           </ul>
         }
+        <p class="verification" data-testid="route-verification">{{ r.planningVerificationStatus }}</p>
         @if (r.search; as s) {
           <p class="hint" data-testid="route-search">
             Searched {{ s.windowKm2 }} km² at {{ s.resolutionM }} m resolution{{ s.wholeCity ? ' (whole city)' : '' }},
-            {{ s.attempts }} attempt{{ s.attempts === 1 ? '' : 's' }}, {{ s.elapsedMs | number: '1.0-0' }} ms{{ s.cached ? ' (cached)' : '' }}.
+            {{ s.elapsedMs | number: '1.0-0' }} ms{{ s.cached ? ' (cached)' : '' }}.
           </p>
         }
         <details class="sources">
@@ -127,6 +160,7 @@ export class RouteResultsComponent {
   protected readonly airspace = inject(AirspaceService);
   protected readonly relationLabel = RELATION_LABEL;
   protected readonly objectiveLabel = OBJECTIVE_LABEL;
+  protected readonly weatherSourceLabel = WEATHER_SOURCE_LABEL;
 
   protected readonly state = this.store.route;
   protected readonly stale = computed(() => {
@@ -158,7 +192,15 @@ export class RouteResultsComponent {
     return `${Math.floor(total / 60)} min ${String(total % 60).padStart(2, '0')} s`;
   }
 
-  protected profileName(id: string): string {
-    return this.api.profileList()?.find((p) => p.id === id)?.name ?? id;
+  protected profile(id: string) {
+    return this.api.profileList()?.find((p) => p.id === id);
+  }
+
+  /** The planner label for a point while it still matches the route request, else coordinates. */
+  protected label(role: 'start' | 'destination', r: RouteResponse): string {
+    const loc = role === 'start' ? this.store.start() : this.store.destination();
+    const c = role === 'start' ? r.start : r.destination;
+    if (loc && loc.coordinate.latitude === c.latitude && loc.coordinate.longitude === c.longitude) return loc.label;
+    return `${c.latitude.toFixed(5)}, ${c.longitude.toFixed(5)}`;
   }
 }

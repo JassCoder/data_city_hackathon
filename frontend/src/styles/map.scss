@@ -95,7 +95,7 @@ app-map .station-popup {
   .status-busy { color: #ef6c00; font-weight: 600; }
   .status-offline { color: #c62828; font-weight: 600; }
 
-  .demo-tag {
+  .-tag {
     display: inline-block;
     margin-top: 4px;
     padding: 0 6px;
@@ -134,21 +134,6 @@ app-map .route-pin {
   span { display: block; transform: rotate(45deg); line-height: 1; }
 }
 
-app-map .airspace-banner {
-  max-width: 300px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1.35;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-  background: #fff8e1;
-  color: #5d4037;
-  border-left: 4px solid #ffb300;
-
-  &.source-permitted_snapshot,
-  &.source-official { background: #e3f2fd; color: #0d47a1; border-left-color: #1565c0; }
-}
-
 app-map .legend-source {
   margin: 2px 0 6px;
   font-size: 11px;
@@ -160,7 +145,7 @@ app-map .zone-popup {
   font-size: 12px;
   line-height: 1.4;
 
-  .zone-demo {
+  .zone- {
     margin-bottom: 6px;
     padding: 2px 6px;
     border-radius: 3px;
@@ -237,4 +222,57 @@ app-map .district-label {
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
 
   &::before { display: none; }
+}
+
+/* --- delivery simulation layers --- */
+app-map .station-icon {
+  &.station-hospital.enabled { box-shadow: 0 0 0 3px #fff, 0 0 0 5px #2e7d32; }
+  &.station-depot.high-demand { background: #0d47a1; transform: scale(1.15); }
+  &.station-depot.disabled, &.station-pad.disabled { background: #9e9e9e; }
+  &.station-restaurant { background: #ef6c00; }
+  &.station-restaurant-plain { background: #8d6e63; .material-icons { font-size: 12px; } }
+  &.station-pad { background: #6a1b9a; .material-icons { font-size: 14px; } }
+}
+app-map .cluster {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; color: #fff; font-weight: 700; font-size: 12px;
+  border: 3px solid rgba(255, 255, 255, 0.85); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  &.cluster-hospital { background: rgba(198, 40, 40, 0.9); }
+  &.cluster-restaurant { background: rgba(141, 110, 99, 0.9); }
+}
+app-map .drone-badge, .map-legend .drone-badge {
+  display: inline-flex; align-items: center; gap: 2px; padding: 0 5px; height: 18px;
+  border-radius: 9px; color: #fff; font-size: 11px; font-weight: 700; white-space: nowrap;
+  .material-icons { font-size: 13px; transform: rotate(45deg); }
+  &.available { background: #2e7d32; }
+  &.busy { background: #757575; }
+}
+app-map .facility-popup {
+  font-size: 12px; min-width: 220px;
+  .title { font-weight: 700; font-size: 13px; }
+  .sub { color: #616161; margin: 2px 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; margin: 6px 0; }
+  dt { color: #757575; }
+  dd { margin: 0; }
+  .sim-tag { font-size: 10px; font-weight: 700; color: #6a1b9a; margin: 4px 0; }
+  .actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .popup-action {
+    font: inherit; font-size: 11px; padding: 3px 8px; border-radius: 12px; cursor: pointer;
+    border: 1px solid #1565c0; background: #fff; color: #1565c0;
+    &:hover { background: #e3f2fd; }
+  }
+}
+
+/* Simulated drone (virtual flight only). The inner body rotates with the heading. */
+app-map .drone-marker {
+  background: none;
+  border: none;
+}
+
+app-map .drone-body {
+  width: 40px;
+  height: 40px;
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
+  will-change: transform;
 }

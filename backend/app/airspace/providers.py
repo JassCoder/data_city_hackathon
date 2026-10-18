@@ -1,7 +1,7 @@
 """Airspace providers. Each returns zones in the normalized `AirspaceZone` form.
 
 - `GeoJsonZoneFileProvider`: a FeatureCollection whose properties already use
-  the normalized field names (camelCase). Used for the DEMO dataset and for
+  the normalized field names (camelCase). Used for the set and for
   official snapshots converted to this format.
 - `Ed269FileProvider`: an EUROCAE ED-269-style JSON export (the EU format for
   UAS geographical zones under Regulation (EU) 2019/947). No official Polish
@@ -57,6 +57,7 @@ class AirspaceDataset:
     # Outside it, zones are unknown: routes there are flagged as not checked.
     extent: BaseGeometry | None = None
     extent_label: str | None = None
+    duplicates_removed: int = 0  # identical features published more than once
 
 
 class AirspaceProvider(Protocol):
@@ -75,6 +76,24 @@ def _read(path: Path) -> tuple[bytes, Any]:
         return raw, json.loads(raw)
     except json.JSONDecodeError as exc:
         raise AirspaceLoadError(f"{path.name} is not valid JSON: {exc}") from exc
+
+
+def dedupe_zones(zones: list[AirspaceZone], where: str) -> tuple[list[AirspaceZone], int]:
+    """Drops exact duplicates (same id and identical content), e.g. a zone published
+    in two files. Two different zones with the same id are ambiguous: refuse the
+    dataset rather than guess which boundary is right."""
+    seen: dict[str, AirspaceZone] = {}
+    out, dropped = [], 0
+    for z in zones:
+        prev = seen.get(z.id)
+        if prev is None:
+            seen[z.id] = z
+            out.append(z)
+        elif prev.model_dump(exclude={"source_timestamp"}) == z.model_dump(exclude={"source_timestamp"}):
+            dropped += 1
+        else:
+            raise AirspaceLoadError(f"{where}: zone id '{z.id}' appears twice with different content")
+    return out, dropped
 
 
 def _version(raw: bytes) -> str:
@@ -106,7 +125,7 @@ class GeoJsonZoneFileProvider(_FileProvider):
         raw, doc = _read(self.path)
         meta = doc.get("metadata", {}) if isinstance(doc, dict) else {}
         try:
-            source_type = SourceType(meta.get("sourceType", "DEMO"))
+            source_type = SourceType(meta.get("sourceType", ""))
         except ValueError as exc:
             raise AirspaceLoadError(f"{self.path.name}: unknown metadata.sourceType") from exc
         zones, errors = [], []
@@ -117,9 +136,7 @@ class GeoJsonZoneFileProvider(_FileProvider):
                 errors.append(f"feature {i}: {exc}")
         if errors:
             raise AirspaceLoadError(f"Invalid zones in {self.path.name}:\n" + "\n".join(errors))
-        ids = [z.id for z in zones]
-        if len(set(ids)) != len(ids):
-            raise AirspaceLoadError(f"{self.path.name}: duplicate zone ids")
+        zones, dropped = dedupe_zones(zones, self.path.name)
         return AirspaceDataset(
             provider=meta.get("provider", self.name),
             source_type=source_type,
@@ -131,6 +148,7 @@ class GeoJsonZoneFileProvider(_FileProvider):
             loaded_at=datetime.now(timezone.utc),
             extent=self._extent(meta.get("extent")),
             extent_label=meta.get("extentLabel"),
+            duplicates_removed=dropped,
         )
 
     @staticmethod
@@ -144,6 +162,9 @@ class GeoJsonZoneFileProvider(_FileProvider):
     @staticmethod
     def _zone(feature: dict, source_type: SourceType) -> AirspaceZone:
         props = dict(feature["properties"])
+        if props.get("draCategory") == DraCategory.PLANNING.value or \
+                props.get("sourceType") == SourceType.PLANNING_CONSTRAINT.value:
+            raise ValueError("PLANNING is reserved for SkyRoute planning constraints, not airspace files")
         circle = Circle.model_validate(props["circle"]) if props.get("circle") else None
         if circle:
             geom = geodesic_circle(circle.center[0], circle.center[1], circle.radius_m)
@@ -190,6 +211,7 @@ class Ed269FileProvider(_FileProvider):
                 errors.append(f"feature {i} ({f.get('identifier', '?') if isinstance(f, dict) else '?'}): {exc}")
         if errors:
             raise AirspaceLoadError(f"Invalid ED-269 features in {self.path.name}:\n" + "\n".join(errors))
+        zones, dropped = dedupe_zones(zones, self.path.name)
         return AirspaceDataset(
             provider=self.name,
             source_type=SourceType.PERMITTED_SNAPSHOT,
@@ -199,6 +221,7 @@ class Ed269FileProvider(_FileProvider):
             zones=zones,
             version=_version(raw),
             loaded_at=datetime.now(timezone.utc),
+            duplicates_removed=dropped,
         )
 
     @staticmethod
@@ -264,3 +287,76 @@ class Ed269FileProvider(_FileProvider):
             operational_conditions=" ".join(conditions) or None,
             verification_status=VerificationStatus.OFFICIAL_UNVERIFIED_LOCALLY,
         )
+
+
+# --- no data ---------------------------------------------------------------------
+
+class EmptyProvider:
+    """No airspace dataset (SKYROUTE_AIRSPACE_PROVIDER=none): zero zones and source
+    type NONE, so every route is an UNVERIFIED SIMULATION (never "unrestricted")."""
+
+    name = "none"
+
+    def load(self) -> AirspaceDataset:
+        return AirspaceDataset(
+            provider=self.name, source_type=SourceType.NONE, label="No airspace data loaded",
+            source_timestamp=None, zones=[], version="none", loaded_at=datetime.now(timezone.utc),
+            disclaimer="No airspace zones are loaded. Unknown airspace is not unrestricted airspace.",
+            extent_label="No airspace data",
+        )
+
+    def has_changed(self, dataset: AirspaceDataset) -> bool:
+        return False
+
+
+# --- several files -------------------------------------------------------------
+
+_SOURCE_RANK = {
+    SourceType.NONE: -1,
+    SourceType.SYNTHETIC: 0,
+    SourceType.PERMITTED_SNAPSHOT: 1,
+    SourceType.OFFICIAL: 2,
+}
+
+
+class CompositeProvider:
+    """Merges several providers into one dataset, e.g. an official snapshot plus a
+    separate file of temporary restrictions. Exact duplicates across files are
+    dropped; conflicting duplicates reject the update (the last good one stays).
+
+    The merged dataset is only as trustworthy as its weakest part (source type),
+    and covers the union of the parts' extents (None if any part covers everything)."""
+
+    name = "composite"
+
+    def __init__(self, providers: list[AirspaceProvider]):
+        if not providers:
+            raise AirspaceLoadError("CompositeProvider needs at least one provider")
+        self.providers = providers
+
+    def load(self) -> AirspaceDataset:
+        parts = [p.load() for p in self.providers]
+        zones, dropped = dedupe_zones([z for d in parts for z in d.zones], "combined airspace files")
+        extents = [d.extent for d in parts]
+        weakest = min(parts, key=lambda d: _SOURCE_RANK[d.source_type])
+        stamps = [d.source_timestamp for d in parts if d.source_timestamp]
+        return AirspaceDataset(
+            provider=" + ".join(d.provider for d in parts),
+            source_type=weakest.source_type,
+            label=" + ".join(d.label for d in parts),
+            source_timestamp=min(stamps) if stamps else None,  # the oldest part sets the currency
+            disclaimer=" ".join(dict.fromkeys(d.disclaimer for d in parts if d.disclaimer)),
+            zones=zones,
+            version=hashlib.sha256("|".join(d.version for d in parts).encode()).hexdigest()[:12],
+            loaded_at=datetime.now(timezone.utc),
+            extent=None if any(e is None for e in extents) else unary_union(extents),
+            extent_label="; ".join(d.extent_label for d in parts if d.extent_label) or None,
+            duplicates_removed=dropped + sum(d.duplicates_removed for d in parts),
+        )
+
+    def has_changed(self, dataset: AirspaceDataset) -> bool:
+        try:
+            current = hashlib.sha256("|".join(p.load().version for p in self.providers).encode()).hexdigest()[:12]
+        except AirspaceLoadError:
+            return True  # let refresh() record the error and keep the last good dataset
+        return current != dataset.version

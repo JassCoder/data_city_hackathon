@@ -15,14 +15,18 @@ import { HttpClient } from '@angular/common/http';
 import type { FeatureCollection } from 'geojson';
 import { API_BASE_URL } from '../core/api';
 import { BoundaryResponse, FALLBACK_VIEW } from '../core/map-data';
+import { Drone, Facility, Hospital, Order, Restaurant } from '../core/fleet';
+import { FacilityAction, FleetLayers, FLEET_COLORS } from './fleet-layers';
 import { AirspaceSource, AirspaceZone, DisplayClass, SOURCE_LABEL, STATUS_LABEL } from '../core/airspace';
 import { BuildingProps, CorridorProps, Layers, StationProps, StationType, TALL_BUILDING_M } from '../core/layers';
-import { Coordinate, SelectedLocation } from '../core/models';
+import { Coordinate, Entrance, SelectedLocation } from '../core/models';
+import { BUILDING_MIN_ZOOM, LayerKey, MapLayerStore } from '../core/map-layers';
 import { RouteState } from '../core/planner.store';
+import type { SimFrame } from '../core/simulation';
 
 /** All footprints are loaded as z14 tiles once the map is zoomed in this far. */
 export const BUILDING_TILE_ZOOM = 14;
-export const BUILDING_MIN_ZOOM = 15;
+export { BUILDING_MIN_ZOOM } from '../core/map-layers';
 const MAX_TILES_IN_VIEW = 30;
 
 /** z14 web-mercator tiles covering a lon/lat box. */
@@ -49,17 +53,42 @@ export const COLORS = {
   routeNormal: '#1565c0',
   routeEmergency: '#2e7d32',
   routeStale: '#757575',
+  simTrail: '#2e7d32',
+  simReturn: '#6a1b9a',
 } as const;
 
 /** Airspace legend colours (fill = evaluation class for the planned flight). */
 export const ZONE_COLORS: Record<DisplayClass, string> = {
-  RED: '#d32f2f',
+  RED: '#dc2626',
   ORANGE: '#f57c00',
   YELLOW: '#f9a825',
   GRAY: '#757575',
   INACTIVE: '#9e9e9e',
 };
-const OBSTACLE_OUTLINE = '#c62828';
+const OBSTACLE_OUTLINE = '#b91c1c';
+/** Information-only zones (warning, not an obstacle) are blue, distinct from technical (yellow). */
+export const INFO_BLUE = '#0277bd';
+
+export function zoneFill(z: AirspaceZone): string {
+  const e = z.evaluation;
+  return e.displayClass === 'YELLOW' && !e.isObstacle ? INFO_BLUE : ZONE_COLORS[e.displayClass];
+}
+
+/** Top-view quadcopter; the nose (arrow) points along the flight heading. */
+function droneIcon(): L.DivIcon {
+  return L.divIcon({
+    className: 'drone-marker',
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    html: `<div class="drone-body" data-testid="sim-drone"><svg viewBox="0 0 40 40" width="40" height="40" aria-label="Simulated drone">
+      <g stroke="#263238" stroke-width="2.5" stroke-linecap="round"><line x1="9" y1="9" x2="31" y2="31"/><line x1="31" y1="9" x2="9" y2="31"/></g>
+      <g fill="rgba(255,255,255,0.85)" stroke="#263238" stroke-width="1.5">
+        <circle cx="9" cy="9" r="6"/><circle cx="31" cy="9" r="6"/><circle cx="9" cy="31" r="6"/><circle cx="31" cy="31" r="6"/></g>
+      <rect x="14" y="14" width="12" height="12" rx="3" fill="#1565c0" stroke="#fff" stroke-width="1.5"/>
+      <path d="M20 2 L25 10 L15 10 Z" fill="#e53935" stroke="#fff" stroke-width="1"/>
+    </svg></div>`,
+  });
+}
 
 function esc(v: unknown): string {
   return String(v ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -68,16 +97,16 @@ function esc(v: unknown): string {
 /** Leaflet path style for a zone: fill by class, solid red outline when it is a routing obstacle. */
 export function zoneStyle(z: AirspaceZone, highlighted = false): L.PathOptions {
   const e = z.evaluation;
-  const fill = ZONE_COLORS[e.displayClass];
+  const fill = zoneFill(z);
   if (e.displayClass === 'INACTIVE') {
     return { color: '#757575', weight: highlighted ? 4 : 1.5, dashArray: '4 6', fillColor: fill, fillOpacity: 0.06 };
   }
   return {
     color: e.isObstacle ? OBSTACLE_OUTLINE : fill,
-    weight: highlighted ? 5 : e.isObstacle ? 2.5 : 1.5,
+    weight: highlighted ? 5 : e.isObstacle ? 2 : 1.5,
     dashArray: e.isObstacle ? undefined : '6 4',
     fillColor: fill,
-    fillOpacity: e.displayClass === 'RED' ? 0.4 : 0.3,
+    fillOpacity: e.displayClass === 'RED' ? 0.3 : 0.28,
   };
 }
 
@@ -98,7 +127,7 @@ function guardedCanvas(): L.Renderer {
 const HEIGHT_SOURCE_LABEL: Record<BuildingProps['height_source'], string> = {
   osm_height: 'OSM height tag',
   levels_x3: 'levels × 3 m',
-  default_15m: 'unknown, default 15 m (estimated)',
+  unknown: 'no OSM height or levels (unknown; routing uses the configured policy)',
 };
 
 const STATION_ICON: Record<StationType, string> = {
@@ -126,6 +155,8 @@ export class MapComponent implements OnDestroy {
   readonly start = input<SelectedLocation | null>(null);
   readonly destination = input<SelectedLocation | null>(null);
   readonly route = input<RouteState>({ phase: 'idle' });
+  /** Virtual flight frame (drone position, heading, flown trails, return route); null = no simulation. */
+  readonly simulation = input<SimFrame | null>(null);
   /** True while a "Pick on map" target is armed (crosshair cursor). */
   readonly picking = input(false);
   /** Evaluated airspace zones to draw (already filtered for display). */
@@ -137,21 +168,38 @@ export class MapComponent implements OnDestroy {
   readonly boundary = input<BoundaryResponse | undefined>();
   /** The boundary could not be loaded: show a labelled fallback view. */
   readonly boundaryMissing = input(false);
+  /** Simulated delivery infrastructure (hospitals/restaurants are real OSM records). */
+  readonly hospitals = input<Hospital[]>([]);
+  readonly depots = input<Facility[]>([]);
+  readonly pads = input<Facility[]>([]);
+  readonly partners = input<Restaurant[]>([]);
+  readonly allRestaurants = input<Restaurant[]>([]);
+  readonly drones = input<Drone[]>([]);
+  readonly deliveries = input<Order[]>([]);
+  readonly facilityAction = output<FacilityAction>();
+  /** Mapped entrances offered for the point just searched (choose one to move the point there). */
+  readonly entrances = input<Entrance[]>([]);
+  readonly entranceSelected = output<Entrance>();
   readonly mapClick = output<Coordinate>();
   readonly focusDone = output<void>();
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLDivElement>>('mapEl');
   private map?: L.Map;
-  private layerControl?: L.Control.Layers;
+  /** Map layers by Layers-panel key; visibility comes from MapLayerStore (display only). */
+  private readonly layerStore = inject(MapLayerStore);
+  private readonly registry = new Map<LayerKey, L.Layer[]>();
+  private entranceLayer?: L.LayerGroup;
   private dataLayers: L.Layer[] = [];
   private corridorLayers: L.GeoJSON[] = [];
   private zoneLayer?: L.GeoJSON;
   private canvas?: L.Renderer;
-  private banner?: HTMLElement;
-  private legendSource?: HTMLElement;
   private readonly markers: Partial<Record<'start' | 'destination', L.Marker>> = {};
   private routeLayer?: L.LayerGroup;
   private routeRenderer?: L.Renderer;
+  private simLayer?: L.LayerGroup;
+  private simReturn?: L.Polyline;
+  private simTrails: L.Polyline[] = [];
+  private drone?: L.Marker;
   private lastFitted?: unknown;
   private readonly http = inject(HttpClient, { optional: true });
   private cityLayer?: L.GeoJSON;
@@ -166,6 +214,7 @@ export class MapComponent implements OnDestroy {
   private readonly tiles = new Map<string, L.GeoJSON>();
   private readonly pendingTiles = new Set<string>();
   private resizeObserver?: ResizeObserver;
+  private fleet?: FleetLayers;
 
   constructor() {
     afterNextRender(() => {
@@ -175,9 +224,6 @@ export class MapComponent implements OnDestroy {
         maxZoom: 19,
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(this.map);
-      this.layerControl = L.control.layers(undefined, undefined, { collapsed: false }).addTo(this.map);
-      this.legend().addTo(this.map);
-      this.airspaceBanner().addTo(this.map);
       this.showWarsawControl().addTo(this.map);
       this.coverageBannerControl().addTo(this.map);
       // One canvas for corridors, zones and buildings (thousands of polygons).
@@ -198,10 +244,10 @@ export class MapComponent implements OnDestroy {
             }
           });
         },
-      }).addTo(this.map);
-      this.layerControl.addOverlay(this.zoneLayer, this.swatch(ZONE_COLORS.RED, 'Airspace zones'));
-      this.tileGroup = L.layerGroup().addTo(this.map);
-      this.layerControl.addOverlay(this.tileGroup, this.swatch(COLORS.building, `All buildings (zoom ≥ ${BUILDING_MIN_ZOOM})`));
+      });
+      this.register('airspaceZones', this.zoneLayer);
+      this.tileGroup = L.layerGroup();
+      this.register('buildings', this.tileGroup);
       this.map.on('moveend', () => this.syncBuildingTiles());
       if (typeof ResizeObserver !== 'undefined') {
         this.resizeObserver = new ResizeObserver(() => {
@@ -211,8 +257,6 @@ export class MapComponent implements OnDestroy {
         });
         this.resizeObserver.observe(this.mapEl().nativeElement);
       }
-      // Re-enabled overlays are drawn last on the shared canvas: restore the order.
-      this.map.on('overlayadd', () => this.enforceOrder());
       this.map.on('click', (e: L.LeafletMouseEvent) =>
         this.mapClick.emit({ latitude: e.latlng.lat, longitude: e.latlng.lng }),
       );
@@ -220,10 +264,18 @@ export class MapComponent implements OnDestroy {
       this.map.createPane('routePane').style.zIndex = '450';
       this.routeRenderer = L.svg({ pane: 'routePane' });
       this.routeLayer = L.layerGroup().addTo(this.map);
+      // The simulated drone flies above every layer and marker.
+      this.map.createPane('dronePane').style.zIndex = '660';
+      this.simLayer = L.layerGroup().addTo(this.map);
+      this.entranceLayer = L.layerGroup().addTo(this.map);
+      this.fleet = new FleetLayers(this.map, (key, layer) => this.register(key, layer),
+        (a) => this.facilityAction.emit(a), this.routeRenderer);
+      this.syncFleet();
       this.render(this.layers());
       this.syncMarker('start', this.start());
       this.syncMarker('destination', this.destination());
       this.syncRoute(this.route());
+      this.syncSimulation(this.simulation());
       this.syncZones(this.zones(), this.highlightZoneIds());
       this.syncSource(this.airspaceSource());
       this.syncBoundary(this.boundary(), this.boundaryMissing());
@@ -233,19 +285,61 @@ export class MapComponent implements OnDestroy {
     effect(() => this.syncMarker('start', this.start()));
     effect(() => this.syncMarker('destination', this.destination()));
     effect(() => this.syncRoute(this.route()));
+    effect(() => this.syncSimulation(this.simulation()));
     effect(() => this.mapEl().nativeElement.classList.toggle('picking', this.picking()));
     effect(() => this.syncZones(this.zones(), this.highlightZoneIds()));
     effect(() => this.syncSource(this.airspaceSource()));
     effect(() => this.focus(this.focusZoneId()));
     effect(() => this.syncBoundary(this.boundary(), this.boundaryMissing()));
+    effect(() => this.syncLayerVisibility(this.layerStore.visible()));
+    effect(() => this.syncEntrances(this.entrances()));
+    effect(() => {
+      const v = this.hospitals(); // read first: the input must be tracked even before the layers exist
+      this.fleet?.setHospitals(v);
+    });
+    effect(() => {
+      const v = this.depots(); // read first: the input must be tracked even before the layers exist
+      this.fleet?.setDepots(v);
+    });
+    effect(() => {
+      const v = this.pads(); // read first: the input must be tracked even before the layers exist
+      this.fleet?.setPads(v);
+    });
+    effect(() => {
+      const v = this.partners(); // read first: the input must be tracked even before the layers exist
+      this.fleet?.setPartners(v);
+    });
+    effect(() => {
+      const v = this.allRestaurants(); // read first: the input must be tracked even before the layers exist
+      this.fleet?.setAllRestaurants(v);
+    });
+    effect(() => {
+      const v = this.drones(); // read first: the input must be tracked even before the layers exist
+      this.fleet?.setDrones(v);
+    });
+    effect(() => {
+      const v = this.deliveries(); // read first: the input must be tracked even before the layers exist
+      this.fleet?.setOrders(v);
+    });
+  }
+
+  private syncFleet(): void {
+    const f = this.fleet;
+    if (!f) return;
+    f.setHospitals(this.hospitals());
+    f.setDepots(this.depots());
+    f.setPads(this.pads());
+    f.setPartners(this.partners());
+    f.setAllRestaurants(this.allRestaurants());
+    f.setDrones(this.drones());
+    f.setOrders(this.deliveries());
   }
 
   // --- city boundary ------------------------------------------------------------
 
   private syncBoundary(boundary: BoundaryResponse | undefined, missing: boolean): void {
     const map = this.map;
-    const control = this.layerControl;
-    if (!map || !control) return;
+    if (!map) return;
     if (this.coverageBanner) {
       this.coverageBanner.hidden = !missing;
       this.coverageBanner.innerHTML = missing
@@ -258,13 +352,13 @@ export class MapComponent implements OnDestroy {
       interactive: false,
       onEachFeature: (f, l) =>
         l.bindTooltip(String(f.properties.name), { permanent: true, direction: 'center', className: 'district-label' }),
-    }).addTo(map);
+    });
     this.cityLayer = L.geoJSON(boundary.city, {
       style: { color: COLORS.city, weight: 3, opacity: 0.9, fill: false },
       interactive: false,
-    }).addTo(map);
-    control.addOverlay(this.cityLayer, this.swatch(COLORS.city, 'Warsaw boundary (GUGiK PRG)', true));
-    control.addOverlay(this.districtLayer, this.swatch(COLORS.district, '18 districts', true));
+    });
+    this.register('districts', this.districtLayer);
+    this.register('boundary', this.cityLayer);
     this.cityBounds = this.cityLayer.getBounds();
     if (!this.fittedCity) {
       this.fittedCity = true;
@@ -311,14 +405,15 @@ export class MapComponent implements OnDestroy {
   // --- building tiles ------------------------------------------------------------
 
   private buildingStyle = (f?: GeoJSON.Feature): L.PathOptions => {
-    const tall = (f?.properties as BuildingProps).height_m >= TALL_BUILDING_M;
+    const tall = ((f?.properties as BuildingProps).height_m ?? 0) >= TALL_BUILDING_M;
     const color = tall ? COLORS.tallBuilding : COLORS.building;
     return { color, weight: tall ? 1 : 0.5, fillColor: color, fillOpacity: tall ? 0.85 : 0.45 };
   };
 
   private buildingTooltip = (f: GeoJSON.Feature, l: L.Layer): void => {
     const p = f.properties as BuildingProps;
-    l.bindTooltip(`<b>${p.height_m} m</b><br>${HEIGHT_SOURCE_LABEL[p.height_source]}`, { sticky: true });
+    const h = p.height_m === null ? 'height unknown' : `${p.height_m} m`;
+    l.bindTooltip(`<b>${h}</b><br>${HEIGHT_SOURCE_LABEL[p.height_source]}`, { sticky: true });
   };
 
   /** Loads/shows z14 footprint tiles in view at street zoom; hides them when zoomed out. */
@@ -326,7 +421,8 @@ export class MapComponent implements OnDestroy {
     const map = this.map;
     const group = this.tileGroup;
     if (!map || !group) return;
-    if (map.getZoom() < BUILDING_MIN_ZOOM || map.getSize().x === 0) {
+    // Viewport-based: nothing is fetched while the layer is off or below the zoom threshold.
+    if (!this.layerStore.isVisible('buildings') || map.getZoom() < BUILDING_MIN_ZOOM || map.getSize().x === 0) {
       group.clearLayers();
       return;
     }
@@ -400,32 +496,21 @@ export class MapComponent implements OnDestroy {
   }
 
   private syncSource(src: AirspaceSource | undefined): void {
-    if (!this.banner || !this.legendSource) return;
-    if (!src) {
-      this.banner.hidden = true;
-      this.legendSource.textContent = 'Airspace data: not loaded';
-      return;
-    }
-    this.banner.hidden = false;
-    this.banner.className = `airspace-banner source-${src.sourceType.toLowerCase()}`;
-    this.banner.innerHTML =
-      src.sourceType === 'DEMO'
-        ? '<b>DEMO airspace</b>: synthetic zones, <u>not</u> official PAŻP boundaries'
-        : `<b>${esc(SOURCE_LABEL[src.sourceType])}</b>: ${esc(src.label)}. Not a legality check.`;
-    this.legendSource.textContent = `Airspace data: ${SOURCE_LABEL[src.sourceType]} (v${src.datasetVersion})`;
+    if (!src) return;
     // Where the zone dataset ends: outside it zones are unknown, not "clear".
-    if (this.map && this.layerControl && !this.extentLayer && src.extent) {
+    if (this.map && !this.extentLayer && src.extent) {
       this.extentLayer = L.geoJSON(src.extent as GeoJSON.Geometry, {
         style: { color: COLORS.bbox, weight: 2, dashArray: '6 6', fill: false },
         interactive: false,
-      }).addTo(this.map);
+      });
       this.extentLayer.bindTooltip(src.extentLabel ?? 'Airspace data extent');
-      this.layerControl.addOverlay(this.extentLayer, this.swatch(COLORS.bbox, 'Airspace data extent', true));
+      this.register('airspaceZones', this.extentLayer); // shown with the zones
     }
   }
 
   private zonePopup(z: AirspaceZone): string {
     const e = z.evaluation;
+    const src = this.airspaceSource();
     const alt = (v: number | null, unknown: string) => (v === null ? unknown : `${v} m`);
     const band = `${alt(z.lowerAltitude, 'unknown floor')} – ${alt(z.upperAltitude, 'unknown ceiling')} ${z.altitudeReference}`;
     const validity =
@@ -434,18 +519,21 @@ export class MapComponent implements OnDestroy {
             z.validityEnd ? new Date(z.validityEnd).toISOString().slice(0, 16).replace('T', ' ') : '…'
           } UTC`
         : 'Permanent / not specified';
-    const demo =
-      z.sourceType === 'DEMO'
-        ? '<div class="zone-demo">DEMO: synthetic boundary, NOT an official geographical zone</div>'
-        : '';
+    const syntheticNotice =
+      z.sourceType === 'SYNTHETIC'
+        ? '<div class="zone-source-warning">Synthetic boundary, not an official geographical zone</div>'
+        : z.sourceType === 'PLANNING_CONSTRAINT'
+          ? '<div class="zone-source-warning">PLANNING CONSTRAINT: avoided by SkyRoute policy (OSM-mapped area). Not an official no-fly zone.</div>'
+          : '';
     return `
       <div class="zone-popup" data-zone-id="${esc(z.id)}">
-        ${demo}
+        ${syntheticNotice}
         <div class="title">${esc(z.name)}</div>
         <div class="row"><span class="chip chip-${e.displayClass.toLowerCase()}">${esc(z.draCategory)}</span>
           <span class="status">${esc(STATUS_LABEL[e.status])}</span></div>
         <ul class="reasons">${e.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
         <dl>
+          <dt>Zone ID</dt><dd>${esc(z.id)}</dd>
           <dt>Restriction</dt><dd>${esc(z.restrictionType)}</dd>
           <dt>Altitude</dt><dd>${esc(band)}</dd>
           <dt>Validity</dt><dd>${esc(validity)}</dd>
@@ -454,20 +542,10 @@ export class MapComponent implements OnDestroy {
           ${z.circle ? `<dt>Circle</dt><dd>${z.circle.radiusM} m radius around ${z.circle.center[1].toFixed(5)}, ${z.circle.center[0].toFixed(5)}</dd>` : ''}
           <dt>Source</dt><dd>${esc(z.source ?? 'unknown')} (${esc(SOURCE_LABEL[z.sourceType])})</dd>
           <dt>Source time</dt><dd>${esc(z.sourceTimestamp ?? 'unknown')}</dd>
+          ${src ? `<dt>Last update</dt><dd>dataset v${esc(src.datasetVersion)}, loaded ${esc(src.loadedAt.slice(0, 16).replace('T', ' '))} UTC</dd>` : ''}
           <dt>Verification</dt><dd>${esc(z.verificationStatus)}</dd>
         </dl>
       </div>`;
-  }
-
-  private airspaceBanner(): L.Control {
-    const c = new L.Control({ position: 'topleft' });
-    c.onAdd = () => {
-      this.banner = L.DomUtil.create('div', 'airspace-banner');
-      this.banner.hidden = true;
-      L.DomEvent.disableClickPropagation(this.banner);
-      return this.banner;
-    };
-    return c;
   }
 
   private syncMarker(role: 'start' | 'destination', loc: SelectedLocation | null): void {
@@ -497,10 +575,52 @@ export class MapComponent implements OnDestroy {
         .bindTooltip(tooltip, { direction: 'top', offset: [0, -26] })
         .addTo(map);
     }
-    // Typed or searched points may be off-screen: pan there, keeping the zoom.
-    if (loc.source !== 'MAP_CLICK' && loc.source !== 'DEMO' && !map.getBounds().contains(latlng)) {
+    // A searched address or entrance: zoom to street level (building matches closer); others pan if off-screen.
+    if (loc.source === 'SEARCH' || loc.source === 'ENTRANCE') {
+      const zoom = loc.source === 'ENTRANCE' || loc.accuracy === 'ADDRESS' ? 18 : loc.accuracy === 'STREET' ? 16 : 15;
+      if (map.getSize().x > 0) map.setView(latlng, Math.max(map.getZoom(), zoom));
+    } else if (loc.source !== 'MAP_CLICK' && !map.getBounds().contains(latlng)) {
       map.panTo(latlng);
     }
+  }
+
+  /** Updates the drone, its flown trails and the return route in place (no rebuild per frame). */
+  private syncSimulation(frame: SimFrame | null): void {
+    const map = this.map;
+    const group = this.simLayer;
+    if (!map || !group) return;
+    if (!frame) {
+      group.clearLayers();
+      this.simTrails = [];
+      this.simReturn = undefined;
+      this.drone = undefined;
+      return;
+    }
+    if (frame.returnPath && !this.simReturn) {
+      this.simReturn = L.polyline(frame.returnPath, {
+        renderer: this.routeRenderer, color: COLORS.simReturn, weight: 4, opacity: 0.85, dashArray: '10 6',
+        className: 'sim-return', interactive: false,
+      }).addTo(group);
+    }
+    frame.trails.forEach((trail, i) => {
+      if (!this.simTrails[i]) {
+        this.simTrails[i] = L.polyline(trail, {
+          renderer: this.routeRenderer, color: COLORS.simTrail, weight: 6, opacity: 0.95, className: 'sim-trail',
+          interactive: false,
+        }).addTo(group);
+      } else {
+        this.simTrails[i].setLatLngs(trail);
+      }
+    });
+    const at = L.latLng(frame.lat, frame.lng);
+    if (!this.drone) {
+      this.drone = L.marker(at, { icon: droneIcon(), pane: 'dronePane', interactive: false, keyboard: false }).addTo(group);
+    } else {
+      this.drone.setLatLng(at);
+    }
+    const body = this.drone.getElement()?.querySelector<HTMLElement>('.drone-body');
+    if (body) body.style.transform = `rotate(${frame.heading.toFixed(1)}deg)`;
+    if (frame.follow && !map.getBounds().pad(-0.15).contains(at)) map.panTo(at, { animate: false });
   }
 
   private syncRoute(state: RouteState): void {
@@ -563,13 +683,9 @@ export class MapComponent implements OnDestroy {
 
   private render(layers: Layers | undefined): void {
     const map = this.map;
-    const control = this.layerControl;
-    if (!map || !control || !layers) return;
+    if (!map || !layers) return;
 
-    for (const layer of this.dataLayers) {
-      control.removeLayer(layer);
-      layer.remove();
-    }
+    for (const layer of this.dataLayers) this.unregister(layer);
 
     // Thousands of building/park polygons share the canvas with the zones,
     // which sit *below* buildings: canvas hit-testing picks the topmost shape,
@@ -599,19 +715,69 @@ export class MapComponent implements OnDestroy {
     const river = corridors('RIVER', COLORS.river, 0.35);
     const parks = corridors('PARK', COLORS.park, 0.3);
     this.corridorLayers = [parks, river];
-    const overlays: [string, L.Layer][] = [
-      [this.swatch(COLORS.river, 'River'), river],
-      [this.swatch(COLORS.park, 'Parks / green'), parks],
-      [this.swatch(COLORS.tallBuilding, `Buildings ≥ ${TALL_BUILDING_M} m`), tall],
-      [this.swatch('#1565c0', 'Landing stations'), stations],
-    ];
-    this.dataLayers = overlays.map(([name, layer]) => {
-      layer.addTo(map);
-      control.addOverlay(layer, name);
-      return layer;
-    });
+    const keyed: [LayerKey, L.Layer][] = [['river', river], ['parks', parks], ['tallBuildings', tall], ['legacyStations', stations]];
+    this.dataLayers = keyed.map(([key, layer]) => this.register(key, layer));
     this.tallLayer = tall;
     this.enforceOrder();
+  }
+
+  // --- layer registry (Layers panel) -------------------------------------------------
+
+  /** Adds a map layer under a Layers-panel key; it is shown only while that key is visible. */
+  private register(key: LayerKey, layer: L.Layer): L.Layer {
+    const list = this.registry.get(key) ?? [];
+    list.push(layer);
+    this.registry.set(key, list);
+    this.applyVisibility(key, layer, this.layerStore.visible()[key]);
+    this.enforceOrder();
+    return layer;
+  }
+
+  private unregister(layer: L.Layer): void {
+    for (const [key, list] of this.registry) this.registry.set(key, list.filter((l) => l !== layer));
+    layer.remove();
+  }
+
+  private applyVisibility(key: LayerKey, layer: L.Layer, on: boolean): void {
+    const map = this.map;
+    if (!map) return;
+    if (on && !map.hasLayer(layer)) map.addLayer(layer);
+    if (!on && map.hasLayer(layer)) map.removeLayer(layer);
+  }
+
+  private syncLayerVisibility(visible: Record<LayerKey, boolean>): void {
+    for (const [key, list] of this.registry) for (const layer of list) this.applyVisibility(key, layer, visible[key]);
+    this.enforceOrder();
+    this.syncBuildingTiles();
+  }
+
+  /** Visible map layers per key (for tests and diagnostics). */
+  visibleLayerKeys(): LayerKey[] {
+    const map = this.map;
+    return [...this.registry].filter(([, list]) => !!map && list.some((l) => map.hasLayer(l))).map(([k]) => k);
+  }
+
+  // --- entrances --------------------------------------------------------------------------
+
+  private syncEntrances(entrances: Entrance[]): void {
+    const group = this.entranceLayer;
+    if (!group) return;
+    group.clearLayers();
+    for (const e of entrances) {
+      const text = esc(e.ref ?? (e.entrance === 'main' ? 'M' : '•'));
+      L.marker([e.latitude, e.longitude], {
+        icon: L.divIcon({
+          className: '',
+          html: `<div class="entrance-pin${e.matchesFlat ? ' flat-match' : ''}" data-entrance-id="${esc(e.id)}">${text}</div>`,
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        }),
+        title: `Entrance ${e.ref ?? ''} (${e.entrance ?? 'mapped'})`.replace('  ', ' '),
+        zIndexOffset: 900,
+      })
+        .on('click', () => this.entranceSelected.emit(e))
+        .addTo(group);
+    }
   }
 
   private stationIcon(type: StationType): L.DivIcon {
@@ -631,41 +797,10 @@ export class MapComponent implements OnDestroy {
         <div>${STATION_LABEL[p.station_type]}</div>
         <div>Status: <span class="status status-${p.status.toLowerCase()}">${p.status}</span></div>
         <div>Capacity: ${p.capacity} drone${p.capacity === 1 ? '' : 's'}</div>
-        <div class="demo-tag">DEMO DATA</div>
+        <div class="sample-tag">SYNTHETIC SAMPLE LOCATION</div>
       </div>`;
   }
 
-  private swatch(color: string, label: string, dashed = false): string {
-    const style = dashed ? `border:2px dashed ${color}` : `background:${color}`;
-    return `<span class="swatch" style="${style}"></span>${label}`;
-  }
 
-  private legend(): L.Control {
-    const legend = new L.Control({ position: 'bottomright' });
-    legend.onAdd = () => {
-      const el = L.DomUtil.create('div', 'map-legend');
-      el.innerHTML = `
-        <div class="legend-title">Airspace (for the planned flight)</div>
-        ${this.swatch(ZONE_COLORS.RED, 'RED: blocked / prohibited')}<br>
-        ${this.swatch(ZONE_COLORS.ORANGE, 'ORANGE: conditional / authorization required')}<br>
-        ${this.swatch(ZONE_COLORS.YELLOW, 'YELLOW: technical or informational')}<br>
-        ${this.swatch(ZONE_COLORS.GRAY, 'GRAY: insufficient verification')}<br>
-        <span class="swatch" style="border:2.5px solid ${OBSTACLE_OUTLINE}"></span>Red outline: routing obstacle<br>
-        <span class="swatch" style="border:2px dashed #757575"></span>Dashed: not active (time / altitude)<br>
-        <div class="legend-source" data-testid="legend-source">Airspace data: not loaded</div>
-        <div class="legend-title">Map</div>
-        ${this.swatch(COLORS.routeNormal, 'Route NORMAL')} ${this.swatch(COLORS.routeEmergency, 'EMERGENCY')}<br>
-        ${this.swatch(COLORS.river, 'River corridor')}<br>
-        ${this.swatch(COLORS.park, 'Park / green corridor')}<br>
-        ${this.swatch(COLORS.building, 'Building')}<br>
-        ${this.swatch(COLORS.tallBuilding, `Building ≥ ${TALL_BUILDING_M} m`)}<br>
-        ${this.swatch(COLORS.city, 'Warsaw boundary', true)} ${this.swatch(COLORS.district, 'districts', true)}<br>
-        ${this.swatch(COLORS.bbox, 'Airspace data extent', true)}<br>
-        <span class="legend-icon station-icon station-hospital"><span class="material-icons">local_hospital</span></span>Landing station
-        <div class="legend-note">Avoiding the loaded zones does not confirm real-world flight legality.</div>`;
-      this.legendSource = el.querySelector<HTMLElement>('.legend-source')!;
-      return el;
-    };
-    return legend;
-  }
+
 }

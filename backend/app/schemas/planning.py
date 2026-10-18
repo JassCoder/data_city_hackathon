@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
-from app.airspace.models import AirspaceSourceInfo, ZoneConflict
+from app.airspace.models import AirspaceSourceInfo, AirspaceStatus, ZoneConflict
 from app.routing.costs import FlightMode, RouteObjective
 from app.routing.scenarios import SCENARIOS, OptimizationGoal, Scenario
 from app.schemas.common import CamelModel
@@ -35,6 +35,21 @@ class GeocodeResult(CamelModel):
     category: str | None = None
     source: str
     in_coverage: bool  # inside the routing region
+    # ADDRESS (building/address matched) | STREET | PLACE | COORDINATES
+    accuracy: str | None = None
+    street: str | None = None
+    house_number: str | None = None
+    postcode: str | None = None
+    flat: str | None = None  # flat/apartment number as entered (kept, never geolocated)
+    flat_resolved: bool | None = None  # False: the point is the building, not the apartment
+
+
+class ParsedAddressQuery(CamelModel):
+    street: str | None
+    number: str | None
+    flat: str | None
+    city: str | None
+    is_coordinates: bool
 
 
 class GeocodingResponse(CamelModel):
@@ -43,6 +58,8 @@ class GeocodingResponse(CamelModel):
     provider: str
     attribution: str
     cached: bool
+    parsed: ParsedAddressQuery | None = None
+    note: str | None = None  # e.g. building number not matched, flat not resolved
 
 
 # --- drone profiles ----------------------------------------------------------
@@ -56,7 +73,7 @@ class DroneProfile(CamelModel):
     vertical_clearance_m: float = Field(ge=0)
     max_range_km: float = Field(gt=0)
     max_payload_kg: float = Field(ge=0)
-    source: Literal["DEMO"]
+    source: Literal["SYNTHETIC"]
 
 
 class DroneProfilesResponse(CamelModel):
@@ -67,14 +84,15 @@ class DroneProfilesResponse(CamelModel):
 # --- weather -----------------------------------------------------------------
 
 class WeatherMode(StrEnum):
-    DEMO = "DEMO"
+    SAMPLE = "SAMPLE"
     LIVE = "LIVE"
 
 
 class WeatherSource(StrEnum):
-    DEMO = "DEMO"
+    SAMPLE = "SAMPLE"
     OPEN_METEO = "OPEN_METEO"
-    DEMO_FALLBACK = "DEMO_FALLBACK"  # LIVE requested but unavailable
+    CACHED = "CACHED"  # LIVE failed: last successful LIVE values (labelled, age-limited)
+    SAMPLE_FALLBACK = "SAMPLE_FALLBACK"  # LIVE requested but unavailable and nothing cached
 
 
 class WindSample(CamelModel):
@@ -94,7 +112,7 @@ class WeatherInfo(CamelModel):
     wind_gust_kmh: float | None = None
     observed_at: str | None = None
     altitude_m: float | None = None  # wind interpolated to this flight altitude
-    samples: list[WindSample] = []  # along the route (LIVE) or a single fixed value (DEMO)
+    samples: list[WindSample] = []  # along the route (LIVE) or a single fixed value (SAMPLE)
     message: str
 
 
@@ -111,6 +129,22 @@ class RouteStatus(StrEnum):
     COVERAGE_UNAVAILABLE = "COVERAGE_UNAVAILABLE"  # official boundary missing: routing disabled
 
 
+class Optimization(StrEnum):
+    """UI names for the route objective. Hard constraints are identical for all of them."""
+
+    FASTEST = "FASTEST"  # wind-aware flight time
+    SHORTEST = "SHORTEST"  # distance
+    BALANCED = "BALANCED"  # safe corridors: prefers the river and parks (RouteObjective.CORRIDORS)
+
+
+OPTIMIZATION_OBJECTIVE = {
+    Optimization.FASTEST: RouteObjective.FASTEST,
+    Optimization.SHORTEST: RouteObjective.SHORTEST,
+    Optimization.BALANCED: RouteObjective.CORRIDORS,
+}
+OBJECTIVE_OPTIMIZATION = {v: k for k, v in OPTIMIZATION_OBJECTIVE.items()}
+
+
 class RouteRequest(CamelModel):
     start: Coordinate
     destination: Coordinate
@@ -119,19 +153,36 @@ class RouteRequest(CamelModel):
         80, strict=True, ge=ALTITUDE_MIN_M, le=ALTITUDE_MAX_M, multiple_of=ALTITUDE_STEP_M
     )
     drone_profile_id: str = Field("DEMO_DRONE_01", min_length=1)
-    weather_mode: WeatherMode = WeatherMode.DEMO
+    weather_mode: WeatherMode = WeatherMode.SAMPLE
     # What the route minimises: safe corridors (default), distance, or wind-aware flight time.
     route_objective: RouteObjective = RouteObjective.CORRIDORS
+    # Simplified UI contract: FASTEST | SHORTEST | BALANCED (= safe corridors). Sets route_objective.
+    optimization: Optimization | None = None
     # Optional routing scenario. It sets mode/routeObjective from its configuration;
     # it never changes start/destination. Omitted = use mode/routeObjective as sent.
     scenario: Scenario | None = None
     # Planned departure, used to evaluate zone validity periods. Default: now.
     departure_time: datetime | None = None
+    # Optional NON-REGULATORY planning constraints (avoid mapped airport footprints). Off by default.
+    planning_constraints: bool = False
 
     @model_validator(mode="after")
     def _distinct_points(self):
         if self.start == self.destination:
             raise ValueError("start and destination must be different points")
+        return self
+
+    @model_validator(mode="after")
+    def _optimization_consistent(self):
+        # `optimization` is the simplified name for route_objective; contradicting both is rejected.
+        if self.optimization is not None:
+            objective = OPTIMIZATION_OBJECTIVE[self.optimization]
+            if "route_objective" in self.model_fields_set and self.route_objective != objective:
+                raise ValueError(f"optimization {self.optimization.value} conflicts with routeObjective "
+                                 f"{self.route_objective.value}")
+            if self.scenario is not None and SCENARIOS[self.scenario].route_objective != objective:
+                raise ValueError(f"optimization {self.optimization.value} conflicts with scenario {self.scenario.value}")
+            self.route_objective = objective
         return self
 
     @model_validator(mode="after")
@@ -203,6 +254,7 @@ class RouteResponse(CamelModel):
     eta_s: float | None
     mode: FlightMode
     route_objective: RouteObjective
+    optimization: Optimization  # UI name of route_objective
     flight_altitude_meters: int
     drone_profile_id: str
     weather: WeatherInfo
@@ -212,7 +264,10 @@ class RouteResponse(CamelModel):
     search: SearchInfo | None
     zone_conflicts: list[ZoneConflict]
     airspace: AirspaceSourceInfo  # zone dataset used for this plan (source, timestamp, version)
+    airspace_verification: AirspaceStatus | None = None  # official-data state: OFFICIAL | ... | UNAVAILABLE | STALE
+    planning_constraints_applied: bool = False  # non-regulatory airport-footprint avoidance was used
     planning_verification_status: str
+    calculated_at: datetime | None = None  # effective calculation/departure time (Europe/Warsaw)
     warnings: list[str]
     data_sources: list[str]
     compute_ms: float

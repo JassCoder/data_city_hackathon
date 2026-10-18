@@ -31,8 +31,14 @@
   gap: 8px;
   align-items: center;
 
-  .query { flex: 1; min-width: 0; }
-  button { height: 48px; min-width: 76px; }
+  .query {
+    flex: 1;
+    min-width: 0;
+    --mat-form-field-container-height: 40px;
+    --mat-form-field-container-vertical-padding: 8px;
+    --mat-form-field-container-text-size: 14px;
+  }
+  button { height: 36px; min-width: 0; padding: 0 14px; border-radius: 18px; font-size: 13px; }
 }
 
 .results {
@@ -84,15 +90,6 @@
   }
 }
 
-.manual {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-
-  mat-form-field { flex: 1; min-width: 0; }
-  button { height: 48px; }
-}
-
 .selected {
   display: flex;
   align-items: center;
@@ -139,4 +136,30 @@
   margin: 0;
   color: var(--mat-sys-on-surface-variant);
   font-size: 12px;
+}
+
+.accuracy {
+  display: inline-block; margin: 2px 0; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600;
+  &.acc-address { background: #e8f5e9; color: #1b5e20; }
+  &.acc-nearby_building { background: #f1f8e9; color: #33691e; }
+  &.acc-street { background: #fff3e0; color: #8a4b00; }
+  &.acc-place { background: #fbe9e7; color: #8a1c1c; }
+  &.acc-coordinates { background: #e3f2fd; color: #0d47a1; }
+}
+.note { display: block; margin: 2px 0; font-size: 11px; color: #8a4b00; }
+.auto-selected {
+  display: flex; flex-direction: column; align-items: flex-start; margin-top: 2px;
+  .small { font-size: 11px; color: var(--mat-sys-on-surface-variant); }
+}
+.entrances {
+  display: flex; flex-direction: column; gap: 4px; margin-top: 4px; padding: 6px 8px; border-radius: 8px;
+  background: var(--mat-sys-surface-container);
+  .small { margin: 0; font-size: 11px; }
+  .entrance {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap; text-align: left; font: inherit; font-size: 12px;
+    padding: 4px 6px; border: 1px solid var(--mat-sys-outline-variant); border-radius: 6px; background: #fff; cursor: pointer;
+    &.flat-match { border-color: #2e7d32; }
+    .meta { color: var(--mat-sys-on-surface-variant); font-size: 11px; }
+    .match { color: #1b5e20; font-size: 11px; font-weight: 600; }
+  }
 }

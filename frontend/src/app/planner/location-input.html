@@ -33,9 +33,12 @@
   @if (results(); as list) {
     <div class="results" data-testid="results">
       @if (list.length === 0) {
-        <p class="muted">No matching places in Warsaw. Try a fuller address, click the map, or enter coordinates.</p>
+        <p class="muted">No matching places in Warsaw. Try a fuller address, or select the point on the map.</p>
       } @else {
         <p class="muted small">{{ list.length }} match{{ list.length === 1 ? '' : 'es' }}. Choose the right place:</p>
+        @if (searchNote(); as n) {
+          <p class="note" data-testid="search-note">{{ n }}</p>
+        }
         @for (r of list; track r.placeId ?? $index) {
           <button
             type="button"
@@ -45,6 +48,11 @@
             (click)="select(r)"
           >
             <span class="name">{{ r.displayName }}</span>
+            @if (r.accuracy) {
+              <span class="accuracy" [class]="'accuracy acc-' + r.accuracy.toLowerCase()" data-testid="accuracy">
+                {{ accuracyLabel[r.accuracy] }}{{ r.source === 'gugik-prg' ? ' · official PRG address point' : '' }}
+              </span>
+            }
             <span class="meta">
               {{ r.latitude.toFixed(5) }}, {{ r.longitude.toFixed(5) }}
               @if (r.category) {
@@ -73,30 +81,9 @@
       matTooltip="Then click the map to set this point"
     >
       <mat-icon>ads_click</mat-icon>
-      {{ picking() ? 'Click the map…' : 'Pick on map' }}
-    </button>
-    <button mat-button type="button" data-testid="manual-toggle" (click)="manualOpen.set(!manualOpen())">
-      <mat-icon>pin_drop</mat-icon>
-      Coordinates
+      {{ picking() ? 'Click the map…' : 'Select on map' }}
     </button>
   </div>
-
-  @if (manualOpen()) {
-    <form class="manual" (submit)="applyManual($event)" data-testid="manual">
-      <mat-form-field appearance="outline" subscriptSizing="dynamic">
-        <mat-label>Latitude</mat-label>
-        <input matInput name="lat" data-testid="lat" inputmode="decimal" [value]="manualLat()" (input)="manualLat.set(value($event))" />
-      </mat-form-field>
-      <mat-form-field appearance="outline" subscriptSizing="dynamic">
-        <mat-label>Longitude</mat-label>
-        <input matInput name="lon" data-testid="lon" inputmode="decimal" [value]="manualLon()" (input)="manualLon.set(value($event))" />
-      </mat-form-field>
-      <button mat-stroked-button type="submit" data-testid="manual-set">Set</button>
-    </form>
-    @if (manualError(); as err) {
-      <p class="error" role="alert">{{ err }}</p>
-    }
-  }
 
   @if (notice(); as n) {
     <p class="error" role="alert" data-testid="notice">{{ n }}</p>
@@ -110,10 +97,47 @@
           {{ s.coordinate.latitude.toFixed(5) }}, {{ s.coordinate.longitude.toFixed(5) }}
           <span class="source">{{ s.source === 'MAP_CLICK' ? 'map click' : s.source.toLowerCase() }}</span>
         </span>
+        @if (s.accuracy) {
+          <span class="accuracy" [class]="'accuracy acc-' + s.accuracy.toLowerCase()" data-testid="selected-accuracy">
+            {{ accuracyLabel[s.accuracy] }}
+          </span>
+        }
+        @if (s.flat) {
+          <span class="note" data-testid="flat-note">Flat {{ s.flat }} kept with the address; the point is the building (apartment location not resolved).</span>
+        }
       </div>
       <button mat-icon-button type="button" (click)="clear()" [attr.aria-label]="'Clear ' + label()">
         <mat-icon>close</mat-icon>
       </button>
+    </div>
+  }
+
+  @if (alternatives(); as alt) {
+    @if (selected()?.source === 'SEARCH' || selected()?.source === 'ENTRANCE') {
+    <div class="auto-selected" data-testid="auto-selected">
+      <span class="small">Building selected automatically.</span>
+      @if (searchNote(); as n) {
+        <span class="note" data-testid="search-note">{{ n }}</span>
+      }
+      <button mat-button type="button" data-testid="show-alternatives" (click)="showAlternatives()">
+        Not right? Show all {{ alt.length }} matches
+      </button>
+    </div>
+    }
+  }
+
+  @if (entranceChoice(); as c) {
+    <div class="entrances" data-testid="entrances">
+      <p class="small"><b>{{ c.entrances.length }} mapped entrance{{ c.entrances.length === 1 ? '' : 's' }}</b> for this building.
+        Choose one for delivery planning (or keep the building point):</p>
+      @for (e of c.entrances; track e.id) {
+        <button type="button" class="entrance" data-testid="entrance" [class.flat-match]="e.matchesFlat" (click)="chooseEntrance(e)">
+          <mat-icon inline>door_front</mat-icon> {{ entranceName(e) }}
+          @if (e.flats) { <span class="meta">flats {{ e.flats }}</span> }
+          @if (e.matchesFlat) { <span class="match">serves flat {{ c.base.flat }} (OSM addr:flats)</span> }
+        </button>
+      }
+      <p class="attribution">{{ c.note }}</p>
     </div>
   }
 </div>

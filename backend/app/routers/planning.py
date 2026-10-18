@@ -28,7 +28,7 @@ def drone_profiles(profiles: Annotated[DroneProfileRegistry, Depends(get_profile
 @router.get("/weather", response_model=WeatherInfo)
 async def weather(
     weather_service: Annotated[WeatherService, Depends(get_weather)],
-    mode: WeatherMode = WeatherMode.DEMO,
+    mode: WeatherMode = WeatherMode.SAMPLE,
     altitude_m: int = 80,
 ) -> WeatherInfo:
     return await weather_service.get(mode, altitude_m)

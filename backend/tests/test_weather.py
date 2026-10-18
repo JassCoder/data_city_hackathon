@@ -68,11 +68,11 @@ def test_live_failure_falls_back_explicitly():
 
     svc, _ = service(boom)
     info = asyncio.run(svc.get(WeatherMode.LIVE, 80, [(21.0, 52.2)]))
-    assert info.source == WeatherSource.DEMO_FALLBACK and info.live_available is False
+    assert info.source == WeatherSource.SAMPLE_FALLBACK and info.live_available is False
     assert "Live weather is not available" in info.message
 
 
-def test_demo_weather_is_fixed_and_not_fetched():
+def test__weather_is_fixed_and_not_fetched():
     svc, seen = service(lambda r: httpx.Response(500))
-    info = asyncio.run(svc.get(WeatherMode.DEMO, 80, [(21.0, 52.2), (21.1, 52.3)]))
-    assert info.source == WeatherSource.DEMO and seen == []
+    info = asyncio.run(svc.get(WeatherMode.SAMPLE, 80, [(21.0, 52.2), (21.1, 52.3)]))
+    assert info.source == WeatherSource.SAMPLE and seen == []

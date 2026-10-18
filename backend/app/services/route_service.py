@@ -12,11 +12,13 @@ from datetime import datetime, timezone
 
 from fastapi.concurrency import run_in_threadpool
 
-from app.airspace.models import SourceType
+from app.services.clock import to_warsaw, warsaw_now
+from app.airspace.status import VERIFICATION_TEXT, SourceState, airspace_status
 from app.routing.costs import FlightMode, RouteObjective
 from app.routing.planner import RoutePlanner, plan_timed
 from app.routing.scenarios import SCENARIOS, ScenarioConfig
 from app.schemas.planning import (
+    OBJECTIVE_OPTIMIZATION,
     Coordinate,
     CoverageCheck,
     LineStringGeometry,
@@ -30,23 +32,18 @@ from app.services.drone_profiles import DroneProfileRegistry
 from app.services.weather import WeatherService
 
 BASE_SOURCES = [
-    "Buildings, river & parks: © OpenStreetMap contributors (ODbL)",
-    "Landing stations: synthetic DEMO DATA",
-    "Drone profiles: sample DEMO data",
+    "Buildings, river & parks: © OpenStreetMap contributors (ODbL); unknown building heights use the configured "
+    "routing policy",
+    "Landing stations: synthetic sample locations, not operational facilities",
+    "Drone profiles: synthetic sample performance values",
 ]
 
-VERIFICATION = {
-    SourceType.DEMO: "SIMULATION_ONLY: DEMO airspace (synthetic zones). Not a check of real-world flight legality.",
-    SourceType.PERMITTED_SNAPSHOT: "SIMULATION_ONLY: official zone snapshot, not checked for currency. "
-    "Not a check of real-world flight legality; confirm in PAŻP DroneTower/DroneMap.",
-    SourceType.OFFICIAL: "SIMULATION_ONLY: official zone data. Not a check of real-world flight legality; "
-    "confirm in PAŻP DroneTower/DroneMap.",
-}
 
 WEATHER_SOURCE_LABEL = {
-    WeatherSource.DEMO: "Weather: DEMO sample wind",
+    WeatherSource.SAMPLE: "Weather: SAMPLE wind",
     WeatherSource.OPEN_METEO: "Weather: Open-Meteo (live)",
-    WeatherSource.DEMO_FALLBACK: "Weather: DEMO sample wind (live unavailable)",
+    WeatherSource.SAMPLE_FALLBACK: "Weather: SAMPLE wind (live unavailable)",
+    WeatherSource.CACHED: "Weather: Open-Meteo, last cached LIVE values (live currently unavailable)",
 }
 
 
@@ -80,18 +77,17 @@ class RouteService:
         start = (req.start.longitude, req.start.latitude)
         destination = (req.destination.longitude, req.destination.latitude)
 
-        # Wind sampled along the A-B line at the flight altitude (LIVE), or fixed DEMO wind.
+        # Wind sampled along the A-B line at the flight altitude (LIVE), or fixed  wind.
         weather = await self.weather.get_for_route(req.weather_mode, req.flight_altitude_meters, start, destination)
-        at = req.departure_time or datetime.now(timezone.utc)
-        if at.tzinfo is None:
-            at = at.replace(tzinfo=timezone.utc)
+        # One instant for zone validity, weather and the response: the request's time or now in Warsaw.
+        at = to_warsaw(req.departure_time) if req.departure_time else warsaw_now()
         result, ms = await run_in_threadpool(
             plan_timed, self.planner, start, destination, mode, req.flight_altitude_meters, profile, weather, at,
-            objective,
+            objective, req.planning_constraints,
         )
 
         warnings = list(result.warnings)
-        if weather.source == WeatherSource.DEMO_FALLBACK:
+        if weather.source in (WeatherSource.SAMPLE_FALLBACK, WeatherSource.CACHED):
             warnings.insert(0, weather.message)
         if scenario and scenario.recommended_profile_id and scenario.recommended_profile_id != profile.id:
             rec = self.profiles.get(scenario.recommended_profile_id)
@@ -101,10 +97,14 @@ class RouteService:
         path = result.path_lonlat
         source = result.airspace.source_info()
         cov = self.planner.coverage
-        verification = VERIFICATION[source.source_type]
-        if result.airspace_outside_extent_m > 0:
+        status = airspace_status(result.airspace, cov, at)
+        verification = VERIFICATION_TEXT[SourceState(status.source_state)]
+        if result.airspace_outside_extent_m > 0 and status.source_state != SourceState.UNAVAILABLE:
             verification += (f" PARTIAL AIRSPACE DATA: {result.airspace_outside_extent_m / 1000:.1f} km of the route "
                              "lies outside the loaded zone dataset and was not checked against any zones.")
+        if weather.source in (WeatherSource.SAMPLE_FALLBACK, WeatherSource.CACHED):
+            verification += (" WEATHER NOT CURRENT: live weather could not be retrieved, so the wind used is "
+                             f"{'cached' if weather.source == WeatherSource.CACHED else 'a sample value'}.")
         return RouteResponse(
             status=result.status,
             message=result.message,
@@ -118,6 +118,7 @@ class RouteService:
             eta_s=result.eta_s,
             mode=mode,
             route_objective=objective,
+            optimization=OBJECTIVE_OPTIMIZATION[objective],
             flight_altitude_meters=req.flight_altitude_meters,
             drone_profile_id=profile.id,
             weather=weather,
@@ -134,9 +135,12 @@ class RouteService:
             search=SearchInfo(**vars(result.search)) if result.search else None,
             zone_conflicts=result.conflicts,
             airspace=source,
+            airspace_verification=status,
+            planning_constraints_applied=result.planning_constraints_applied,
             planning_verification_status=verification,
             warnings=warnings,
             data_sources=[f"Airspace zones: {source.label} ({source.source_type.value}, version "
                           f"{source.dataset_version})", *BASE_SOURCES, WEATHER_SOURCE_LABEL[weather.source]],
             compute_ms=round(ms, 1),
+            calculated_at=at,
         )

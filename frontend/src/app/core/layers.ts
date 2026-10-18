@@ -4,7 +4,7 @@ import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from 'g
 import { API_BASE_URL, safeValue } from './api';
 
 export type CorridorType = 'RIVER' | 'PARK';
-export type HeightSource = 'osm_height' | 'levels_x3' | 'default_15m';
+export type HeightSource = 'osm_height' | 'levels_x3' | 'unknown';
 export type StationType = 'HOSPITAL' | 'ROOFTOP' | 'PARK' | 'DEPOT';
 
 export interface CorridorProps {
@@ -15,7 +15,7 @@ export interface CorridorProps {
 
 export interface BuildingProps {
   id: string;
-  height_m: number;
+  height_m: number | null; // null = unknown (no OSM height or levels)
   height_source: HeightSource;
 }
 
@@ -25,7 +25,7 @@ export interface StationProps {
   station_type: StationType;
   status: 'AVAILABLE' | 'BUSY' | 'OFFLINE';
   capacity: number;
-  source: 'DEMO';
+  source: 'SYNTHETIC';
 }
 
 type Area = Polygon | MultiPolygon;
@@ -33,7 +33,7 @@ type Area = Polygon | MultiPolygon;
 export interface BuildingStats {
   buildings: number;
   tallBuildings: number;
-  estimatedHeights: number;
+  unknownHeights: number;
   parks: number;
   tiles: number;
 }
@@ -66,7 +66,7 @@ export class LayersService {
       parks: l.corridors.features.filter((f) => f.properties.corridor_type === 'PARK').length,
       buildings: s.buildings ?? 0,
       tallBuildings: s.tallBuildings ?? l.tallBuildings.features.length,
-      estimatedHeights: s.estimatedHeights ?? 0,
+      unknownHeights: s.unknownHeights ?? 0,
       stations: l.stations.features.length,
     };
   });

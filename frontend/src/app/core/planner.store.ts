@@ -8,6 +8,8 @@ import {
   Coordinate,
   FlightMode,
   PointRole,
+  Entrance,
+  OPTIMIZATION_OF,
   RouteObjective,
   RouteRequest,
   RouteResponse,
@@ -22,22 +24,26 @@ import { PlannerApi } from './planner-api';
 export const PLANNER_DEFAULTS = {
   altitude: ALTITUDE.default,
   mode: 'NORMAL' as FlightMode,
+  /** The only profile offered in the planner: Standard Drone. */
   droneProfileId: 'DEMO_DRONE_01',
-  weatherMode: 'DEMO' as WeatherMode,
+  /** Real Open-Meteo data by default; failures are shown, never silently relabelled. */
+  weatherMode: 'LIVE' as WeatherMode,
+  /** Smart Route (CORRIDORS, sent as BALANCED) is the first and default optimisation. */
   routeObjective: 'CORRIDORS' as RouteObjective,
-  scenario: 'NORMAL' as ScenarioId,
+  /** Scenarios are no longer offered in the planner; restricted zones are always avoided. */
+  scenario: null as ScenarioId | null,
 };
 
 type FixturePoint = { stationId: string } | { label: string; coordinate: Coordinate };
 
 /**
- * Explicit demo fixtures. They are the ONLY place with predefined points and
- * run only when the user presses a "Load demo fixture" button. They replace
+ * Explicit sample fixtures. They are the ONLY place with predefined points and
+ * run only when the user presses a "Load fixture" button. They replace
  * Point A/B (and set an altitude where the fixture needs one) and never change
  * the selected scenario, mode, drone profile or weather.
  */
-export interface DemoFixture {
-  id: 'depot-hospital' | 'sejm' | 'courtyard';
+export interface Fixture {
+  id: 'depot-hospital' | 'courtyard';
   title: string;
   description: string;
   start: FixturePoint;
@@ -45,7 +51,7 @@ export interface DemoFixture {
   altitude?: number;
 }
 
-export const DEMO_FIXTURES: DemoFixture[] = [
+export const _FIXTURES: Fixture[] = [
   {
     id: 'depot-hospital',
     title: 'Depot → hospital pad',
@@ -54,17 +60,10 @@ export const DEMO_FIXTURES: DemoFixture[] = [
     destination: { stationId: 'st-hospital' },
   },
   {
-    id: 'sejm',
-    title: 'Across the Sejm zone',
-    description: 'Points on both sides of the synthetic DRA-P zone at Sejm: the straight line would cross it.',
-    start: { label: 'DEMO fixture west of the Sejm zone', coordinate: { latitude: 52.2255, longitude: 21.0205 } },
-    destination: { label: 'DEMO fixture east of the Sejm zone', coordinate: { latitude: 52.225, longitude: 21.037 } },
-  },
-  {
     id: 'courtyard',
     title: 'Enclosed courtyard (no route at 20 m)',
     description: 'A courtyard enclosed by buildings ≥ 10 m in Praga-Północ; sets 20 m altitude.',
-    start: { label: 'DEMO fixture: enclosed courtyard (Praga-Północ)', coordinate: { latitude: 52.25549, longitude: 21.04532 } },
+    start: { label: ' fixture: enclosed courtyard (Praga-Północ)', coordinate: { latitude: 52.25549, longitude: 21.04532 } },
     destination: { stationId: 'st-hospital' },
     altitude: 20,
   },
@@ -93,6 +92,8 @@ export class PlannerStore {
   readonly droneProfileId = signal<string | null>(PLANNER_DEFAULTS.droneProfileId);
   readonly weatherMode = signal<WeatherMode>(PLANNER_DEFAULTS.weatherMode);
   readonly routeObjective = signal<RouteObjective>(PLANNER_DEFAULTS.routeObjective);
+  /** Mapped entrances offered after an address search (delivery planning only). */
+  readonly entranceChoice = signal<{ role: PointRole; base: SelectedLocation; entrances: Entrance[]; note: string } | null>(null);
   /** Which point the next map click sets (null = fill the first empty point). */
   readonly pickTarget = signal<PointRole | null>(null);
   /** Per-point validation messages (e.g. outside coverage). */
@@ -102,7 +103,7 @@ export class PlannerStore {
   readonly selectedScenario = signal<ScenarioId | null>(PLANNER_DEFAULTS.scenario);
   /** Message shown when a scenario is chosen before both points are set. */
   readonly scenarioNotice = signal<string | null>(null);
-  /** Title of the demo fixture that set the current points (cleared when a point changes). */
+  /** Title of the sample fixture that set the current points (cleared when a point changes). */
   readonly fixtureLabel = signal<string | null>(null);
   /** Incremented by reset(); inputs clear their local query/results on change. */
   readonly resetCount = signal(0);
@@ -129,7 +130,7 @@ export class PlannerStore {
       flightAltitudeMeters: this.altitude(),
       droneProfileId,
       weatherMode: this.weatherMode(),
-      routeObjective: this.routeObjective(),
+      optimization: OPTIMIZATION_OF[this.routeObjective()],
       ...(this.selectedScenario() ? { scenario: this.selectedScenario() } : {}),
     };
   });
@@ -142,6 +143,8 @@ export class PlannerStore {
   readonly canCalculate = computed(() => this.request() !== null && this.route().phase !== 'loading');
 
   /** Bumped on every invalidation; responses for an older id are dropped. */
+  /** Calculate as soon as both points are chosen (the App turns this on; unit specs calculate explicitly). */
+  readonly autoCalculate = signal(false);
   private requestId = 0;
   private inFlight?: Subscription;
 
@@ -161,10 +164,14 @@ export class PlannerStore {
       }
     }
     this.setNotice(role, undefined);
+    if (this.entranceChoice()?.role === role && location?.source !== 'ENTRANCE') this.entranceChoice.set(null);
     (role === 'start' ? this.start : this.destination).set(location);
     this.fixtureLabel.set(null);
     this.scenarioNotice.set(null);
     this.invalidate();
+    // Choosing a point with the other one already set calculates the obstacle-aware route at once
+    // (settings changes only invalidate it; the user recalculates).
+    if (location && this.autoCalculate() && this.start() && this.destination()) this.calculate();
     return true;
   }
 
@@ -207,6 +214,27 @@ export class PlannerStore {
     this.routeObjective.set(objective);
     this.leaveScenarioIfChanged();
     this.invalidate();
+  }
+
+  /** Offer the mapped entrances of the building just selected for `role`. */
+  offerEntrances(role: PointRole, base: SelectedLocation, entrances: Entrance[], note: string): void {
+    this.entranceChoice.set(entrances.length ? { role, base, entrances, note } : null);
+  }
+
+  /** Explicit choice of a mapped entrance: moves the point onto it (not a landing approval). */
+  chooseEntrance(e: Entrance): boolean {
+    const c = this.entranceChoice();
+    if (!c) return false;
+    const name = e.ref ? `entrance ${e.ref}` : `${e.entrance ?? 'mapped'} entrance`;
+    const ok = this.setLocation(c.role, {
+      coordinate: { latitude: e.latitude, longitude: e.longitude },
+      label: `${c.base.label} – ${name}`,
+      source: 'ENTRANCE',
+      accuracy: c.base.accuracy,
+      flat: c.base.flat,
+    });
+    if (ok) this.entranceChoice.set(null);
+    return ok;
   }
 
   /** Manual mode/objective changes that no longer match the scenario make it "custom". */
@@ -293,6 +321,7 @@ export class PlannerStore {
     this.droneProfileId.set(PLANNER_DEFAULTS.droneProfileId);
     this.weatherMode.set(PLANNER_DEFAULTS.weatherMode);
     this.routeObjective.set(PLANNER_DEFAULTS.routeObjective);
+    this.entranceChoice.set(null);
     this.selectedScenario.set(PLANNER_DEFAULTS.scenario);
     this.scenarioNotice.set(null);
     this.pickTarget.set(null);
@@ -310,27 +339,27 @@ export class PlannerStore {
   }
 
   /**
-   * Explicit "Load demo fixture" action: replaces Point A/B with a fixture's
+   * Explicit "Load fixture" action: replaces Point A/B with a fixture's
    * points (plus its altitude, if any) and calculates with the CURRENT scenario,
    * mode, profile and weather. Never called by scenario selection.
    */
-  loadDemoFixture(id: DemoFixture['id']): string | null {
-    const fixture = DEMO_FIXTURES.find((d) => d.id === id)!;
+  loadFixture(id: Fixture['id']): string | null {
+    const fixture = _FIXTURES.find((d) => d.id === id)!;
     const stations = this.layers.data()?.stations.features ?? [];
     const resolve = (p: FixturePoint): SelectedLocation | null => {
-      if ('coordinate' in p) return { coordinate: p.coordinate, label: p.label, source: 'DEMO' };
+      if ('coordinate' in p) return { coordinate: p.coordinate, label: p.label, source: 'FIXTURE' };
       const st: StationFeature | undefined = stations.find((x) => x.properties.id === p.stationId);
       return st
         ? {
             coordinate: { latitude: st.geometry.coordinates[1], longitude: st.geometry.coordinates[0] },
-            label: `${st.properties.name} (DEMO station)`,
-            source: 'DEMO',
+            label: `${st.properties.name} (synthetic sample station)`,
+            source: 'FIXTURE',
           }
         : null;
     };
     const from = resolve(fixture.start);
     const to = resolve(fixture.destination);
-    if (!from || !to) return 'Demo stations are not loaded yet. Wait for the map layers and try again.';
+    if (!from || !to) return 'Sample stations are not loaded yet. Wait for the map layers and try again.';
     this.clearRoute();
     this.start.set(from);
     this.destination.set(to);

@@ -11,7 +11,10 @@ from app.config import (
     ROUTE_MAX_FINE_CELLS,
     ROUTE_TIME_LIMIT_S,
 )
-from app.dependencies import get_coverage, get_planner
+from app.dependencies import get_airports, get_coverage, get_planner, get_weather_optional
+from app.geo.airports import AirportData
+from app.services.coverage_service import coverage_metrics
+from app.services.weather import WeatherService
 from app.geo.coverage import Coverage, geometry_geojson
 from app.routing.planner import RoutePlanner
 
@@ -30,10 +33,21 @@ def warsaw_boundary(coverage: Annotated[Coverage, Depends(get_coverage)]) -> dic
     }
 
 
-@router.get("/coverage", summary="Supported routing coverage: geometry, source, status and limits")
+@router.get("/districts", summary="The 18 official Warsaw districts (GUGiK PRG, GeoJSON FeatureCollection)")
+def districts(coverage: Annotated[Coverage, Depends(get_coverage)]) -> dict[str, Any]:
+    if not coverage.available or not coverage.raw_districts:
+        raise HTTPException(503, coverage.message or "District boundaries are unavailable.")
+    return {**coverage.raw_districts, "metadata": {**coverage.raw_districts.get("metadata", {}),
+                                                   "count": len(coverage.districts), "source": coverage.source}}
+
+
+@router.get("/coverage", summary="Routing coverage and separate data-coverage metrics (routing, buildings, "
+                                 "official airspace, weather)")
 def coverage_info(
     coverage: Annotated[Coverage, Depends(get_coverage)],
     planner: Annotated[RoutePlanner, Depends(get_planner)],
+    airports: Annotated[AirportData, Depends(get_airports)],
+    weather: Annotated[WeatherService | None, Depends(get_weather_optional)],
 ) -> dict[str, Any]:
     state = planner.airspace.state
     g = planner.grid
@@ -52,6 +66,7 @@ def coverage_info(
             "maxFineCells": ROUTE_MAX_FINE_CELLS,
             "maxExpansions": ROUTE_MAX_EXPANSIONS,
             "timeLimitS": ROUTE_TIME_LIMIT_S,
+            "airspaceSafetyMarginM": planner.airspace.margin_m,  # modelling assumption, configurable
             "buildingData": g.meta.get("source"),
             "buildingDataFetchedAt": g.meta.get("fetched_at"),
         },
@@ -61,6 +76,7 @@ def coverage_info(
             "extent": geometry_geojson(state.dataset.extent),
             "extentLabel": state.dataset.extent_label,
         },
+        "metrics": coverage_metrics(planner, airports, weather),
     }
 
 

@@ -25,6 +25,7 @@ class DraCategory(StrEnum):
     U = "DRA-U"  # U-space: verified services required
     I = "DRA-I"  # noqa: E741 - information / navigation warnings
     UNKNOWN = "UNKNOWN"
+    PLANNING = "PLANNING"  # not a DRA type: SkyRoute planning constraint (app/airspace/constraints.py)
 
 
 RESTRICTED_CATEGORIES = {DraCategory.R, DraCategory.RH, DraCategory.RM, DraCategory.RL}
@@ -49,13 +50,16 @@ class AltitudeReference(StrEnum):
 class SourceType(StrEnum):
     OFFICIAL = "OFFICIAL"  # live official service
     PERMITTED_SNAPSHOT = "PERMITTED_SNAPSHOT"  # official file obtained with permission
-    DEMO = "DEMO"  # synthetic, non-authoritative
+    SYNTHETIC = "SYNTHETIC"  # synthetic, non-authoritative
+    NONE = "NONE"  # no airspace dataset loaded (SKYROUTE_AIRSPACE_PROVIDER=none)
+    PLANNING_CONSTRAINT = "PLANNING_CONSTRAINT"  # OSM-mapped area avoided by SkyRoute policy (zones only)
 
 
 class VerificationStatus(StrEnum):
     OFFICIAL_UNVERIFIED_LOCALLY = "OFFICIAL_UNVERIFIED_LOCALLY"
-    SYNTHETIC_DEMO = "SYNTHETIC_DEMO"
+    SYNTHETIC = "SYNTHETIC"
     INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+    PLANNING_CONSTRAINT = "PLANNING_CONSTRAINT"  # not official: SkyRoute policy
 
 
 class Circle(CamelModel):
@@ -98,7 +102,7 @@ class EvaluationStatus(StrEnum):
 
 class DisplayClass(StrEnum):
     RED = "RED"  # blocked / prohibited for planned operation
-    ORANGE = "ORANGE"  # conditional / authorization required
+    ORANGE = "ORANGE"  # U-space services required, or restricted with an authorization
     YELLOW = "YELLOW"  # technical or informational
     GRAY = "GRAY"  # insufficient verification
     INACTIVE = "INACTIVE"  # not applicable to this flight (time/altitude)
@@ -132,9 +136,40 @@ class FlightContextInfo(CamelModel):
     at: datetime
 
 
+class Completeness(StrEnum):
+    COMPLETE = "COMPLETE"  # extent covers the whole city
+    PARTIAL = "PARTIAL"  # extent covers part of the city
+    NONE = "NONE"  # extent does not touch the city
+    UNKNOWN = "UNKNOWN"  # city boundary unavailable
+
+
+class AirspaceCompleteness(CamelModel):
+    status: Completeness
+    city_area_covered_pct: float | None
+    verification_status: str
+    message: str
+
+
+class AirspaceStatus(CamelModel):
+    """Official-airspace verification status (app/airspace/status.py).  zones never count."""
+
+    source_state: str  # OFFICIAL | OFFICIAL_SNAPSHOT |  | UNAVAILABLE | STALE
+    official_data_available: bool  # current official data loaded
+    official_coverage_pct: float | None  # None = unknown (no declared extent)
+    coverage_basis: str  # DECLARED_EXTENT | NOT_DECLARED | NO_OFFICIAL_DATA
+    age_days: int | None
+    stale_after_days: int
+    provider: str
+    label: str
+    message: str
+
+
 class ZonesResponse(CamelModel):
     source: AirspaceSourceInfo
     flight_context: FlightContextInfo
+    airspace_status: AirspaceStatus | None = None  # official verification status (not  coverage)
+    total_zones: int | None = None  # zones in the dataset (before any bbox filter)
+    bbox: list[float] | None = None  # the bbox filter applied, if any
     zones: list[EvaluatedZone]
 
 

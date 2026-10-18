@@ -1,0 +1,199 @@
+<h2>Delivery fleet <span class="sim">SIMULATION</span></h2>
+<p class="notice" data-testid="fleet-notice">
+  Hospitals and restaurants are real OpenStreetMap locations. Stations, depots, pads, drones and orders are simulated;
+  no facility has agreed to host drones and nothing is approved for real flight.
+</p>
+
+<label class="district">
+  District
+  <select data-testid="district-filter" [value]="fleet.district() ?? ''" (change)="fleet.district.set($any($event.target).value || null)">
+    <option value="">All of Warsaw</option>
+    @for (d of districts(); track d) {
+      <option [value]="d">{{ d }}</option>
+    }
+  </select>
+</label>
+
+@if (fleet.summary(); as s) {
+  <div class="stats" data-testid="fleet-stats">
+    <div class="stat"><b data-testid="stat-hospitals">{{ s.mappedHospitals }}</b><span>mapped hospitals</span></div>
+    <div class="stat"><b data-testid="stat-stations">{{ s.hospitalStationsEnabled }}</b><span>stations enabled</span></div>
+    <div class="stat"><b data-testid="stat-depots">{{ s.depots }}</b><span>depots</span></div>
+    <div class="stat"><b data-testid="stat-drones">{{ s.drones }}</b><span>drones</span></div>
+    <div class="stat ok"><b data-testid="stat-available">{{ s.availableDrones }}</b><span>available</span></div>
+    <div class="stat"><b data-testid="stat-busy">{{ s.busyDrones }}</b><span>busy</span></div>
+    <div class="stat"><b data-testid="stat-charging">{{ s.chargingDrones }}</b><span>charging</span></div>
+    <div class="stat"><b data-testid="stat-partners">{{ s.subscribedRestaurants }}</b><span>subscribed restaurants</span></div>
+    <div class="stat"><b data-testid="stat-pads">{{ s.activePads }}</b><span>active pads</span></div>
+    <div class="stat"><b data-testid="stat-occupied">{{ s.occupiedSpaces }}</b><span>spaces occupied</span></div>
+    <div class="stat"><b data-testid="stat-free">{{ s.availableSpaces }}</b><span>spaces free</span></div>
+    <div class="stat"><b data-testid="stat-orders">{{ s.activeOrders }}</b><span>active orders</span></div>
+  </div>
+
+  <div class="bars" data-testid="utilization">
+    @for (u of utilization(); track u[0]) {
+      <div class="bar-row">
+        <span class="bar-label">{{ kindLabel[u[0]] }}</span>
+        <span class="bar" [attr.aria-label]="kindLabel[u[0]] + ' utilization ' + pct(u[1].utilization)">
+          <span class="fill occupied" [style.width.%]="u[1].capacity ? (u[1].occupied / u[1].capacity) * 100 : 0"></span>
+          <span class="fill reserved" [style.width.%]="u[1].capacity ? (u[1].reserved / u[1].capacity) * 100 : 0"></span>
+        </span>
+        <span class="bar-value">{{ u[1].occupied + u[1].reserved }}/{{ u[1].capacity }}</span>
+      </div>
+    }
+    <p class="hint">Dark: occupied · light: reserved inbound. Depots hold their parked drones.</p>
+  </div>
+} @else if (fleet.summaryResource.error()) {
+  <p class="error" role="alert">Fleet data unavailable from the backend.</p>
+} @else {
+  <p class="hint">Loading fleet…</p>
+}
+
+<h3>New delivery order</h3>
+<div class="order-form" data-testid="order-form">
+  <label>
+    Type
+    <select data-testid="order-type" [value]="fleet.draft().orderType" (change)="setType($any($event.target).value)">
+      @for (t of orderTypes; track t.id) {
+        <option [value]="t.id">{{ t.label }}</option>
+      }
+    </select>
+  </label>
+  <p class="pt" data-testid="order-pickup">
+    <b>Pickup (Point A):</b>
+    {{ store.start()?.label ?? 'not selected' }}
+    @if (pickupFacility(); as f) { <span class="tag">pad {{ f }}</span> }
+  </p>
+  <p class="pt" data-testid="order-destination">
+    <b>Destination (Point B):</b>
+    {{ store.destination()?.label ?? 'not selected' }}
+    @if (destinationFacility(); as f) { <span class="tag">lands at {{ f }}</span> }
+  </p>
+  <label>
+    Land at hospital station (optional)
+    <select data-testid="order-station" [value]="destinationFacility() ?? ''" (change)="setDestinationStation($any($event.target).value)">
+      <option value="">No – drop-off at Point B</option>
+      @for (s of fleet.enabledStations(); track s.station.id) {
+        <option [value]="s.station.id">{{ s.hospital.name ?? s.station.name }} ({{ s.station.available }}/{{ s.station.capacity }} free)</option>
+      }
+    </select>
+  </label>
+  <button mat-flat-button data-testid="order-submit" [disabled]="!canOrder()" (click)="createAndAssign()">
+    <mat-icon>local_shipping</mat-icon> Create order &amp; assign drone
+  </button>
+  @if (!store.start() || !store.destination()) {
+    <p class="hint">Select Point A and Point B in the planner (search, map click, or a facility popup).</p>
+  }
+  @if (fleet.lastMessage(); as m) {
+    <p [class]="m.ok ? 'msg ok' : 'msg err'" data-testid="fleet-message" role="status">{{ m.text }}</p>
+  }
+</div>
+
+<h3>Orders</h3>
+<ul class="orders" data-testid="orders">
+  @for (o of fleet.orders().slice(0, 12); track o.id) {
+    <li [attr.data-order-id]="o.id" [class]="'order st-' + o.status.toLowerCase()">
+      <div class="row1">
+        <b>{{ o.orderType.replace('_', ' ') }}</b>
+        <span class="status" data-testid="order-status">{{ o.status }}</span>
+      </div>
+      <div class="row2">
+        {{ o.droneId ?? 'no drone' }} · {{ minutes(o.estimatedDurationS) }} ·
+        {{ o.distanceM !== null ? (o.distanceM / 1000 | number: '1.1-1') + ' km' : '–' }}
+      </div>
+      @if (o.message) { <div class="row3">{{ o.message }}</div> }
+      <div class="row-actions">
+        @switch (o.status) {
+          @case ('CREATED') { <button mat-button (click)="assign(o)">Assign drone</button> }
+          @case ('NO_DRONE_AVAILABLE') { <button mat-button (click)="assign(o)">Retry</button> }
+          @case ('FAILED') { <button mat-button (click)="assign(o)">Retry</button> }
+        }
+        @if (['ASSIGNED', 'TO_PICKUP', 'LOADING', 'IN_DELIVERY', 'DELIVERED', 'RETURNING'].includes(o.status)) {
+          <button mat-button data-testid="order-advance" (click)="advance(o)">Advance simulation</button>
+        }
+        @if (['CREATED', 'ASSIGNED', 'NO_DRONE_AVAILABLE', 'FAILED'].includes(o.status)) {
+          <button mat-button (click)="cancel(o)">Cancel</button>
+        }
+      </div>
+    </li>
+  } @empty {
+    <li class="hint">No orders yet.</li>
+  }
+</ul>
+@if (charging().length) {
+  <p class="hint">Charging:
+    @for (d of charging(); track d.id) {
+      <button mat-button class="mini" (click)="finishCharging(d.id)">{{ d.name }} ({{ d.batteryPercent | number: '1.0-0' }}%) → ready</button>
+    }
+  </p>
+}
+
+<h3>
+  <button mat-button data-testid="demand-toggle" (click)="toggleDemand()">
+    <mat-icon>insights</mat-icon> Demand &amp; capacity planning
+  </button>
+</h3>
+@if (fleet.demandOpen()) {
+  <div class="demand" data-testid="demand">
+    <label>
+      Scenario
+      <select data-testid="demand-scenario" [value]="fleet.demandScenario()" (change)="fleet.demandScenario.set($any($event.target).value)">
+        <option value="BASELINE">Baseline (simulated)</option>
+        <option value="CENTRAL_PEAK">Central lunchtime peak (simulated)</option>
+      </select>
+    </label>
+    @if (fleet.demand(); as d) {
+      <p class="hint">{{ d.label }} Peak ~{{ d.peakConcurrentDeliveries }} simultaneous deliveries citywide (assumption).</p>
+      <table>
+        <thead><tr><th>Depot</th><th>Spaces</th><th>Peak need</th><th>Level</th></tr></thead>
+        <tbody>
+          @for (x of d.depots; track x.depotId) {
+            <tr [class]="'lvl-' + x.level.toLowerCase()" [title]="x.recommendation" [attr.data-depot]="x.depotId">
+              <td>{{ x.name }}</td><td>{{ x.installedCapacity }}</td><td>{{ x.expectedPeakDrones }}</td><td>{{ x.level }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+      <p class="hint">Recommendations (hover a row) never change installed capacity; use the admin controls to try a change.</p>
+    }
+  </div>
+}
+
+<h3>
+  <button mat-button data-testid="admin-toggle" (click)="showAdmin.set(!showAdmin())">
+    <mat-icon>admin_panel_settings</mat-icon> Admin (development)
+  </button>
+</h3>
+@if (showAdmin()) {
+  <div class="admin" data-testid="admin">
+    <p class="hint">Changes use the development admin token. Demo facilities only; not production access control.</p>
+    <table>
+      <thead><tr><th>Depot</th><th>Spaces</th><th>Drones</th><th>Enabled</th></tr></thead>
+      <tbody>
+        @for (d of depotsSorted(); track d.id) {
+          <tr [attr.data-admin-depot]="d.id">
+            <td>{{ d.name }}<br><small>{{ d.occupied }} occ · {{ d.reserved }} res · {{ d.available }} free</small></td>
+            <td><input type="number" min="0" max="50" [value]="d.capacity" (change)="setCapacity(d, $any($event.target).value)"
+                       [attr.aria-label]="'Capacity of ' + d.name" /></td>
+            <td>{{ d.availableDrones }}/{{ d.assignedDrones }}</td>
+            <td><input type="checkbox" [checked]="d.dispatchEnabled" (change)="toggleEnabled(d)" [attr.aria-label]="'Enable ' + d.name" /></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    <h4>Hospital stations</h4>
+    <ul class="stations">
+      @for (h of fleet.hospitals(); track h.id) {
+        @if (h.station && (!fleet.district() || h.district === fleet.district())) {
+          <li>
+            <label>
+              <input type="checkbox" [checked]="h.station.dispatchEnabled" (change)="toggleEnabled(h.station)" />
+              {{ h.name ?? 'Unnamed hospital' }} <small>({{ h.district }}, {{ h.station.verification }})</small>
+            </label>
+          </li>
+        }
+      }
+    </ul>
+    @if (fleet.hospitalCompletenessNote(); as n) { <p class="hint">{{ n }}</p> }
+  </div>
+}

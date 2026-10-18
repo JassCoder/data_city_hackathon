@@ -23,3 +23,51 @@ body {
   background: var(--mat-sys-surface);
   color: var(--mat-sys-on-surface);
 }
+
+/* Toggle groups shown as separate, compact pills (Flight Mode, Route Optimisation, Weather). */
+.mat-button-toggle-group.pill-toggle {
+  border: none;
+  border-radius: 0;
+  gap: 6px;
+  flex-wrap: wrap;
+  overflow: visible;
+  --mat-button-toggle-height: 30px;
+  --mat-standard-button-toggle-height: 30px;
+
+  .mat-button-toggle,
+  .mat-button-toggle + .mat-button-toggle {
+    border: 1px solid var(--mat-sys-outline-variant);
+    border-radius: 15px;
+    overflow: hidden;
+  }
+
+  .mat-button-toggle-label-content {
+    padding: 0 14px;
+    line-height: 28px;
+    font-size: 13px;
+  }
+
+  .mat-button-toggle-checked {
+    border-color: var(--mat-sys-primary);
+    background: var(--mat-sys-primary-container);
+    color: var(--mat-sys-on-primary-container);
+    font-weight: 500;
+  }
+}
+
+/* Flight altitude slider: green filled part, light green remaining track. */
+.mat-mdc-slider.altitude-slider {
+  --mat-slider-active-track-color: #2e7d32;
+  --mat-slider-inactive-track-color: #c8e6c9;
+  --mat-slider-handle-color: #2e7d32;
+  --mat-slider-hover-handle-color: #1b5e20;
+  --mat-slider-focus-handle-color: #1b5e20;
+  --mat-slider-label-container-color: #2e7d32;
+  --mat-slider-ripple-color: #2e7d32;
+  --mat-slider-hover-state-layer-color: rgba(46, 125, 50, 0.08);
+  --mat-slider-focus-state-layer-color: rgba(46, 125, 50, 0.2);
+  --mat-slider-with-tick-marks-active-container-color: #fff;
+  --mat-slider-with-tick-marks-inactive-container-color: #2e7d32;
+
+  .mdc-slider__track--inactive { opacity: 1; }
+}

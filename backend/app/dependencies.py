@@ -3,6 +3,8 @@
 from fastapi import Depends, Request
 
 from app.airspace.repository import AirspaceRepository
+from app.fleet.service import FleetService
+from app.geo.airports import AirportData
 from app.geo.coverage import Coverage
 from app.routing.planner import RoutePlanner
 from app.services.drone_profiles import DroneProfileRegistry
@@ -13,6 +15,10 @@ from app.services.weather import WeatherService
 
 def get_geocoder(request: Request) -> GeocodingService:
     return request.app.state.geocoder
+
+
+def get_entrances(request: Request):
+    return request.app.state.entrances
 
 
 def get_weather(request: Request) -> WeatherService:
@@ -33,6 +39,18 @@ def get_airspace(request: Request) -> AirspaceRepository:
 
 def get_coverage(request: Request) -> Coverage:
     return request.app.state.planner.coverage
+
+
+def get_fleet(request: Request) -> FleetService:
+    return request.app.state.fleet
+
+
+def get_airports(request: Request) -> AirportData:
+    return request.app.state.airports
+
+
+def get_weather_optional(request: Request) -> WeatherService | None:
+    return getattr(request.app.state, "weather", None)
 
 
 def get_route_service(

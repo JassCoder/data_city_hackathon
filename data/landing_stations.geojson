@@ -2,8 +2,8 @@
  "type": "FeatureCollection",
  "metadata": {
   "layer": "landing_stations",
-  "source": "DEMO",
-  "disclaimer": "SYNTHETIC DEMO DATA. These boundaries are invented for the SkyRoute prototype and are NOT official PAŻP geographical zones. Check PAŻP DroneMap/DroneTower before any real flight.",
+  "source": "SYNTHETIC",
+  "disclaimer": "Synthetic sample landing locations for the SkyRoute prototype; they are not real facilities.",
   "timestamp": "2026-10-17T00:00:00Z"
  },
  "features": [
@@ -15,7 +15,7 @@
     "station_type": "HOSPITAL",
     "status": "AVAILABLE",
     "capacity": 2,
-    "source": "DEMO"
+    "source": "SYNTHETIC"
    },
    "geometry": {
     "type": "Point",
@@ -33,7 +33,7 @@
     "station_type": "ROOFTOP",
     "status": "AVAILABLE",
     "capacity": 1,
-    "source": "DEMO"
+    "source": "SYNTHETIC"
    },
    "geometry": {
     "type": "Point",
@@ -51,7 +51,7 @@
     "station_type": "PARK",
     "status": "AVAILABLE",
     "capacity": 2,
-    "source": "DEMO"
+    "source": "SYNTHETIC"
    },
    "geometry": {
     "type": "Point",
@@ -69,7 +69,7 @@
     "station_type": "DEPOT",
     "status": "AVAILABLE",
     "capacity": 6,
-    "source": "DEMO"
+    "source": "SYNTHETIC"
    },
    "geometry": {
     "type": "Point",

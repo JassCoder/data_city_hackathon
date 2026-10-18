@@ -1,42 +1,11 @@
 <h2>Plan route</h2>
 
-<app-location-input role="start" label="Point A: Starting address" placeholder="e.g. Warszawa Centralna, Warszawa" />
+<app-location-input role="start" label="Starting address" placeholder="e.g. Marszałkowska 104, Warszawa" />
 <app-location-input
   role="destination"
-  label="Point B: Destination address"
-  placeholder="e.g. Centrum Nauki Kopernik, Warszawa"
+  label="Destination address"
+  placeholder="e.g. Al. Jerozolimskie 54, Warszawa"
 />
-
-<section class="block" data-testid="scenarios">
-  <span class="block-title">Routing scenario</span>
-  <div class="scenario-grid" role="group" aria-label="Routing scenario">
-    @for (sc of api.scenarioList() ?? []; track sc.id) {
-      <button
-        type="button"
-        class="scenario"
-        [class.active]="store.selectedScenario() === sc.id"
-        [attr.aria-pressed]="store.selectedScenario() === sc.id"
-        [attr.data-testid]="'scenario-' + sc.id"
-        (click)="selectScenario(sc.id)"
-      >
-        {{ sc.displayName }}
-      </button>
-    }
-  </div>
-  @if (store.scenarioNotice(); as n) {
-    <p class="error" role="alert" data-testid="scenario-notice">{{ n }}</p>
-  }
-  @if (store.selectedScenarioConfig(); as sc) {
-    <p class="hint" data-testid="scenario-description">
-      {{ sc.description }} Uses your Point A and Point B.
-      @if (sc.recommendedProfileId && sc.recommendedProfileId !== store.droneProfileId()) {
-        Suggested profile: {{ profileName(sc.recommendedProfileId) }} (not applied automatically).
-      }
-    </p>
-  } @else {
-    <p class="hint" data-testid="scenario-description">Custom settings: mode and optimisation chosen below.</p>
-  }
-</section>
 
 <section class="block" data-testid="altitude">
   <div class="row">
@@ -44,7 +13,7 @@
     <span class="value">{{ store.altitudeValid() ? store.altitude() + ' m' : '—' }}</span>
   </div>
   <div class="row slider-row">
-    <mat-slider [min]="ALTITUDE.min" [max]="ALTITUDE.max" [step]="ALTITUDE.step" discrete class="slider">
+    <mat-slider [min]="ALTITUDE.min" [max]="ALTITUDE.max" [step]="ALTITUDE.step" discrete class="slider altitude-slider">
       <input
         matSliderThumb
         data-testid="altitude-slider"
@@ -73,114 +42,61 @@
       Enter {{ ALTITUDE.min }}–{{ ALTITUDE.max }} m in {{ ALTITUDE.step }} m steps.
     </p>
   }
-  <p class="hint">Prototype above-ground-level setting. This range is not an authorization to fly; real limits depend on the operation category and airspace.</p>
 </section>
 
-<section class="block">
-  <span class="block-title">Flight mode</span>
+<section class="block inline">
+  <span class="block-title" id="mode-label">Flight Mode</span>
   <mat-button-toggle-group
+    class="pill-toggle"
     data-testid="mode"
-    aria-label="Flight mode"
+    aria-labelledby="mode-label"
     hideSingleSelectionIndicator
     [value]="store.mode()"
-    (change)="setMode($event.value)"
+    (change)="store.setMode($event.value)"
   >
-    <mat-button-toggle value="NORMAL">NORMAL</mat-button-toggle>
-    <mat-button-toggle value="EMERGENCY">EMERGENCY</mat-button-toggle>
+    <mat-button-toggle value="NORMAL">Normal</mat-button-toggle>
+    <mat-button-toggle value="EMERGENCY">Emergency</mat-button-toggle>
   </mat-button-toggle-group>
-  <p class="hint">
-    @if (store.mode() === 'EMERGENCY') {
-      Prototype priority profile: prefers more direct paths through permitted airspace. It never enters no-fly or restricted zones.
-    } @else {
-      Standard profile: prefers the river and park corridors.
-    }
-  </p>
 </section>
 
 <section class="block">
-  <span class="block-title">Route optimisation</span>
+  <span class="block-title" id="objective-label">Route Optimisation</span>
   <mat-button-toggle-group
+    class="pill-toggle"
     data-testid="objective"
-    aria-label="Route optimisation"
+    aria-labelledby="objective-label"
     hideSingleSelectionIndicator
     [value]="store.routeObjective()"
-    (change)="setObjective($event.value)"
+    (change)="store.setRouteObjective($event.value)"
   >
-    <mat-button-toggle value="CORRIDORS">Safe corridors</mat-button-toggle>
-    <mat-button-toggle value="SHORTEST">Shortest</mat-button-toggle>
+    <mat-button-toggle value="CORRIDORS">Smart Route</mat-button-toggle>
     <mat-button-toggle value="FASTEST">Fastest</mat-button-toggle>
+    <mat-button-toggle value="SHORTEST">Shortest</mat-button-toggle>
   </mat-button-toggle-group>
-  <p class="hint" data-testid="objective-hint">
-    @switch (store.routeObjective()) {
-      @case ('SHORTEST') {
-        Minimises distance. Same hard limits: zones, buildings, wind limit.
-      }
-      @case ('FASTEST') {
-        Minimises flight time using cruise speed and the wind at your altitude for each direction of travel
-        (LIVE wind varies along the route; DEMO wind is uniform, so it then matches Shortest except around obstacles).
-      }
-      @default {
-        Prefers the river and parks (weights depend on the flight mode).
-      }
-    }
-  </p>
 </section>
 
-<section class="block">
-  <mat-form-field appearance="outline" subscriptSizing="dynamic" class="full">
-    <mat-label>Drone profile</mat-label>
-    <mat-select
-      data-testid="profile"
-      [value]="store.droneProfileId()"
-      (selectionChange)="store.setDroneProfile($event.value)"
-    >
-      @for (p of api.profileList() ?? []; track p.id) {
-        <mat-option [value]="p.id">{{ p.name }}: {{ p.id }}</mat-option>
-      }
-    </mat-select>
-  </mat-form-field>
-  @if (api.profiles.error()) {
-    <p class="error" role="alert">Could not load drone profiles from the backend.</p>
-  }
-  @if (selectedProfile(); as p) {
+<section class="block" data-testid="drone-profile">
+  <span class="block-title">Drone Profile: {{ profile()?.name ?? 'Standard Drone' }}</span>
+  @if (profile(); as p) {
     <p class="hint" data-testid="profile-details">
-      {{ p.cruiseSpeedMps }} m/s cruise · wind limit {{ p.maxWindKmh }} km/h · {{ p.verticalClearanceM }} m clearance ·
-      {{ p.maxRangeKm }} km range · <span class="tag">DEMO profile</span>
+      {{ p.cruiseSpeedMps }} m/s cruise (assumed) · wind limit {{ p.maxWindKmh }} km/h · example range {{ p.maxRangeKm }} km
+    </p>
+  } @else if (api.profiles.error() || api.profileList()) {
+    <p class="error" role="alert" data-testid="profile-error">
+      @if (api.profiles.error()) {
+        Could not load the drone profile from the backend.
+      } @else {
+        The backend did not offer the Standard Drone ({{ store.droneProfileId() }}); it may be an older backend version.
+      }
+      <button mat-button type="button" data-testid="profile-reload" (click)="api.profiles.reload()">Reload profiles</button>
     </p>
   }
 </section>
 
-<section class="block">
-  <span class="block-title">Weather</span>
-  <mat-button-toggle-group
-    data-testid="weather"
-    aria-label="Weather mode"
-    hideSingleSelectionIndicator
-    [value]="store.weatherMode()"
-    (change)="setWeatherMode($event.value)"
-  >
-    <mat-button-toggle value="DEMO">DEMO</mat-button-toggle>
-    <mat-button-toggle value="LIVE">LIVE</mat-button-toggle>
-  </mat-button-toggle-group>
-  @if (weatherInfo(); as w) {
-    <p class="hint" data-testid="weather-info" [class.warn]="w.source === 'DEMO_FALLBACK'">
-      Wind {{ w.windSpeedKmh }} km/h from {{ w.windDirectionDeg }}°
-      @if (w.altitudeM) {
-        at {{ w.altitudeM }} m
-      }
-      @if (w.windGustKmh !== null) {
-        (gusts {{ w.windGustKmh }} km/h)
-      }
-      · {{ w.message }}
-    </p>
-  } @else if (weather.isLoading()) {
-    <p class="hint">Loading weather…</p>
-  } @else if (weather.error()) {
-    <p class="error" role="alert">Weather unavailable from the backend.</p>
-  }
-</section>
+<app-weather-status class="block" />
 
 <section class="buttons">
+  <div class="primary">
   <button
     mat-flat-button
     class="calculate"
@@ -192,30 +108,32 @@
       <mat-spinner diameter="18" />
       Calculating…
     } @else {
-      <ng-container><mat-icon>route</mat-icon> Calculate Route</ng-container>
+      <ng-container><mat-icon>directions</mat-icon> Find Route</ng-container>
     }
   </button>
+  <button
+    mat-flat-button
+    class="simulate"
+    data-testid="start-simulation"
+    [disabled]="!sim.canStart()"
+    (click)="sim.start()"
+  >
+    <mat-icon>flight_takeoff</mat-icon> Start Simulation
+  </button>
+  </div>
   @if (missing().length && store.route().phase !== 'loading') {
     <p class="hint" data-testid="missing">To calculate: {{ missing().join(', ') }}.</p>
   }
+  @if (sim.startError(); as e) {
+    <p class="error" role="alert" data-testid="sim-start-error">{{ e }}</p>
+  }
+  <app-simulation-panel />
   <div class="secondary">
-    <button mat-stroked-button data-testid="clear-route" (click)="store.clearRoute()">Clear Route</button>
-    <button mat-stroked-button data-testid="reset" (click)="reset()">Reset Planner</button>
+    <button mat-stroked-button data-testid="clear-route" (click)="store.clearRoute()">
+      <mat-icon>layers_clear</mat-icon> Clear Route
+    </button>
+    <button mat-stroked-button data-testid="reset" (click)="store.reset()">
+      <mat-icon>restart_alt</mat-icon> Reset
+    </button>
   </div>
-  <button mat-button type="button" class="demo-title" data-testid="fixtures-toggle" (click)="showFixtures.set(!showFixtures())">
-    <mat-icon>science</mat-icon> Load demo fixture (replaces Point A and B)
-  </button>
-  @if (showFixtures()) {
-    @for (d of fixtures; track d.id) {
-      <button mat-stroked-button class="demo" [attr.data-testid]="'fixture-' + d.id" [title]="d.description" (click)="loadFixture(d.id)">
-        {{ d.title }}
-      </button>
-    }
-  }
-  @if (store.fixtureLabel(); as label) {
-    <p class="hint" data-testid="fixture-label"><span class="tag">DEMO</span> Points from the demo fixture "{{ label }}". Change either point to use your own.</p>
-  }
-  @if (demoError(); as err) {
-    <p class="error" role="alert">{{ err }}</p>
-  }
 </section>

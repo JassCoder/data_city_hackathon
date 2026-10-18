@@ -23,7 +23,7 @@ SEJM_EAST = {"latitude": 52.2250, "longitude": 21.0370}
 
 def body(start=CENTRALNA, dest=STADION, **over):
     return {"start": start, "destination": dest, "flightAltitudeMeters": 80,
-            "droneProfileId": "DEMO_DRONE_01", "weatherMode": "DEMO", **over}
+            "droneProfileId": "DEMO_DRONE_01", "weatherMode": "SAMPLE", **over}
 
 
 def route(client, **kw):
@@ -73,7 +73,9 @@ def test_changing_point_b_changes_the_route(client, scenario):
     a = route(client, scenario=scenario)
     b = route(client, scenario=scenario, dest=PRAGA)
     assert b["destination"] == PRAGA
-    assert ends(b)[1] == pytest.approx(as_lonlat(PRAGA), abs=1e-6)
+    route_destination = b["routeDestination"]
+    assert ends(b)[1] == pytest.approx(as_lonlat(route_destination), abs=1e-6)
+    assert route_destination == PRAGA or b["warnings"]
     assert a["geometry"]["coordinates"] != b["geometry"]["coordinates"]
 
 
@@ -82,7 +84,7 @@ def test_every_scenario_avoids_prohibited_polygons(client, scenario):
     zones = client.get("/api/v1/zones", params={"altitudeM": 80}).json()["zones"]
     obstacles = [shape(z["geojsonGeometry"]) for z in zones if z["evaluation"]["isObstacle"]]
     straight = LineString([as_lonlat(SEJM_WEST), as_lonlat(SEJM_EAST)])
-    assert any(straight.intersects(o) for o in obstacles)  # the direct line would cross DEMO-P-SEJM
+    assert any(straight.intersects(o) for o in obstacles)  # the direct line would cross -P-SEJM
     r = route(client, scenario=scenario, start=SEJM_WEST, dest=SEJM_EAST)
     assert r["status"] == "OK"
     line = LineString(r["geometry"]["coordinates"])

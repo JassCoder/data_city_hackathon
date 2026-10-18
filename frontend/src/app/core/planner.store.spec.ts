@@ -58,22 +58,32 @@ describe('PlannerStore', () => {
       flightAltitudeMeters: 95,
       droneProfileId: 'DEMO_DRONE_02',
       weatherMode: 'LIVE',
-      routeObjective: 'FASTEST',
-    } satisfies RouteRequest);  // manual mode/objective => custom: no scenario field
+      optimization: 'FASTEST',
+    } satisfies RouteRequest); // no scenario and no departure time: the backend picks the time
     expect(typeof store.request()!.start.latitude).toBe('number');
   });
 
-  it('uses the documented defaults', () => {
+  it('uses the documented defaults: Standard Drone, LIVE weather, Smart Route, no scenario', () => {
     withPoints();
-    expect(store.request()).toMatchObject({
+    expect(store.request()).toEqual({
+      start: CENTRALNA.coordinate,
+      destination: KOPERNIK.coordinate,
       mode: 'NORMAL',
       flightAltitudeMeters: 80,
       droneProfileId: 'DEMO_DRONE_01',
-      weatherMode: 'DEMO',
-      routeObjective: 'CORRIDORS',
-      scenario: 'NORMAL',
+      weatherMode: 'LIVE',
+      optimization: 'BALANCED',
     });
   });
+
+  it.each([['FASTEST', 'FASTEST'], ['SHORTEST', 'SHORTEST'], ['CORRIDORS', 'BALANCED']] as const)(
+    'route optimisation %s is sent as optimization %s',
+    (objective, optimization) => {
+      withPoints();
+      store.setRouteObjective(objective);
+      expect(store.request()?.optimization).toBe(optimization);
+    },
+  );
 
   it.each([NaN, 15, 125, 82])('disables calculation for invalid altitude %s', (alt) => {
     withPoints();
@@ -84,7 +94,7 @@ describe('PlannerStore', () => {
 
   it('rejects an unknown drone profile', () => {
     withPoints();
-    store.setDroneProfile('DEMO_DRONE_99');
+    store.setDroneProfile('_DRONE_99');
     expect(store.profileValid()).toBe(false);
     expect(store.request()).toBeNull();
   });
@@ -114,6 +124,20 @@ describe('PlannerStore', () => {
     const r = store.route();
     expect(r.phase).toBe('ready');
     if (r.phase === 'ready') expect(r.response.distanceM).toBe(3035.2);
+  });
+
+  it('with autoCalculate, choosing the second point calculates with the exact points; settings only invalidate', () => {
+    store.autoCalculate.set(true);
+    store.setLocation('start', CENTRALNA);
+    http.expectNone(ROUTE_URL); // one point only
+    store.setLocation('destination', KOPERNIK);
+    const req = http.expectOne(ROUTE_URL);
+    expect(req.request.body.start).toEqual(CENTRALNA.coordinate);
+    expect(req.request.body.destination).toEqual(KOPERNIK.coordinate);
+    req.flush(routeResponse(req.request.body));
+    store.setAltitude(100);
+    http.expectNone(ROUTE_URL); // altitude change: stale, recalculated on request
+    expect(store.route().phase).toBe('stale');
   });
 
   it.each([
@@ -214,9 +238,9 @@ describe('PlannerStore', () => {
     withPoints();
     store.setAltitude(100);
     store.setMode('EMERGENCY');
-    store.setWeatherMode('LIVE');
+    store.setWeatherMode('SAMPLE');
     store.setDroneProfile('DEMO_DRONE_02');
-    store.setRouteObjective('FASTEST');
+    store.setRouteObjective('SHORTEST');
     store.calculate();
     const req = http.expectOne(ROUTE_URL);
     store.reset();
@@ -226,17 +250,17 @@ describe('PlannerStore', () => {
     expect(store.route().phase).toBe('idle');
     expect(store.altitude()).toBe(PLANNER_DEFAULTS.altitude);
     expect(store.mode()).toBe('NORMAL');
-    expect(store.weatherMode()).toBe('DEMO');
+    expect(store.weatherMode()).toBe('LIVE');
     expect(store.droneProfileId()).toBe('DEMO_DRONE_01');
     expect(store.routeObjective()).toBe('CORRIDORS');
-    expect(store.selectedScenario()).toBe('NORMAL');
+    expect(store.selectedScenario()).toBeNull();
   });
 
-  it('demo fixture is an explicit action that sets points but not scenario, mode or profile', () => {
+  it('sample fixture is an explicit action that sets points but not scenario, mode or profile', () => {
     store.setDroneProfile('DEMO_DRONE_01');
     store.selectScenario('AED_DELIVERY');
-    expect(store.loadDemoFixture('depot-hospital')).toBeNull();
-    expect(store.start()?.source).toBe('DEMO');
+    expect(store.loadFixture('depot-hospital')).toBeNull();
+    expect(store.start()?.source).toBe('FIXTURE');
     expect(store.fixtureLabel()).toContain('Depot');
     const req = http.expectOne(ROUTE_URL);
     expect(req.request.body).toMatchObject({
@@ -300,6 +324,29 @@ describe('PlannerStore', () => {
     second.flush(routeResponse(second.request.body));
     const r = store.route();
     expect(r.phase === 'ready' && r.response.scenario).toBe('AVOID_PROHIBITED_ZONE');
+  });
+
+  it('choosing a mapped entrance moves the point onto it and keeps the flat; it invalidates the route', () => {
+    const base = { ...CENTRALNA, source: 'SEARCH' as const, accuracy: 'ADDRESS' as const, flat: '12' };
+    withPoints();
+    store.setLocation('start', base);
+    store.calculate();
+    http.expectOne(ROUTE_URL).flush(routeResponse(store.request()!));
+    const e = { id: 'node/1', latitude: 52.2289, longitude: 21.0033, entrance: 'staircase', ref: 'B', flats: '10-20',
+      housenumber: null, street: null, wheelchair: null, matchesFlat: true };
+    store.offerEntrances('start', base, [e], 'note');
+    expect(store.chooseEntrance(e)).toBe(true);
+    expect(store.start()).toMatchObject({ coordinate: { latitude: 52.2289, longitude: 21.0033 }, source: 'ENTRANCE', flat: '12' });
+    expect(store.start()?.label).toContain('entrance B');
+    expect(store.entranceChoice()).toBeNull();
+    expect(store.route().phase).toBe('stale');
+  });
+
+  it('a new point for the same role drops the entrance offer', () => {
+    store.offerEntrances('start', { ...CENTRALNA }, [{ id: 'node/1', latitude: 52.2, longitude: 21, entrance: 'main', ref: null,
+      flats: null, housenumber: null, street: null, wheelchair: null, matchesFlat: false }], 'n');
+    store.setLocation('start', KOPERNIK);
+    expect(store.entranceChoice()).toBeNull();
   });
 
   it('manual mode/objective changes switch to custom settings', () => {

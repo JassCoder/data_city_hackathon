@@ -3,7 +3,7 @@
 import type { AirspaceSource, ZoneConflict } from './airspace';
 
 export type FlightMode = 'NORMAL' | 'EMERGENCY';
-export type WeatherMode = 'DEMO' | 'LIVE';
+export type WeatherMode = 'SAMPLE' | 'LIVE';
 /** What the route minimises (hard restrictions always apply). */
 export type RouteObjective = 'CORRIDORS' | 'SHORTEST' | 'FASTEST';
 /** Routing scenario: configuration only. It never carries or changes Point A/B. */
@@ -33,13 +33,29 @@ export interface Coordinate {
   longitude: number;
 }
 
-export type LocationSource = 'SEARCH' | 'MAP_CLICK' | 'MANUAL' | 'DEMO';
+/** FACILITY = explicitly chosen from a hospital/restaurant/depot popup or the fleet panel;
+ * ENTRANCE = a mapped OSM building entrance chosen after an address search. */
+export type LocationSource = 'SEARCH' | 'MAP_CLICK' | 'MANUAL' | 'FIXTURE' | 'FACILITY' | 'ENTRANCE';
+
+/** ADDRESS = building/address matched; STREET / PLACE = approximations. */
+export type GeocodeAccuracy = 'ADDRESS' | 'NEARBY_BUILDING' | 'STREET' | 'PLACE' | 'COORDINATES';
+
+/** UI name of the route objective (BALANCED = safe corridors). Hard constraints apply to all. */
+export type Optimization = 'FASTEST' | 'SHORTEST' | 'BALANCED';
+export const OPTIMIZATION_OF: Record<RouteObjective, Optimization> = {
+  FASTEST: 'FASTEST',
+  SHORTEST: 'SHORTEST',
+  CORRIDORS: 'BALANCED',
+};
 
 /** A start/destination chosen by the user. Only in-coverage points are ever selected. */
 export interface SelectedLocation {
   coordinate: Coordinate;
   label: string;
   source: LocationSource;
+  accuracy?: GeocodeAccuracy | null;
+  /** Flat/apartment as entered: kept with the address, never geolocated. */
+  flat?: string | null;
 }
 
 export interface RouteRequest {
@@ -49,7 +65,9 @@ export interface RouteRequest {
   flightAltitudeMeters: number;
   droneProfileId: string;
   weatherMode: WeatherMode;
-  routeObjective: RouteObjective;
+  /** FASTEST | SHORTEST | BALANCED; the backend maps it to its route objective. */
+  optimization: Optimization;
+  /** Not set by the planner UI (scenarios were removed from it); kept for API compatibility. */
   scenario?: ScenarioId | null;
 }
 
@@ -65,7 +83,7 @@ export type RouteStatus =
 
 export interface WeatherInfo {
   mode: WeatherMode;
-  source: 'DEMO' | 'OPEN_METEO' | 'DEMO_FALLBACK';
+  source: 'SAMPLE' | 'OPEN_METEO' | 'CACHED' | 'SAMPLE_FALLBACK';
   liveAvailable: boolean | null;
   windSpeedKmh: number;
   windDirectionDeg: number;
@@ -97,6 +115,9 @@ export interface SearchInfo {
 }
 
 export interface RouteResponse {
+  optimization?: Optimization;
+  /** Effective calculation time chosen by the backend (Europe/Warsaw). */
+  calculatedAt?: string | null;
   status: RouteStatus;
   message: string;
   /** Echo of the submitted endpoints (never replaced by a scenario). */
@@ -133,6 +154,12 @@ export interface GeocodeResult {
   category: string | null;
   source: string;
   inCoverage: boolean;
+  accuracy?: GeocodeAccuracy | null;
+  street?: string | null;
+  houseNumber?: string | null;
+  postcode?: string | null;
+  flat?: string | null;
+  flatResolved?: boolean | null;
 }
 
 export interface GeocodingResponse {
@@ -141,6 +168,8 @@ export interface GeocodingResponse {
   provider: string;
   attribution: string;
   cached: boolean;
+  parsed?: { street: string | null; number: string | null; flat: string | null; city: string | null; isCoordinates: boolean } | null;
+  note?: string | null;
 }
 
 export interface DroneProfile {
@@ -152,7 +181,7 @@ export interface DroneProfile {
   verticalClearanceM: number;
   maxRangeKm: number;
   maxPayloadKg: number;
-  source: 'DEMO';
+  source: 'SYNTHETIC';
 }
 
 export interface DroneProfilesResponse {
@@ -178,4 +207,26 @@ export function isValidCoordinate(c: Partial<Coordinate> | null | undefined): c 
     Math.abs(c.latitude) <= 90 &&
     Math.abs(c.longitude) <= 180
   );
+}
+
+/** GET /geocoding/entrances: mapped OSM entrances of the building at a point. */
+export interface Entrance {
+  id: string;
+  latitude: number;
+  longitude: number;
+  entrance: string | null;
+  ref: string | null;
+  flats: string | null;
+  housenumber: string | null;
+  street: string | null;
+  wheelchair: string | null;
+  /** True only when the entrance's addr:flats tag covers the entered flat. */
+  matchesFlat: boolean;
+}
+
+export interface EntrancesResponse {
+  building: { id: string; heightM: number | null; heightSource: string } | null;
+  entrances: Entrance[];
+  note: string;
+  source: string | null;
 }

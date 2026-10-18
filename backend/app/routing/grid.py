@@ -22,6 +22,7 @@ import shapely
 from pyproj import Transformer
 from shapely.geometry.base import BaseGeometry
 
+from app.config import UNKNOWN_BUILDING_POLICY
 from app.routing.costs import CELL_SIZE_M
 
 _to_m = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True).transform
@@ -54,8 +55,11 @@ class Grid:
     coverage: np.ndarray  # bool: cell centre inside the routing coverage polygon
     river: np.ndarray  # bool
     park: np.ndarray  # bool
-    building_height: np.ndarray  # float metres, 0 = no building
+    building_height: np.ndarray  # float metres used for routing, 0 = no building (unknown-height policy applied)
     meta: dict = field(default_factory=dict)
+    # Cells covered by a building of unknown height (None for synthetic test grids).
+    unknown_height: np.ndarray | None = None
+    unknown_policy: "UnknownHeightPolicy | None" = None
 
     # --- coordinates -----------------------------------------------------------
     def cell_of(self, x: float, y: float) -> tuple[int, int] | None:
@@ -121,8 +125,44 @@ def coverage_mask(grid: Grid, area_wgs84: BaseGeometry) -> np.ndarray:
     return mask
 
 
-def load_city_grid(path: Path, area_wgs84: BaseGeometry | None) -> Grid:
-    """Loads the precomputed citywide raster; coverage from the official polygon."""
+@dataclass(frozen=True)
+class UnknownHeightPolicy:
+    """How routing treats buildings whose height is unknown (see config.UNKNOWN_BUILDING_POLICY)."""
+
+    mode: str  # "assume" | "block"
+    height_m: float | None = None
+
+    @classmethod
+    def parse(cls, value: str) -> "UnknownHeightPolicy":
+        v = value.strip().lower()
+        if v == "block":
+            return cls("block")
+        if v.startswith("assume:"):
+            try:
+                h = float(v.split(":", 1)[1])
+            except ValueError:
+                h = -1
+            if h > 0:
+                return cls("assume", h)
+        raise GridLoadError(f"Invalid unknown-building policy '{value}' (use 'assume:<metres>' or 'block').")
+
+    @property
+    def label(self) -> str:
+        if self.mode == "block":
+            return "Buildings of unknown height block every flight altitude (policy 'block')."
+        return (f"Buildings of unknown height are treated as obstacles up to {self.height_m:g} m "
+                f"(policy 'assume:{self.height_m:g}'; an assumption, not data).")
+
+    def apply(self, heights: np.ndarray, unknown: np.ndarray) -> np.ndarray:
+        if self.mode == "block":
+            return np.where(unknown, np.float32(np.inf), heights).astype(np.float32)
+        return np.where(unknown, np.maximum(heights, np.float32(self.height_m)), heights).astype(np.float32)
+
+
+def load_city_grid(path: Path, area_wgs84: BaseGeometry | None, policy: UnknownHeightPolicy | None = None) -> Grid:
+    """Loads the precomputed citywide raster; coverage from the official polygon.
+    Unknown building heights stay a separate mask; `policy` decides how routing treats them."""
+    policy = policy or UnknownHeightPolicy.parse(UNKNOWN_BUILDING_POLICY)
     if not path.is_file():
         raise GridLoadError(f"Missing routing raster {path}. Run `python scripts/fetch_osm.py` from the repo root.")
     with np.load(path) as z:
@@ -133,6 +173,10 @@ def load_city_grid(path: Path, area_wgs84: BaseGeometry | None) -> Grid:
             river=z["river"], park=z["park"], building_height=z["building_height"].astype(np.float32),
             meta=meta,
         )
+        if "building_unknown" in z.files:
+            grid.unknown_height = z["building_unknown"]
+            grid.unknown_policy = policy
+            grid.building_height = policy.apply(grid.building_height, grid.unknown_height)
     if area_wgs84 is not None:
         grid.coverage = coverage_mask(grid, area_wgs84)
     return grid

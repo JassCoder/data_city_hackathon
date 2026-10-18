@@ -36,6 +36,8 @@ export interface CoverageResponse {
     maxFineCells: number;
     maxExpansions: number;
     timeLimitS: number;
+    /** Buffer added to blocked zones for routing: a configurable modelling assumption, not a legal rule. */
+    airspaceSafetyMarginM?: number;
     buildingData: string | null;
     buildingDataFetchedAt: string | null;
   };

@@ -19,7 +19,7 @@ def body(**over):
         "mode": "NORMAL",
         "flightAltitudeMeters": 80,
         "droneProfileId": "DEMO_DRONE_01",
-        "weatherMode": "DEMO",
+        "weatherMode": "SAMPLE",
     }
     b.update(over)
     return b
@@ -34,12 +34,13 @@ def test_calculate_returns_camel_case_route(client):
     assert len(r["geometry"]["coordinates"]) >= 2
     assert r["distanceM"] > 0 and r["etaS"] > 0
     assert r["flightAltitudeMeters"] == 80 and r["droneProfileId"] == "DEMO_DRONE_01"
-    assert r["weather"]["source"] == "DEMO"
+    assert r["weather"]["source"] == "SAMPLE"
     first = r["geometry"]["coordinates"][0]
     assert first == pytest.approx([CENTRALNA["longitude"], CENTRALNA["latitude"]], abs=1e-5)  # lon, lat order
-    assert any("DEMO" in s and "Airspace zones" in s for s in r["dataSources"])
-    assert r["airspace"]["sourceType"] == "DEMO" and r["airspace"]["datasetVersion"]
-    assert r["planningVerificationStatus"].startswith("SIMULATION_ONLY")
+    assert any("Airspace zones" in s for s in r["dataSources"])
+    assert r["airspace"]["sourceType"] == "SYNTHETIC" and r["airspace"]["datasetVersion"]
+    assert r["planningVerificationStatus"].startswith("UNVERIFIED SIMULATION")
+    assert r["airspaceVerification"]["sourceState"] == "SYNTHETIC"
     assert isinstance(r["zoneConflicts"], list)
 
 
@@ -89,9 +90,9 @@ def test_invalid_requests_are_rejected(client, bad):
 
 
 def test_unknown_drone_profile(client):
-    res = client.post(URL, json=body(droneProfileId="DEMO_DRONE_99"))
+    res = client.post(URL, json=body(droneProfileId="_DRONE_99"))
     assert res.status_code == 422
-    assert "DEMO_DRONE_99" in res.json()["detail"] and "DEMO_DRONE_01" in res.json()["detail"]
+    assert "_DRONE_99" in res.json()["detail"] and "DEMO_DRONE_01" in res.json()["detail"]
 
 
 def test_outside_coverage(client):
@@ -108,7 +109,7 @@ def test_destination_inside_zone(client):
     assert r["status"] == "DESTINATION_BLOCKED" and r["geometry"] is None
     assert "Sejm" in r["message"] and "DRA-P" in r["message"]
     assert r["zoneConflicts"][0]["relation"] == "DESTINATION_INSIDE"
-    assert r["zoneConflicts"][0]["zoneId"] == "DEMO-P-SEJM"
+    assert r["zoneConflicts"][0]["zoneId"] == "-P-SEJM"
 
 
 def test_unreachable_destination_via_api(client, overrides):
@@ -130,11 +131,11 @@ def test_live_weather_failure_is_explicit(client, overrides):
     overrides[get_weather] = lambda: failing
     r = client.post(URL, json=body(weatherMode="LIVE")).json()
     assert r["status"] == "OK"
-    assert r["weather"]["source"] == "DEMO_FALLBACK" and r["weather"]["liveAvailable"] is False
+    assert r["weather"]["source"] == "SAMPLE_FALLBACK" and r["weather"]["liveAvailable"] is False
     assert "Live weather is not available" in r["warnings"][0]
 
     w = client.get("/api/v1/weather", params={"mode": "LIVE"}).json()
-    assert w["source"] == "DEMO_FALLBACK"
+    assert w["source"] == "SAMPLE_FALLBACK"
 
 
 def test_live_weather_parsed_from_open_meteo(client, overrides):
@@ -154,22 +155,22 @@ def test_drone_profiles_endpoint(client):
     assert ids == ["DEMO_DRONE_01", "DEMO_DRONE_02"]
     p = res["profiles"][0]
     assert {"cruiseSpeedMps", "maxWindKmh", "verticalClearanceM", "maxRangeKm", "source"} <= p.keys()
-    assert p["source"] == "DEMO"
+    assert p["source"] == "SYNTHETIC"
 
 
-def test_demo_weather_endpoint(client):
+def test__weather_endpoint(client):
     w = client.get("/api/v1/weather").json()
-    assert w["mode"] == "DEMO" and w["source"] == "DEMO"
+    assert w["mode"] == "SAMPLE" and w["source"] == "SAMPLE"
 
 
-# --- deterministic verification scenario (DEMO zones) ----------------------------
+# --- deterministic verification scenario ( zones) ----------------------------
 
 SEJM_WEST = {"latitude": 52.2255, "longitude": 21.0205}
 SEJM_EAST = {"latitude": 52.2250, "longitude": 21.0370}
 
 
-def test_demo_avoidance_scenario_routes_around_prohibited_zone(client):
-    sejm = client.get("/api/v1/zones/DEMO-P-SEJM").json()["zone"]
+def test__avoidance_scenario_routes_around_prohibited_zone(client):
+    sejm = client.get("/api/v1/zones/-P-SEJM").json()["zone"]
     poly = shape(sejm["geojsonGeometry"])
     straight = LineString([(SEJM_WEST["longitude"], SEJM_WEST["latitude"]), (SEJM_EAST["longitude"], SEJM_EAST["latitude"])])
     assert straight.intersects(poly)  # a straight line would cross the DRA-P zone
@@ -179,10 +180,10 @@ def test_demo_avoidance_scenario_routes_around_prohibited_zone(client):
         route = LineString(r["geometry"]["coordinates"])
         assert not route.intersects(poly)
         assert len(r["geometry"]["coordinates"]) > 2
-        assert any(c["relation"] == "DIRECT_LINE_BLOCKED" and c["zoneId"] == "DEMO-P-SEJM" for c in r["zoneConflicts"])
+        assert any(c["relation"] == "DIRECT_LINE_BLOCKED" and c["zoneId"] == "-P-SEJM" for c in r["zoneConflicts"])
 
 
-def test_demo_no_route_scenario_enclosed_courtyard(client):
+def test__no_route_scenario_enclosed_courtyard(client):
     courtyard = {"latitude": 52.25549, "longitude": 21.04532}  # Praga-Północ, enclosed by >=10 m buildings
     hospital = {"latitude": 52.2300, "longitude": 20.9930}
     low = client.post(URL, json=body(start=courtyard, destination=hospital, flightAltitudeMeters=20)).json()
@@ -195,14 +196,14 @@ def test_demo_no_route_scenario_enclosed_courtyard(client):
 
 def test_zones_endpoint_lists_evaluated_zones_with_source(client):
     res = client.get("/api/v1/zones").json()
-    assert res["source"]["sourceType"] == "DEMO" and "SYNTHETIC" in res["source"]["disclaimer"]
+    assert res["source"]["sourceType"] == "SYNTHETIC" and "SYNTHETIC" in res["source"]["disclaimer"]
     assert res["source"]["datasetVersion"] and res["flightContext"]["flightAltitudeMeters"] == 80
     z = {z["id"]: z for z in res["zones"]}
-    assert z["DEMO-P-SEJM"]["evaluation"]["displayClass"] == "RED"
-    assert z["DEMO-RM-PKIN"]["evaluation"]["displayClass"] == "ORANGE"
-    assert z["DEMO-I-VISTULA"]["evaluation"]["isObstacle"] is False
-    assert z["DEMO-RL-EVENT"]["evaluation"]["status"] == "NOT_ACTIVE_TIME"
-    castle = z["DEMO-P-CASTLE"]
+    assert z["-P-SEJM"]["evaluation"]["displayClass"] == "RED"
+    assert z["-RM-PKIN"]["evaluation"]["displayClass"] == "RED"
+    assert z["-I-VISTULA"]["evaluation"]["isObstacle"] is False
+    assert z["-RL-EVENT"]["evaluation"]["status"] == "NOT_ACTIVE_TIME"
+    castle = z["-P-CASTLE"]
     assert castle["circle"]["radiusM"] == 140 and castle["geojsonGeometry"]["type"] == "Polygon"
     for f in ("draCategory", "restrictionType", "source", "sourceTimestamp", "validityStart", "validityEnd",
               "lowerAltitude", "upperAltitude", "altitudeReference", "authorizationRequired",
@@ -213,12 +214,12 @@ def test_zones_endpoint_lists_evaluated_zones_with_source(client):
 def test_zones_evaluation_follows_altitude(client):
     at80 = {z["id"]: z for z in client.get("/api/v1/zones", params={"altitudeM": 80}).json()["zones"]}
     at40 = {z["id"]: z for z in client.get("/api/v1/zones", params={"altitudeM": 40}).json()["zones"]}
-    assert at80["DEMO-RH-SCHOOL-POWISLE"]["evaluation"]["status"] == "NOT_APPLICABLE_ALTITUDE"
-    assert at40["DEMO-RH-SCHOOL-POWISLE"]["evaluation"]["isObstacle"] is True
+    assert at80["-RH-SCHOOL-POWISLE"]["evaluation"]["status"] == "NOT_APPLICABLE_ALTITUDE"
+    assert at40["-RH-SCHOOL-POWISLE"]["evaluation"]["isObstacle"] is True
 
 
 def test_zones_evaluation_follows_time(client):
-    during = client.get("/api/v1/zones/DEMO-RL-EVENT", params={"at": "2026-09-15T12:00:00Z"}).json()
+    during = client.get("/api/v1/zones/-RL-EVENT", params={"at": "2026-09-15T12:00:00Z"}).json()
     assert during["zone"]["evaluation"]["isObstacle"] is True
 
 

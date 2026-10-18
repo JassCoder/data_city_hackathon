@@ -1,5 +1,5 @@
 {
-  "source": "DEMO",
+  "source": "SYNTHETIC",
   "disclaimer": "SAMPLE drone profiles for the prototype. Performance values are illustrative assumptions, not manufacturer or regulatory data.",
   "profiles": [
     {
@@ -11,7 +11,7 @@
       "verticalClearanceM": 10.0,
       "maxRangeKm": 12.0,
       "maxPayloadKg": 0.5,
-      "source": "DEMO"
+      "source": "SYNTHETIC"
     },
     {
       "id": "DEMO_DRONE_02",
@@ -22,7 +22,7 @@
       "verticalClearanceM": 15.0,
       "maxRangeKm": 20.0,
       "maxPayloadKg": 2.5,
-      "source": "DEMO"
+      "source": "SYNTHETIC"
     }
   ]
 }

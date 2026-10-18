@@ -8,7 +8,25 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { Subject, catchError, map, of, switchMap } from 'rxjs';
 import { describeHttpError } from '../core/api';
-import { GeocodeResult, GeocodingResponse, PointRole } from '../core/models';
+import { Entrance, GeocodeAccuracy, GeocodeResult, GeocodingResponse, PointRole, SelectedLocation } from '../core/models';
+
+/** Accuracy levels shown to the user. */
+export const ACCURACY_LABEL: Record<GeocodeAccuracy, string> = {
+  ADDRESS: 'Building/address matched',
+  NEARBY_BUILDING: 'Nearest registered building (exact number not in register)',
+  STREET: 'Street-level approximation',
+  PLACE: 'Place-level approximation',
+  COORDINATES: 'Coordinates as entered',
+};
+const BUILDING_LEVEL: ReadonlySet<GeocodeAccuracy | null | undefined> = new Set(['ADDRESS', 'NEARBY_BUILDING']);
+/** Building-level matches this close to the best one are the same building (e.g. shops inside a station). */
+const SAME_BUILDING_M = 75;
+
+function distanceM(a: GeocodeResult, b: GeocodeResult): number {
+  const dy = (a.latitude - b.latitude) * 111_320;
+  const dx = (a.longitude - b.longitude) * 111_320 * Math.cos((a.latitude * Math.PI) / 180);
+  return Math.hypot(dx, dy);
+}
 import { PlannerApi } from '../core/planner-api';
 import { PlannerStore } from '../core/planner.store';
 
@@ -40,11 +58,15 @@ export class LocationInputComponent {
   protected readonly searchError = signal<string | null>(null);
   protected readonly results = signal<GeocodeResult[] | null>(null);
   protected readonly attribution = signal<string | null>(null);
-
-  protected readonly manualOpen = signal(false);
-  protected readonly manualLat = signal('');
-  protected readonly manualLon = signal('');
-  protected readonly manualError = signal<string | null>(null);
+  /** e.g. "building number not matched" / "flat not resolved" (from the backend). */
+  protected readonly searchNote = signal<string | null>(null);
+  /** Matches of the last search after one building was selected automatically (re-shown on request). */
+  protected readonly alternatives = signal<GeocodeResult[] | null>(null);
+  protected readonly entranceChoice = computed(() => {
+    const c = this.store.entranceChoice();
+    return c && c.role === this.role() ? c : null;
+  });
+  protected readonly accuracyLabel = ACCURACY_LABEL;
 
   protected readonly selected = computed(() =>
     this.role() === 'start' ? this.store.start() : this.store.destination(),
@@ -62,10 +84,9 @@ export class LocationInputComponent {
       untracked(() => {
         this.query.set('');
         this.results.set(null);
+        this.alternatives.set(null);
         this.searchError.set(null);
         this.searching.set(false);
-        this.manualOpen.set(false);
-        this.manualError.set(null);
       });
     });
     // switchMap drops responses of superseded searches.
@@ -86,6 +107,14 @@ export class LocationInputComponent {
         if (outcome.ok) {
           this.results.set(outcome.res.results);
           this.attribution.set(outcome.res.attribution);
+          this.searchNote.set(outcome.res.note ?? null);
+          // One building in Warsaw matched (results from both providers and POIs inside it count once):
+          // select it at once; the other matches stay one click away. Different buildings are never guessed.
+          const buildings = outcome.res.results.filter((r) => r.inCoverage && BUILDING_LEVEL.has(r.accuracy));
+          const top = buildings[0];
+          if (top && buildings.every((r) => distanceM(top, r) <= SAME_BUILDING_M) && this.select(top)) {
+            this.alternatives.set(outcome.res.results.length > 1 ? outcome.res.results : null);
+          }
         } else {
           this.searchError.set(outcome.message);
         }
@@ -96,6 +125,8 @@ export class LocationInputComponent {
     event?.preventDefault();
     const q = this.query().trim();
     this.results.set(null);
+    this.alternatives.set(null);
+    this.searchNote.set(null);
     if (q.length < 3) {
       this.searchError.set('Enter at least 3 characters, then press Search.');
       return;
@@ -105,39 +136,49 @@ export class LocationInputComponent {
     this.searches.next(q);
   }
 
-  protected select(result: GeocodeResult): void {
-    if (!result.inCoverage) return;
-    const ok = this.store.setLocation(this.role(), {
+  protected showAlternatives(): void {
+    this.results.set(this.alternatives());
+    this.alternatives.set(null);
+  }
+
+  protected select(result: GeocodeResult): boolean {
+    if (!result.inCoverage) return false;
+    const location: SelectedLocation = {
       coordinate: { latitude: result.latitude, longitude: result.longitude },
-      label: result.displayName,
+      label: result.flat ? `${result.displayName} (flat ${result.flat})` : result.displayName,
       source: 'SEARCH',
-    });
-    if (ok) this.results.set(null);
+      accuracy: result.accuracy ?? null,
+      flat: result.flat ?? null,
+    };
+    const ok = this.store.setLocation(this.role(), location);
+    if (!ok) return false;
+    this.results.set(null);
+    this.alternatives.set(null);
+    // Building-level results: offer the building's mapped entrances, if any (never invented).
+    if (BUILDING_LEVEL.has(result.accuracy)) {
+      const role = this.role();
+      this.api.entrances(result.latitude, result.longitude, result.flat).subscribe({
+        next: (res) => {
+          const still = role === 'start' ? this.store.start() : this.store.destination();
+          if (still === location) this.store.offerEntrances(role, location, res.entrances, res.note);
+        },
+        error: () => undefined, // entrances are optional; the building point stays selected
+      });
+    }
+    return true;
+  }
+
+  protected chooseEntrance(e: Entrance): void {
+    this.store.chooseEntrance(e);
+  }
+
+  protected entranceName(e: Entrance): string {
+    const kind = e.entrance && e.entrance !== 'yes' ? e.entrance : 'entrance';
+    return e.ref ? `${e.ref} (${kind})` : kind;
   }
 
   protected togglePick(): void {
     this.store.pickTarget.set(this.picking() ? null : this.role());
-  }
-
-  protected applyManual(event?: Event): void {
-    event?.preventDefault();
-    const lat = Number(this.manualLat().trim().replace(',', '.'));
-    const lon = Number(this.manualLon().trim().replace(',', '.'));
-    if (!this.manualLat().trim() || !this.manualLon().trim() || !Number.isFinite(lat) || !Number.isFinite(lon)) {
-      this.manualError.set('Enter numeric latitude and longitude, e.g. 52.2297 and 21.0122.');
-      return;
-    }
-    if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-      this.manualError.set('Latitude must be −90…90 and longitude −180…180.');
-      return;
-    }
-    this.manualError.set(null);
-    const ok = this.store.setLocation(this.role(), {
-      coordinate: { latitude: lat, longitude: lon },
-      label: `Coordinates ${lat.toFixed(5)}, ${lon.toFixed(5)}`,
-      source: 'MANUAL',
-    });
-    if (ok) this.manualOpen.set(false);
   }
 
   protected clear(): void {

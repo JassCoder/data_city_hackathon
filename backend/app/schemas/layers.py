@@ -13,8 +13,8 @@ class CorridorType(StrEnum):
 
 class HeightSource(StrEnum):
     OSM_HEIGHT = "osm_height"
-    LEVELS_X3 = "levels_x3"
-    DEFAULT_15M = "default_15m"
+    LEVELS_X3 = "levels_x3"  # estimated from OSM building:levels x 3 m
+    UNKNOWN = "unknown"  # no OSM height or levels: height_m is null (never invented)
 
 
 class StationType(StrEnum):
@@ -43,7 +43,7 @@ class CorridorProperties(BaseModel):
 
 class BuildingProperties(BaseModel):
     id: str
-    height_m: float
+    height_m: float | None  # None = unknown
     height_source: HeightSource
 
 
@@ -53,7 +53,7 @@ class StationProperties(BaseModel):
     station_type: StationType
     status: StationStatus
     capacity: int
-    source: Literal["DEMO"]
+    source: Literal["SYNTHETIC"]
 
 
 class Feature[P: BaseModel](BaseModel):

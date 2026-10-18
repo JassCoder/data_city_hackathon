@@ -1,0 +1,98 @@
+/* Floating map controls (Layers, Route Details, Airspace Legend). */
+:host {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-height: 0;
+  max-height: 100%;
+  pointer-events: none; /* the map stays usable around the controls */
+
+  > * { pointer-events: auto; }
+}
+
+.map-fab {
+  background: #fff !important;
+  color: #1a1a1a !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  border-radius: 18px;
+
+  mat-icon { margin-right: 4px; }
+}
+
+.map-panel {
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(62vh, 640px);
+  min-height: 0;
+  flex: 0 1 auto; /* shrinks inside the map on small screens */
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+  font-size: 12px;
+
+  h3 { margin: 0 0 6px; font-size: 13px; }
+}
+
+.layer-list, .sub, .legend-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.layer-list > li { padding: 2px 0; }
+
+label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.sub {
+  margin: 2px 0 4px 22px;
+  padding-left: 8px;
+  border-left: 2px solid #eee;
+
+  &.muted label span { color: #9e9e9e; }
+  .warn { margin-top: 4px; color: #8a4b00; font-size: 11px; }
+}
+
+.hint {
+  display: block;
+  margin: 2px 0 0 22px;
+  font-size: 11px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.stats, .facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 10px;
+  margin: 8px 0 4px;
+  padding-top: 6px;
+  border-top: 1px solid #eee;
+
+  dt { color: var(--mat-sys-on-surface-variant); }
+  dd { margin: 0; }
+}
+
+.legend-panel { width: min(380px, calc(100vw - 32px)); max-height: min(50vh, 520px); }
+
+.legend-rows li { padding: 2px 0; line-height: 1.4; }
+
+.sw {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  flex: none;
+  margin-right: 6px;
+  vertical-align: -2px;
+
+  &.outline { border: 2.5px solid #b91c1c; background: transparent; }
+  &.dashed { border: 2px dashed #757575; background: transparent; }
+}
+
+details { margin-top: 6px; summary { cursor: pointer; font-weight: 600; } }

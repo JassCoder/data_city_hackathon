@@ -1,10 +1,15 @@
 # Project progress
 
+## Current state (2026-10-18)
+
+- No airspace dataset is bundled or loaded by default. The backend starts with the `none` provider; routes explicitly report that airspace is unchecked and unverified. A permitted official file must be selected explicitly. `scripts/build_sample_data.py` generates optional synthetic sample zones for local testing only.
+- Synthetic sample stations and drone profiles remain in the UI and are labelled as such. The phase notes below are historical implementation records; older references to a bundled zone file and generator are no longer current.
+
 ## Phase 1: Skeleton (done, 2026-10-17)
 
 **Built**
-- `backend/`: FastAPI app with CORS for `localhost:4200`, `GET /api/v1/health` (returns version, map centre, demo bbox), and pytest coverage for health and CORS.
-- `frontend/`: Angular 22 (standalone, zoneless, Signals) with an Angular Material theme and a Leaflet/OSM map centred on Warsaw. It draws the demo bbox and shows a "DEMO DATA" badge. Backend status comes from `httpResource` on `/health`, with a retry button.
+- `backend/`: FastAPI app with CORS for `localhost:4200`, `GET /api/v1/health` (returns version, map centre,  bbox), and pytest coverage for health and CORS.
+- `frontend/`: Angular 22 (standalone, zoneless, Signals) with an Angular Material theme and a Leaflet/OSM map centred on Warsaw. It draws the  bbox and shows a "" badge. Backend status comes from `httpResource` on `/health`, with a retry button.
 - Three-column layout (left/right panels are placeholders), plus the disclaimer footer.
 
 **Verified**
@@ -24,9 +29,9 @@
 **Built**
 - **Bbox:** S 52.215, W 20.985, N 52.250, E 21.050 (about 4.4 × 3.9 km), defined once in `backend/app/config.py` and exposed in `/layers` (and `/health`). This replaces the Phase 1 bbox.
 - **`scripts/fetch_osm.py`:** Overpass via HTTPX, with 3 mirror endpoints tried in order. It assembles ways and multipolygon relations into Shapely polygons and writes `buildings.geojson` (6,637 buildings: 614 `osm_height`, 5,264 `levels_x3`, 759 `default_15m`; 74 are ≥ 50 m) and `corridors.geojson` (1 merged Vistula RIVER feature from riverbank polygons, plus 720 PARK features). It writes nothing unless every query succeeds; this was verified by pointing it at a dead endpoint, and the files were unchanged.
-- **`scripts/build_demo_data.py`:** the generator for the hand-written synthetic data. Zones and stations are defined in tables at the top of the file.
-  - `zones.geojson`: NO_FLY around Sejm/Wiejska and the Royal Castle area; RESTRICTED for the dense centre (Centrum/Palace of Culture) and 3 school buffers of 100 m (Powiśle, Śródmieście Płd., Mirów). All are `source: "DEMO"`.
-  - `landing_stations.geojson`: a hospital pad (west of the centre), a Powiśle rooftop pad, a Rydz-Śmigły park pad, and a Vistula boulevard depot. All are `source: "DEMO"`.
+- **`scripts/build__data.py`:** the generator for the hand-written synthetic data. Zones and stations are defined in tables at the top of the file.
+  - `zones.geojson`: NO_FLY around Sejm/Wiejska and the Royal Castle area; RESTRICTED for the dense centre (Centrum/Palace of Culture) and 3 school buffers of 100 m (Powiśle, Śródmieście Płd., Mirów). All are `source: ""`.
+  - `landing_stations.geojson`: a hospital pad (west of the centre), a Powiśle rooftop pad, a Rydz-Śmigły park pad, and a Vistula boulevard depot. All are `source: ""`.
   - The script refuses to write if any station falls inside a zone.
 - **Backend:**
   - `app/schemas/layers.py` holds the Pydantic GeoJSON models (enums for zone, corridor, height source, station type and status).
@@ -35,8 +40,8 @@
   - `GET /api/v1/layers` returns `{bbox, zones, corridors, buildings, stations}`. A GZip middleware was added: 2.8 MB becomes 0.47 MB, served in about 0.7 s locally.
 - **Frontend:**
   - `core/layers.ts`: typed `LayersService` (`httpResource`, fetched once) with summary counts.
-  - The map renders the bbox (dashed), NO_FLY (red), RESTRICTED (orange), RIVER (blue), PARK (green), and buildings (grey, dark when ≥ 50 m, tooltip with height and source). Stations use Material-icon markers with popups (name, type, status, capacity, DEMO tag).
-  - There is a Leaflet layer-toggle control, a legend with the DEMO disclaimer, a "Data layers" summary in the right panel, a loading bar, and retry on error.
+  - The map renders the bbox (dashed), NO_FLY (red), RESTRICTED (orange), RIVER (blue), PARK (green), and buildings (grey, dark when ≥ 50 m, tooltip with height and source). Stations use Material-icon markers with popups (name, type, status, capacity,  tag).
+  - There is a Leaflet layer-toggle control, a legend with the  disclaimer, a "Data layers" summary in the right panel, a loading bar, and retry on error.
 
 **Verified**
 - `pytest`: 10 passed. Covered: all files load, zone types are valid, no station is inside a zone, stations and zones are inside the bbox, building height rules, a clear error for a missing file, rejection of an invalid zone_type, and the `/layers` shape plus gzip.
@@ -44,7 +49,7 @@
 - In the browser (Edge driven by Playwright), all 7 layers render. A building tooltip inside the restricted zone shows its height and source, the zone tooltip shows in the gaps, the station popup opens, the toggles work (including the re-enable ordering), and there were no page errors.
 
 **Assumptions / decisions**
-- Synthetic zones and stations come from `build_demo_data.py` rather than being typed into GeoJSON by hand, so circles are exact and placements are checked. The output GeoJSON is committed.
+- Synthetic zones and stations come from `build__data.py` rather than being typed into GeoJSON by hand, so circles are exact and placements are checked. The output GeoJSON is committed.
 - Within the requested bbox, the Vistula only crosses the NE part; it exits east around lat 52.225, so the south of the area has no river corridor.
 - Parks/green below 1,000 m² are dropped (traffic-island grass). `landuse=grass` is 624 of the 720 green features.
 - Buildings intersecting the bbox are kept whole, not clipped. Corridors are clipped to the bbox.
@@ -72,8 +77,8 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - `TTLCache` (24 h, 512 entries) and a global `RateLimiter` (1 request/s; a queue longer than 5 s returns 429).
   - Descriptive User-Agent, and attribution returned to the UI.
   - Every result carries `inCoverage`.
-- **Drone profiles:** `data/drone_profiles.json`, a DEMO dataset that is the single source of truth.
-- **Weather (`services/weather.py`):** DEMO (fixed 14 km/h from 250°, gusts 22) and LIVE (Open-Meteo, 10-minute cache). On failure it uses explicit `DEMO_FALLBACK` with a "Live weather is not available" message.
+- **Drone profiles:** `data/drone_profiles.json`, a set that is the single source of truth.
+- **Weather (`services/weather.py`):**  (fixed 14 km/h from 250°, gusts 22) and LIVE (Open-Meteo, 10-minute cache). On failure it uses explicit `_FALLBACK` with a "Live weather is not available" message.
 - **API:**
   - Endpoints: `GET /geocoding/search`, `GET /drone-profiles`, `GET /weather`, `POST /routes/calculate`.
   - Strict camelCase Pydantic models (`CamelModel`, `extra="forbid"`, strict numbers).
@@ -81,7 +86,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
 
 **Built: frontend**
 - Typed models (`core/models.ts`) and `PlannerApi`.
-- `PlannerStore` (Signals): points, settings, the computed `request`, and invalidation to `stale`. In-flight requests are cancelled and late responses dropped through a request id. It also handles map-click picking, Clear, Reset and the demo scenario.
+- `PlannerStore` (Signals): points, settings, the computed `request`, and invalidation to `stale`. In-flight requests are cancelled and late responses dropped through a request id. It also handles map-click picking, Clear, Reset and the  scenario.
 - The `LocationInput` component, used twice for Point A and Point B:
   - Search on submit only, through a `switchMap`.
   - An explicit result list with out-of-coverage results disabled, plus Nominatim attribution.
@@ -89,8 +94,8 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
 - `PlannerPanel`:
   - Altitude `mat-slider` (20–120, step 5) synced with a validated number input.
   - NORMAL/EMERGENCY toggle and a profile `mat-select` loaded from the API.
-  - DEMO/LIVE weather toggle with a live weather readout.
-  - Calculate (with loading state and a hint listing what's missing), Clear Route, Reset Planner, Load Demo Scenario.
+  - /LIVE weather toggle with a live weather readout.
+  - Calculate (with loading state and a hint listing what's missing), Clear Route, Reset Planner, Load  Scenario.
 - `RouteResults`: status, distance, ETA, mode, altitude, drone, wind, warnings, data sources, an outdated banner, and errors.
 - Map:
   - A/B pins and a route line in its own SVG pane: blue for NORMAL, red for EMERGENCY, grey dashed when stale.
@@ -102,7 +107,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - Routing: request validation (string, out-of-range or missing coordinates, bad enums, altitude 10/125/82/"80", the legacy `altitudeM` field, identical points), unknown profile.
   - Behaviour: start/destination changes change the route, avoidance of a known polygon, a real-data route never touching any zone in either mode, unreachable destination, NO_FLY and RESTRICTED blocking EMERGENCY, building height vs altitude.
   - Endpoints, weather and costs: outside coverage, destination in a zone, snapping, BLOCKED_WEATHER, headwind/tailwind ETA, LIVE parse and fallback, EMERGENCY shorter than the NORMAL river detour.
-- **`ng test`: 56 passed.** Covered: address search action, no autocomplete, result selection without auto-picking, stale search dropped, manual coordinates, coverage notice, map marker sync, the route line by mode and staleness, slider and number input, mode, profile and weather selectors, payload generation, Calculate button state, loading, API and unreachable-backend errors, stale-route prevention, Clear, Reset, demo scenario.
+- **`ng test`: 56 passed.** Covered: address search action, no autocomplete, result selection without auto-picking, stale search dropped, manual coordinates, coverage notice, map marker sync, the route line by mode and staleness, slider and number input, mode, profile and weather selectors, payload generation, Calculate button state, loading, API and unreachable-backend errors, stale-route prevention, Clear, Reset,  scenario.
 - **`ng build`: OK with no warnings** (after the budget change below).
 - **Live end-to-end in Edge (Playwright) against both servers, with real Nominatim:**
   - Searched "Warszawa Centralna" and "Centrum Nauki Kopernik", chose the results, and both markers appeared.
@@ -110,7 +115,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - Switching to "Stadion Narodowy" marked the route stale; recalculating sent the new coordinates and produced a different 3.39 km route.
   - EMERGENCY at 40 m drew a red route. The Delivery profile with LIVE weather used real Open-Meteo wind.
   - The airport result was disabled. A map click inside the Sejm zone gave DESTINATION_BLOCKED, and a click outside the bbox gave the coverage notice.
-  - Clear and Reset worked, and the demo scenario produced a 4.43 km route. There were no page errors.
+  - Clear and Reset worked, and the  scenario produced a 4.43 km route. There were no page errors.
 
 **Decisions / assumptions**
 - **NumPy A\* instead of NetworkX:** the request's fallback suggested NetworkX, but the spec forbids it at runtime. The NumPy A* meets every listed requirement.
@@ -135,7 +140,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
 **Built: backend (`app/airspace/`)**
 - **Model (`models.py`):** a normalized `AirspaceZone` with all the requested fields, explicit `None` = unknown, and `circle` kept next to its geodesic polygon.
 - **Providers (`providers.py`, `factory.py`):**
-  - `GeoJsonZoneFileProvider`, used for DEMO data and converted snapshots.
+  - `GeoJsonZoneFileProvider`, used for  and converted snapshots.
   - `Ed269FileProvider`, an ED-269-style parser: volumes merged into an envelope, feet converted to metres, circles turned into 128-vertex geodesic polygons, applicability mapped to validity, DRA label detection.
   - The provider is selected through `SKYROUTE_AIRSPACE_PROVIDER` / `SKYROUTE_AIRSPACE_FILE`.
 - **Evaluation (`evaluation.py`):** applied per flight, in order:
@@ -154,7 +159,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - New `GET /zones?altitudeM=&at=&mode=` and `GET /zones/{id}` (404).
   - `POST /routes/calculate` gained the optional `departureTime`, plus `zoneConflicts`, `airspace` (source, timestamp, version) and `planningVerificationStatus` (always SIMULATION_ONLY).
   - `/layers` no longer contains zones.
-- **DEMO dataset:** `scripts/build_demo_data.py` writes `data/airspace/demo_zones.geojson` with 11 synthetic zones covering all categories, real circles, AGL and AMSL bands, an expired zone and a zone with incomplete metadata.
+- **set:** `scripts/build__data.py` writes `data/airspace/_zones.geojson` with 11 synthetic zones covering all categories, real circles, AGL and AMSL bands, an expired zone and a zone with incomplete metadata.
 - **Removed:** the old `data/zones.geojson` and the `EMERGENCY_RESTRICTED_COST` switch. Hard restrictions are now identical for both modes.
 
 **Built: frontend**
@@ -164,24 +169,24 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - A dataset version change marks the route stale; a route on a newer version triggers an airspace reload.
 - **Map:**
   - Zones on the shared canvas below buildings: fill by class, solid red outline for obstacles, dashed when inactive.
-  - Popups with all metadata and a DEMO badge (pick-mode clicks inside zones still pick points).
-  - A DEMO/official banner, a new legend (RED/ORANGE/YELLOW/GRAY plus outline semantics and the data source) and an "Airspace zones" layer toggle.
+  - Popups with all metadata and a  badge (pick-mode clicks inside zones still pick points).
+  - A /official banner, a new legend (RED/ORANGE/YELLOW/GRAY plus outline semantics and the data source) and an "Airspace zones" layer toggle.
   - EMERGENCY routes are now green, so they don't clash with red zones.
 - **`planner/airspace-panel`:** source badge with version and disclaimer, DRA filters with counts, a zone list (click to focus), and an error state with retry.
 - **Route results:** verification status, a conflict list with "Show zone", and a NO_ROUTE explanation.
-- **Demo scenarios:** Blood delivery, Avoid a prohibited zone, and No route available.
+- ** scenarios:** Blood delivery, Avoid a prohibited zone, and No route available.
 - **Fix:** `httpResource.value()` throws in the error state, so every read now goes through `safeValue()`. Before this, an outage of /layers, /drone-profiles, /weather or /health could crash the template instead of showing a message.
 
 **Verified**
 - **pytest: 119 passed.** Covered:
   - Evaluation: every category, RH/RL likelihood text, an I-zone with a PROHIBITED restriction, missing source, validity, AGL/AMSL/unknown reference, endpoint climb.
-  - Geometry and providers: geodesic circle accuracy (< 0.01 m), DEMO dataset labelling, invalid GeoJSON, ED-269 parsing (polygon, circle in feet, applicability, missing DRA label).
+  - Geometry and providers: geodesic circle accuracy (< 0.01 m), set labelling, invalid GeoJSON, ED-269 parsing (polygon, circle in feet, applicability, missing DRA label).
   - Avoidance: prohibited-polygon avoidance in both modes, safety margin, restricted zone conditional on altitude band, expired zone passable, I-zone crossed with a warning, unknown conditions blocked, MultiPolygon, circle.
   - Edge cases: route near a boundary ending at the exact selected point, start and destination inside a zone, NO_ROUTE enclosure, diagonal corner, recomputation after an obstacle change, broken-update fallback.
-  - APIs: the zones API (fields, altitude and time evaluation, 404, 422), the deterministic DEMO avoidance and no-route scenarios, and real-data routes never crossing obstacle zones at 40 m and 80 m in either mode.
-- **`ng test`: 73 passed, `ng build` clean.** Covered: zone rendering without a route, red/orange/yellow/gray styling and obstacle outlines, popup metadata, filters, airspace loading error, altitude re-evaluation, highlight, banner/legend source, pick inside a zone, verification status and conflicts, dataset-version invalidation, demo scenarios.
+  - APIs: the zones API (fields, altitude and time evaluation, 404, 422), the deterministic  avoidance and no-route scenarios, and real-data routes never crossing obstacle zones at 40 m and 80 m in either mode.
+- **`ng test`: 73 passed, `ng build` clean.** Covered: zone rendering without a route, red/orange/yellow/gray styling and obstacle outlines, popup metadata, filters, airspace loading error, altitude re-evaluation, highlight, banner/legend source, pick inside a zone, verification status and conflicts, dataset-version invalidation,  scenarios.
 - **Live in Edge (Playwright) against both servers:**
-  - 11 DEMO zones visible before any route.
+  - 11  zones visible before any route.
   - Avoid-scenario route of 1.37 km; an independent Shapely check found no intersection with any obstacle polygon (≥ 36 m clearance).
   - No-route scenario shows NO_ROUTE with no line drawn.
   - A map pick inside the Sejm DRA-P zone gives DESTINATION_BLOCKED, highlights the zone and opens its popup.
@@ -224,7 +229,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - `routeObjective` = `CORRIDORS` (default) | `SHORTEST` | `FASTEST`.
   - `FASTEST` uses, for each of the 8 move directions, *cruise speed ÷ ground speed* from the nearest wind sample (a region raster plus a per-sample table), with an admissible heuristic.
 - **Weather:** LIVE samples the Open-Meteo next-hour forecast along the A–B line (one point per ~5 km, max 8, one multi-location request) at 10/80/120 m, interpolated to the flight altitude and cached. The ETA uses the nearest sample per segment, and wind above the limit at any sample gives `BLOCKED_WEATHER`.
-- **Airspace:** datasets can declare an `extent`; the DEMO extent is central Warsaw. The length of route outside it is reported (`coverage.airspaceOutsideExtentM`, a warning, and "PARTIAL AIRSPACE DATA" in the verification status).
+- **Airspace:** datasets can declare an `extent`; the  extent is central Warsaw. The length of route outside it is reported (`coverage.airspaceOutsideExtentM`, a warning, and "PARTIAL AIRSPACE DATA" in the verification status).
 - **API:**
   - New `GET /map/warsaw-boundary`, `GET /map/coverage` and `GET /map/buildings/14/{x}/{y}`.
   - The route response gained `routeObjective`, `coverage` (districts, validity, source) and `search` (resolution, window, attempts, expansions, time, cached).
@@ -243,7 +248,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
 - **Planner:** a **Route optimisation** toggle (Safe corridors / Shortest / Fastest) with an explanation. The weather readout shows the wind at the chosen altitude.
 - **Results:** the optimisation used, start → destination districts, search statistics, and labels for `SEARCH_LIMIT` and `COVERAGE_UNAVAILABLE`.
 - **Styles:** the map styles moved to the global `src/styles/map.scss` (they were already global via `ViewEncapsulation.None`; this stays under the component style budget).
-- **Demo:** the no-route scenario moved to an enclosed courtyard in Praga-Północ (the old one is not enclosed in the fresh OSM snapshot).
+- **:** the no-route scenario moved to an enclosed courtyard in Praga-Północ (the old one is not enclosed in the fresh OSM snapshot).
 
 **Verified**
 - **pytest: 164 passed.** New `test_citywide.py` and `test_weather.py`, plus objective tests. They cover:
@@ -284,7 +289,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
 
 **What the inspection found**
 - **No hard-coded route polylines existed.** Every displayed route was already calculated by A* from the submitted points.
-- **The one behaviour that replaced Point A/B:** the frontend "Load Demo Scenario" buttons (`loadDemoScenario`: "Blood delivery", "Avoid a prohibited zone", "No route available"). They set fixed coordinates or stations, plus altitude, drone profile and mode. The "Blood delivery" label made it look like a routing mode.
+- **The one behaviour that replaced Point A/B:** the frontend "Load  Scenario" buttons (`loadScenario`: "Blood delivery", "Avoid a prohibited zone", "No route available"). They set fixed coordinates or stations, plus altitude, drone profile and mode. The "Blood delivery" label made it look like a routing mode.
 - **Not in the app before:** "AED / First Aid", "Normal Flight" and "Emergency Flight" as scenarios (NORMAL/EMERGENCY existed only as the flight-mode toggle, which never touched the points). There is also no AED-location dataset in the repo; none was invented.
 
 **Built: backend**
@@ -307,28 +312,28 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - Manual mode/objective changes switch to custom settings (`scenario` omitted).
   - Stale and late responses are dropped through the existing `requestId`.
 - **Planner panel:** a "Routing scenario" grid with 5 buttons loaded from `/scenarios`. The active one is highlighted (`aria-pressed`) and shows its description and suggested profile, which is not applied.
-- **Demo fixtures:** the demo buttons became `DEMO_FIXTURES` ("Depot → hospital pad", "Across the Sejm zone", "Enclosed courtyard"), behind a collapsed **"Load demo fixture (replaces Point A and B)"** toggle. They set points (and 20 m for the courtyard) only, never the scenario, mode, profile or weather, and are never called by scenario selection.
+- ** fixtures:** the  buttons became `_FIXTURES` ("Depot → hospital pad", "Across the Sejm zone", "Enclosed courtyard"), behind a collapsed **"Load  fixture (replaces Point A and B)"** toggle. They set points (and 20 m for the courtyard) only, never the scenario, mode, profile or weather, and are never called by scenario selection.
 - **Results:** the route results show the scenario name.
 
 **Hard-coded coordinate audit** (app code, after the change)
 
 | Location | Classification |
 |---|---|
-| `backend/app/config.py` `MAP_CENTER` | Map / weather configuration: default map centre and the point for DEMO wind / `GET /weather`. Never a route endpoint. |
-| `backend/app/config.py` `DEMO_BBOX` | Dataset metadata: the extent of the synthetic DEMO airspace dataset. |
+| `backend/app/config.py` `MAP_CENTER` | Map / weather configuration: default map centre and the point for  wind / `GET /weather`. Never a route endpoint. |
+| `backend/app/config.py` `_BBOX` | Dataset metadata: the extent of the synthetic  airspace dataset. |
 | `config.py` / `core/map-data.ts` `FALLBACK_VIEW` | Map view shown only if the boundary is missing. Not a route. |
 | `planner/location-input.ts` help text "e.g. 52.2297 and 21.0122" | UI hint text. |
-| `core/planner.store.ts` `DEMO_FIXTURES` | **Explicit demonstration fixture**, only via "Load demo fixture". |
-| `scripts/build_demo_data.py`, `data/airspace/demo_zones.geojson`, `data/landing_stations.geojson` | Synthetic demo dataset (zones, stations). |
+| `core/planner.store.ts` `_FIXTURES` | **Explicit nstration fixture**, only via "Load  fixture". |
+| `scripts/build__data.py`, `data/airspace/_zones.geojson`, `data/landing_stations.geojson` | Synthetic set (zones, stations). |
 | `data/boundaries/*`, `data/osm/*`, `data/corridors.geojson`, `data/tall_buildings.geojson` | Real geographic datasets (GUGiK PRG, OSM). |
 | `*.spec.ts`, `backend/tests/*` | Test fixtures. |
-| Unwanted hard-coded routing behaviour | **None remaining.** The old `loadDemoScenario` (scenario-like labels that replaced A/B, profile, mode and altitude) was refactored into explicit fixtures. |
+| Unwanted hard-coded routing behaviour | **None remaining.** The old `loadScenario` (scenario-like labels that replaced A/B, profile, mode and altitude) was refactored into explicit fixtures. |
 
 **Verified**
 - **pytest: 205 passed.** New `test_scenarios.py` (41 tests), each across all 5 scenarios where relevant:
   - Submitted coordinates are echoed, and the route starts and ends exactly there; changing the scenario never changes the endpoints.
   - Changing Point A or B changes the route.
-  - The DEMO-P-SEJM direct line is avoided, with `DIRECT_LINE_BLOCKED` reported; a synthetic full wall gives NO_ROUTE.
+  - The -P-SEJM direct line is avoided, with `DIRECT_LINE_BLOCKED` reported; a synthetic full wall gives NO_ROUTE.
   - A meaningful NO_ROUTE for the enclosed courtyard; missing start, destination or both → 422.
   - Objective mapping; Blood, AED and Emergency giving an identical route; the suggested profile not applied; conflicting settings → 422; unknown scenario → 422; legacy requests without a scenario; `/scenarios` containing no coordinates.
 - **`ng test`: 102 passed; `ng build` clean.** Covered:
@@ -336,7 +341,7 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - Altitude, profile and weather are kept; no predefined coordinates are loaded when a point is missing.
   - A scenario change cancels the outdated request; manual changes → custom.
   - The panel highlights the active scenario; address text and selection are unchanged; map markers keep their lat/lng across scenario routes.
-  - Demo fixtures sit behind an explicit toggle.
+  -  fixtures sit behind an explicit toggle.
 - **Acceptance test in Edge (Playwright), live servers, real Nominatim — 66/66 checks:**
   - **Trip 1** (Warszawa Centralna → Stadion Narodowy, sent as 52.2288207, 21.00316 → 52.2397726, 21.0454432):
     - NORMAL 3.41 km; Blood / AED / Emergency 3.16 km (identical); Avoid Prohibited Zone 3.22 km (shortest path, PKiN zone listed as avoided).
@@ -345,6 +350,233 @@ This phase was requested as "Phase 2: Dynamic Address Search and Flight Configur
   - For every scenario in both trips: the backend received **the same coordinates as NORMAL** and echoed them; the route starts and ends at those exact points; addresses and marker positions were unchanged; the button was highlighted; no fixture coordinates were sent.
   - With no points selected, the scenario shows the message and sends nothing.
   - An independent Shapely check: no trip-1 route touches any obstacle zone. No page errors.
+
+## Phase 7: Citywide airspace coverage, diagnostics and shared obstacles (done, 2026-10-18)
+
+### Root cause (from code inspection)
+The zones clustered in Śródmieście because of the **data**, not a code filter. Checked against the code:
+
+| Suspected cause | Finding |
+|---|---|
+| Provider loads only the  region | **Yes, by data:** the only dataset is `_zones.geojson`. All 11 zones lie inside `_BBOX`, which covers **3.3 %** of the city. |
+| Frontend filters zones to a bbox / viewport fetching | No: `/zones` was requested once for all zones, and every returned zone was drawn |
+| Backend returns a few hard-coded features | No: it returned every feature in the file |
+| Only one DRA category loaded | No: P, R/RH/RM/RL, T, U, I and UNKNOWN were all loaded |
+| Polygon/MultiPolygon parsing, lon/lat order, projection | Correct (now covered by tests: round trip, holes, swapped-order detection) |
+| Zones hidden behind layers | No: canvas order is corridors < zones < buildings, and the route/markers are in higher panes |
+| Validity/altitude filtering discards zones | No: inactive zones are still returned and drawn (dashed) |
+| A  configuration overrides official data | No: the provider is chosen by `SKYROUTE_AIRSPACE_PROVIDER`; a citywide file loads in full |
+
+**Data source re-check (DATA_SOURCES.md):**
+- Still no permitted UAS-zone source.
+- PAŻP's AIXM 5.1 AIP Data Set is subscription-only, for aviation use only, and covers manned-aviation airspace rather than DRA zones. It was not integrated.
+- **Nothing was fabricated:** no zones were invented for other districts or the airports.
+
+### Changes
+- **Backend:**
+  - **`GET /zones`:**
+    - `bbox` filter: STRtree, exact geometry intersection, 422 on a malformed box;
+    - `format=geojson` (FeatureCollection);
+    - `completeness` (COMPLETE/PARTIAL/NONE plus the % of the city covered) and `totalZones`.
+  - **`GET /zones/diagnostics` (`app/airspace/diagnostics.py`):**
+    - totals per DRA group and blocked/conditional/obstacle counts;
+    - per-district coverage % and status (``/`OFFICIAL_SNAPSHOT`/`OFFICIAL`/`PARTIAL`/`UNAVAILABLE`, never "verified") with zone counts and notes ("zero is not an error");
+    - zones outside the city (with a coordinate-order hint), duplicates removed, the last reload error, warnings.
+  - **Providers:**
+    - `dedupe_zones`: exact duplicates are dropped; conflicting ids reject the dataset;
+    - `CompositeProvider`: several files in `SKYROUTE_AIRSPACE_FILE`, merged with deduplication.
+  - **Shared obstacles:** routing and map already shared one `AirspaceState` + `evaluate()`. Tests now prove that the map's obstacles are the router's (altitude flip on the same zone).
+- **Frontend:**
+  - **Map:** red #DC2626 / #B91C1C, weight 2, fill 0.35; information zones blue; popup adds the zone ID and the dataset update; legend updated.
+  - **Airspace panel:** loading bar, PARTIAL banner, freshness (age; stale after 28 days or undated), and a **Coverage diagnostics** debug panel (fetched only while open).
+  - **Planned departure:** sent as `departureTime`, used for zone evaluation (`&at=`), and invalidates the route.
+- **Test fixtures:** `backend/tests/citywide_zones.py` holds **synthetic** TEST zones across north/south/east/west Warsaw, a MultiPolygon, a ring with a hole, a temporary zone, an unknown zone, a zone straddling the boundary, a zone outside the city, and airport fixtures (pytest only). `python -m tests.citywide_zones out.geojson` writes them for a manual run.
+
+### Verification
+- **Tests:** backend **239 passed** (new `test_citywide_airspace.py`, 34 tests); frontend **114 passed**; `ng build` clean.
+- **E2E (Playwright/Edge, real UI, Nominatim):** 6 district pairs (Włochy→Mokotów, Bemowo→Bielany, Białołęka→Śródmieście, Ursynów→Wawer, Praga-Południe→Rembertów, Wilanów→Żoliborz).
+  - **With the citywide TEST fixture loaded:**
+    - all 12 zones drawn, 100 % coverage;
+    - every pair geocoded into the named districts, markers unchanged, every route OK;
+    - no route intersects any obstacle zone (Shapely); TEST-RL-RING and TEST-T-EAST-MID were crossed by the direct line and avoided;
+    - diagnostics listed 18 districts.
+  - **With the default :**
+    - PARTIAL banner (3.3 %); 13 districts `UNAVAILABLE`;
+    - routes OK and flagged as simulation with partial airspace data;
+    - -T-UW and -P-SEJM crossed by the direct line and avoided.
+  - No page errors in either run.
+
+## Phase 7b: Full-Warsaw geographic coverage – backend (done, 2026-10-18; frontend part pending)
+
+- **Buildings:**
+  - Unknown heights stay unknown: 12,897 footprints have `height_m: null` and `height_source: "unknown"` (formerly an invented 15 m).
+  - Routing applies an explicit policy, `SKYROUTE_UNKNOWN_BUILDING_POLICY=assume:15|block`.
+  - The raster was rebuilt offline with `scripts/rebuild_buildings_from_tiles.py`; 0.36 % of building cells changed.
+- **Airports:** real OSM footprints in `scripts/fetch_airports.py` → `data/airports.geojson` (EPWA, EPBC, plus 2 airfields just outside the city). They are an informative layer, never zones.
+- **Optional planning constraints:** airport footprints, avoided with the request flag `planningConstraints`. They are NON-REGULATORY.
+- **New endpoints:** `GET /map/districts`, `GET /buildings?bbox=` and `GET /airports?bbox=`.
+- **Separate coverage metrics** in `/map/coverage`:
+  - geographic routing: 100 %, VALIDATED by 5 checks;
+  - buildings: fetched extent, plus known and unknown heights;
+  - official airspace: source states OFFICIAL / OFFICIAL_SNAPSHOT / SYNTHETIC / UNAVAILABLE / STALE; synthetic zones never count;
+  - weather: the last LIVE outcome.
+- **Routes without current official data** are labelled "UNVERIFIED SIMULATION".
+- **Tests:** `test_citywide_coverage.py` (18 tests) routes in every district.
+- **Pending:** the frontend coverage panel and the split zone layers.
+
+## Phase 8: Citywide hospitals, depots, restaurant partners and fleet (done, 2026-10-18)
+
+### Architecture
+- **Real geographic records** (read-only, committed):
+  - `scripts/fetch_pois.py` queries Overpass (nodes, ways, relations), clips to the GUGiK polygon and deduplicates.
+  - Output: `data/pois/hospitals.geojson` and `restaurants.geojson`. Neither the browser nor the backend calls Overpass.
+- **Simulated infrastructure** (`backend/app/fleet/`, SQLite at `data/fleet/fleet.sqlite`, stdlib `sqlite3`):
+  - Facilities: hospital stations, depots and restaurant pads. Plus drones, subscriptions and orders.
+  - Capacity invariants are database CHECKs (`occupied + reserved <= capacity`, none negative).
+  - Every change runs in `BEGIN IMMEDIATE` transactions with conditional UPDATEs, so reservations are atomic.
+  - Simulation records reference OSM ids, so a POI re-import never deletes them. `sync_pois` adds stations for new hospitals.
+- **Seed** (deterministic, first start only):
+  - **Hospital stations:** one PROPOSED station per hospital (capacity `HOSPITAL_STATION_CAPACITY` = 2). 6 spatially spread ones are SIMULATION_ENABLED and labelled DEMO.
+  - **Depots:**
+    - the existing Vistula depot `st-depot` is preserved;
+    - 9 planned depots come from a greedy p-median (`app/fleet/planning.py`) over simulated demand. Demand = real restaurants and hospitals × assumed district multipliers, plus district base demand;
+    - candidates are a 1.2 km grid snapped to open cells outside obstacle zones;
+    - standard depots get 6 spaces, the 3 highest-demand depots get 12;
+    - 4 or 8 drones per depot.
+  - **Restaurant partners:** 6 named restaurants become DEMO partners (fictional agreements) with proposed pads (capacity 1).
+- **Assignment:**
+  - Required landing facilities must be enabled, open and have space.
+  - The nearest 4 depots with available drones are shortlisted by straight line, one drone per profile. Battery must be ≥ 25 %.
+  - Each candidate gets 3 legs from the shared `RoutePlanner` (FASTEST): to pickup, delivery and return. The usable range check (battery, 15 % reserve) includes the return leg.
+  - Candidates are ranked by routed time. The drone and the landing reservations are taken atomically; a concurrent loser falls through to the next drone.
+  - Failures are explicit: `NO_DRONE_AVAILABLE` with a reason per candidate, or `FAILED` (station full or closed, with the nearest alternative).
+- **Parking rules:**
+  - The home depot space stays held as a return reservation while the drone flies.
+  - Pickup and destination facilities go reserved → occupied → free.
+  - Completion: the drone is CHARGING and its battery is reduced by the distance flown.
+- **API:**
+  - Hospitals, depots, restaurants (paginated / bbox), landing pads (plus a `check` endpoint), drones.
+  - `fleet/summary|availability|demand`.
+  - Orders: create, assign, advance, cancel.
+  - Admin mutations need `X-Admin-Token` (development token; refused in production without `SKYROUTE_ADMIN_TOKEN`).
+- **Frontend:**
+  - **Data service:** `core/fleet.ts`.
+  - **Map layers:**
+    - Hospitals (clustered by a small in-house clusterer, `map/cluster.ts`), depots, subscribed restaurants, all restaurants (lazy, clustered), proposed pads, drone badges and delivery routes;
+    - popups offer Set A/B, Order food delivery, Deliver to station and View fleet.
+  - **Fleet dashboard** (toolbar button):
+    - stats, utilisation bars and a district filter;
+    - an order form on the planner's Point A/B. A facility id is sent only while the point still sits on that facility;
+    - an orders list with Advance / Cancel;
+    - simulated demand and recommendations;
+    - development admin controls: depot capacity, enabling depots and stations.
+  - **Legacy overlay:** the synthetic "Sample landing stations" overlay is now off by default.
+
+### Results (real data, 2026-10-18)
+- **Hospitals:** 45 after deduplication (54 raw, 46 inside Warsaw), in 14 districts. Bemowo, Rembertów, Ursus and Włochy have no hospital mapped in OSM.
+- **Restaurants:** 1,972 after deduplication (2,147 raw, 1,976 inside Warsaw), in all 18 districts.
+- **Depots:** 10, with 78 simulated spaces; 52 drones.
+- **Partners:** 6 demo partners with pads; 6 demo hospital stations.
+- **Plan quality:** covers 99 % of the simulated demand within 6 km; mean straight-line distance 1.9 km.
+
+### Verification
+- **Tests:** backend **285 passed** (`test_fleet.py`, 28 new); frontend **132 passed** (fleet panel, fleet layers, clustering, app action); `ng build` clean.
+- **E2E** (Playwright/Edge, real UI, Nominatim, all checks passed, no page errors):
+  - **A – medical:** Plac Zbawiciela → Warszawski Szpital Dla Dzieci station (capacity 2).
+    - SR-022 was reserved and the station showed 1 reserved, 1 free.
+    - 6 simulated steps followed. The station was occupied while landed, then freed; the drone returned home CHARGING.
+    - An earlier attempt to the Ursynów station was correctly refused: the round trip of 20–25 km exceeds the usable range.
+  - **B – restaurant:** the demo partner "Tasty" popup was opened, then "Order food delivery" set Point A to the pad. Point B was set to Stadion Narodowy by search.
+    - The drone came from depot-07, and the pad was reserved → occupied while loading → freed.
+  - **C – busy centre:**
+    - Under CENTRAL_PEAK, depot 05 (Śródmieście) needs ~21.9 drones at peak against 12 spaces: HIGH.
+    - Central depots are more utilised than outlying ones.
+    - Raising the capacity to 22 in admin dropped utilisation from 1.83 to 1.0; it was then restored.
+
+## Phase 9: UI redesign, simplified planner, LIVE weather, building-level addresses (done, 2026-10-18)
+
+- **Layout:**
+  - The right column was removed; the map fills the space next to the plan-route panel.
+  - **Layers** (top right, `MapLayersControlComponent` + `MapLayerStore`):
+    - all 15 layers with the specified defaults, kept per browser session;
+    - DRA categories as sub-options with dynamic counts;
+    - a warning when official data is missing.
+    The map registers each Leaflet layer under its key instead of using Leaflet's layer control. Building tiles load only while the layer is on and at zoom ≥ 15.
+  - **Route Details** (directly below; `RouteDetailsPanelComponent`):
+    - overview, weather, drone and safety sections, plus the calculation time;
+    - no zone list;
+    - it opens by itself for a new route.
+  - **Airspace Legend** (bottom; `AirspaceLegendComponent`):
+    - colours shared with the map styles, altitude, evaluation time, provider, freshness and verification;
+    - the zone list, diagnostics and map symbols are in expandable sections.
+  - One top-right panel opens at a time.
+  - Responsive: at 414 px there is no horizontal overflow, and panels stay inside the map.
+- **Planner:**
+  - **Removed from the UI:** scenario cards, the departure picker, the profile dropdown and the sample-route buttons. The scenario and fixture store methods remain, and the API still accepts `scenario`.
+  - **Defaults:** Flight Mode Normal/Emergency; Route Optimisation **Fastest** (default) / Shortest / Balanced; fixed **Standard Drone** (`DEMO_DRONE_01`, read-only); weather **LIVE** (`WeatherStatusComponent`).
+- **Contract:**
+  - `optimization` (FASTEST / SHORTEST / BALANCED → route objective); a contradiction with `routeObjective` or `scenario` returns 422.
+  - `droneProfileId` defaults to `DEMO_DRONE_01`. The profile ids were restored from the mangled `_DRONE_0x`, with a one-time fleet-DB migration.
+  - The backend sets the calculation time (`app/services/clock.py`, Europe/Warsaw, with an EU daylight-saving fallback because this Windows Python has no tz database). It is returned as `calculatedAt`.
+- **Weather:**
+  - LIVE is real Open-Meteo data.
+  - On failure: CACHED last-live values (≤ 3 h), otherwise sample wind labelled *NOT live data*. In both cases the verification status says "WEATHER NOT CURRENT".
+- **Addresses** (`app/services/address.py`):
+  - A parser for street, building number (incl. `32/34A`), flat (`m.`, `lok.`, `/`) and coordinates.
+  - **GUGiK PRG address points** (UUG service), with every result re-checked against the requested street.
+  - Nominatim with `addressdetails` classified into accuracy levels; a ranked, deduplicated list with an explanatory note.
+  - Flats are kept, never geolocated.
+- **Entrances:**
+  - `scripts/fetch_entrances.py` → 26,772 mapped OSM entrances.
+  - `GET /geocoding/entrances` links them to the building footprint (building tiles); `matchesFlat` comes only from `addr:flats`.
+  - The UI offers them after a building-level match (list and map pins).
+- **Tests:** backend **315 passed** (`test_address_and_contract.py`, 30 new); frontend **158 passed** (overlays spec: 23; planner, address, entrance, map and layout updates); `ng build` clean.
+- **E2E** (Playwright/Edge, real GUGiK, Nominatim and Open-Meteo; all checks passed, no page errors):
+  - **Layout:** Layers top right, Route Details directly below, the Legend at the bottom, no right column.
+  - **Weather:** LIVE Open-Meteo values with the forecast time.
+  - **Layers:** DRA counts of 0 with the missing-data warning. The districts and hospitals toggles work.
+  - **Address A:** "Korotyńskiego 19 m. 60" → PRG building match, flat 60 kept, 4 mapped staircases with *III (flats 53–78) serves flat 60* first. Choosing it moved Point A onto the entrance.
+  - **Address B:** "Al. Jerozolimskie 54" → PRG building match.
+  - **Route:** the request carried exactly `{start, destination, mode, optimization: FASTEST, flightAltitudeMeters, droneProfileId: DEMO_DRONE_01, weatherMode: LIVE}`, with the start at the entrance. The route was OK at 3.79 km with Open-Meteo wind, and Route Details opened with every section.
+  - **Phone (414 px):** no overflow.
+
+## Phase 10: Red geofencing of restricted zones (done, 2026-10-18)
+- **Why no zones showed:** no airspace dataset is loaded (`SKYROUTE_AIRSPACE_PROVIDER=none`). A re-check on 2026-10-18 found no documented, permitted PAŻP dataset, API or ED-269/ED-318 file (pansa.pl/strefy-geograficzne). DroneMap's backend stays unused (undocumented). No zones were fabricated.
+- **Red geofencing:** restricted zones (DRA-R/RH/RM/RL, no authorization) now evaluate as RED, like DRA-P: fill #DC2626 at 0.30 opacity, solid #B91C1C boundary, weight 2. ORANGE is now U-space, or restricted with an authorization. Legend and diagnostics labels follow.
+- **APIs:** `GET /zones/summary` and `GET /airspace/status`. `/map/coverage` reports `routing.airspaceSafetyMarginM`, which the legend shows as a configurable modelling assumption.
+- **Frontend:** the banner reads "Official airspace data unavailable. Routing is an unverified simulation." unless an official file is loaded. Choosing the second point calculates the route at once; settings changes still only invalidate it.
+- **Tests:** `test_geofence.py` covers a deterministic detour around a restricted polygon with exact endpoints, multipolygons, several zones, a hole (not blocked, but unreachable through the ring), entry through a gap, a blocked destination in both modes, and the summary/status endpoints. Backend 328 passed; frontend 162 passed; build clean.
+- **Live check (synthetic zones loaded temporarily, then removed):** the TEST-RM-SOUTH zone was drawn red, choosing A and then B calculated automatically with the exact points, and the 2.41 km route did not intersect the zone, while the straight line did.
+
+## Phase 11: Planning constraints (airports, military, government) and no manual coordinates (done, 2026-10-18)
+- **Request:** routes crossed Chopin Airport. The user asked for airport, army and government areas to be red and avoided.
+- **What was built:**
+  - `scripts/fetch_planning_constraints.py` writes `data/planning_constraints.geojson` with real OSM footprints: 2 airports, 86 military areas and 477 government buildings, including the Sejm, KPRM, MON and the President's Chancellery.
+  - `app/airspace/constraints.py` adds them to the shared airspace dataset as BLOCKED/RED obstacles at every altitude and in every mode, under their own category `PLANNING`. Official-data status is unchanged.
+- **Frontend:**
+  - A "Planning constraints" category with its own count.
+  - A popup notice and a legend row stating they are not official zones.
+  - The manual Coordinates entry was removed from both point inputs.
+- **Tests:**
+  - `test_planning_constraints.py` (8) covers: real footprints, the RED/obstacle evaluation, Chopin avoided in both modes on the real grid, a destination inside the airport or the Sejm blocked, no effect on official status, the on/off switch, reloads, and the reserved category.
+  - Backend 336 passed; frontend 162 passed; build clean.
+- **Live check:** an A→B route across Chopin Airport (picked on the map) was 6.64 km around the airport and intersected none of the 565 constraints.
+
+## Phase 12: Round-trip drone flight simulation (done, 2026-10-18)
+- **Buttons:** "Calculate Route" is now **Find Route**. **Start Simulation** is enabled only for a valid, current route.
+- **Flight:**
+  - The drone flies the displayed route A → B, shows "Destination Reached" and waits 1.5 s.
+  - It then flies a return route B → A, calculated separately by the routing engine (same settings, endpoints swapped), and ends with "Round Trip Completed".
+  - With no valid return route it stops at B with the reason.
+- **Controls:** Pause / Resume / Stop / Restart and 1×, 2×, 5×, 10× playback (1× = 20 simulated seconds per second). An optional "keep the drone in view" setting.
+- **Progress:** phase, location (and district), simulated ground speed, travelled and remaining distance, elapsed and remaining time, percentage, and a progress bar.
+- **Map:** a rotating SVG quadcopter above all layers, green flown trail, the return route dashed in purple, and A/B markers and red areas kept visible.
+- **Safety:** the animation interpolates only along route geometry from the backend. A change to any setting, the points or the dataset stops the simulation.
+- **Tests:** `simulation.spec.ts` (11), map and panel specs. Frontend 175 passed; build clean. Backend unchanged.
+- **Live check:** two real address pairs (Al. Jerozolimskie 54 → Korotyńskiego 19; Grójecka 17 → Nowy Świat 10).
+  - Both completed the round trip, with return routes that differ from the reversed outbound.
+  - Sampled drone positions stayed within 0.02 m of the routes, and neither route crossed a red area.
+  - The drone ended 0.00 m from A, and Pause held the position.
 
 ## Next
 - Obtain a permitted official zone export from PAŻP and validate the ED-269 mapping against it (see DATA_SOURCES.md).

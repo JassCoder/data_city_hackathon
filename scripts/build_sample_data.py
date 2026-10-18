@@ -1,13 +1,14 @@
-"""Writes the hand-written SYNTHETIC datasets:
+"""Writes optional synthetic sample datasets:
 
-- data/airspace/demo_zones.geojson: DEMO UAS geographical zones using the Polish
+- data/airspace/sample_zones.geojson: UAS geographical-zone test examples using Polish
   DRA categories, in the normalized airspace format (app/airspace/models.py).
 - data/landing_stations.geojson
 
 Everything here is invented. The zone boundaries are NOT official PAŻP zones,
-and the stations are NOT real facilities. Edit the tables below and re-run:
+and the stations are NOT real facilities. The app does not load these zones by
+default. Edit the tables below and re-run:
 
-    backend/.venv/Scripts/python scripts/build_demo_data.py
+    backend/.venv/Scripts/python scripts/build_sample_data.py
 """
 
 from __future__ import annotations
@@ -21,19 +22,19 @@ from shapely.geometry import Point, Polygon, mapping, shape
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 from app.airspace.geometry import geodesic_circle  # noqa: E402
-from app.config import AIRSPACE_DEMO_FILE, DATA_DIR, DATA_FILES, DEMO_BBOX  # noqa: E402
+from app.config import AIRSPACE__FILE, DATA_DIR, DATA_FILES, _BBOX  # noqa: E402
 
 TIMESTAMP = "2026-10-17T00:00:00Z"
 DISCLAIMER = (
-    "SYNTHETIC DEMO DATA. These boundaries are invented for the SkyRoute prototype and are NOT "
-    "official PAŻP geographical zones. Check PAŻP DroneMap/DroneTower before any real flight."
+    "Synthetic sample zones for testing only. These boundaries are invented and are NOT "
+    "official PAŻP geographical zones."
 )
 
 BASE = {
-    "source": "SkyRoute DEMO dataset (synthetic)",
-    "sourceType": "DEMO",
+    "source": "SkyRoute set (synthetic)",
+    "sourceType": "SYNTHETIC",
     "sourceTimestamp": TIMESTAMP,
-    "verificationStatus": "SYNTHETIC_DEMO",
+    "verificationStatus": "SYNTHETIC",
     "validityStart": None,
     "validityEnd": None,
 }
@@ -41,7 +42,7 @@ BASE = {
 # Each zone: normalized properties + either "ring" (polygon, lon/lat) or "circle".
 ZONES = [
     {
-        "id": "DEMO-P-SEJM", "name": "DEMO prohibited area: Sejm / Wiejska",
+        "id": "-P-SEJM", "name": " prohibited area: Sejm / Wiejska",
         "draCategory": "DRA-P", "restrictionType": "PROHIBITED",
         "lowerAltitude": 0, "upperAltitude": 300, "altitudeReference": "AGL",
         "authorizationRequired": True,
@@ -49,7 +50,7 @@ ZONES = [
         "ring": [(21.0245, 52.2238), (21.0322, 52.2236), (21.0330, 52.2262), (21.0290, 52.2275), (21.0250, 52.2268)],
     },
     {
-        "id": "DEMO-P-CASTLE", "name": "DEMO prohibited circle: Royal Castle",
+        "id": "-P-CASTLE", "name": " prohibited circle: Royal Castle",
         "draCategory": "DRA-P", "restrictionType": "PROHIBITED",
         "lowerAltitude": None, "upperAltitude": 350, "altitudeReference": "AMSL",
         "authorizationRequired": True,
@@ -57,7 +58,7 @@ ZONES = [
         "circle": {"center": [21.0152, 52.2478], "radiusM": 140},
     },
     {
-        "id": "DEMO-RM-PKIN", "name": "DEMO restricted area: Palace of Culture",
+        "id": "-RM-PKIN", "name": " restricted area: Palace of Culture",
         "draCategory": "DRA-RM", "restrictionType": "AUTHORIZATION_REQUIRED",
         "lowerAltitude": 0, "upperAltitude": 250, "altitudeReference": "AGL",
         "authorizationRequired": True,
@@ -66,7 +67,7 @@ ZONES = [
     },
     *[
         {
-            "id": f"DEMO-RH-SCHOOL-{key}", "name": f"DEMO restricted circle: school, {label}",
+            "id": f"-RH-SCHOOL-{key}", "name": f" restricted circle: school, {label}",
             "draCategory": "DRA-RH", "restrictionType": "AUTHORIZATION_REQUIRED",
             "lowerAltitude": 0, "upperAltitude": 60, "altitudeReference": "AGL",
             "authorizationRequired": True,
@@ -80,7 +81,7 @@ ZONES = [
         ]
     ],
     {
-        "id": "DEMO-T-UW", "name": "DEMO technical-requirements area: University campus",
+        "id": "-T-UW", "name": " technical-requirements area: University campus",
         "draCategory": "DRA-T", "restrictionType": "TECHNICAL_REQUIREMENTS",
         "lowerAltitude": 0, "upperAltitude": 120, "altitudeReference": "AGL",
         "authorizationRequired": None,
@@ -88,7 +89,7 @@ ZONES = [
         "ring": [(21.0172, 52.2392), (21.0212, 52.2392), (21.0215, 52.2418), (21.0175, 52.2420)],
     },
     {
-        "id": "DEMO-U-PORT", "name": "DEMO U-space area: Port Czerniakowski",
+        "id": "-U-PORT", "name": " U-space area: Port Czerniakowski",
         "draCategory": "DRA-U", "restrictionType": "USPACE_SERVICES_REQUIRED",
         "lowerAltitude": 0, "upperAltitude": 120, "altitudeReference": "AGL",
         "authorizationRequired": None,
@@ -96,7 +97,7 @@ ZONES = [
         "ring": [(21.0400, 52.2170), (21.0470, 52.2170), (21.0470, 52.2205), (21.0400, 52.2205)],
     },
     {
-        "id": "DEMO-I-VISTULA", "name": "DEMO information area: Vistula bridge works",
+        "id": "-I-VISTULA", "name": " information area: Vistula bridge works",
         "draCategory": "DRA-I", "restrictionType": "INFORMATION",
         "lowerAltitude": 0, "upperAltitude": 120, "altitudeReference": "AGL",
         "authorizationRequired": False,
@@ -104,7 +105,7 @@ ZONES = [
         "ring": [(21.0330, 52.2330), (21.0430, 52.2330), (21.0470, 52.2400), (21.0360, 52.2410)],
     },
     {
-        "id": "DEMO-RL-EVENT", "name": "DEMO temporary restricted area: Plac Piłsudskiego event",
+        "id": "-RL-EVENT", "name": " temporary restricted area: Plac Piłsudskiego event",
         "draCategory": "DRA-RL", "restrictionType": "AUTHORIZATION_REQUIRED",
         "lowerAltitude": 0, "upperAltitude": 150, "altitudeReference": "AGL",
         "authorizationRequired": True,
@@ -113,7 +114,7 @@ ZONES = [
         "ring": [(21.0085, 52.2400), (21.0140, 52.2400), (21.0140, 52.2430), (21.0085, 52.2430)],
     },
     {
-        "id": "DEMO-X-INCOMPLETE", "name": "DEMO zone with incomplete metadata",
+        "id": "-X-INCOMPLETE", "name": " zone with incomplete metadata",
         "draCategory": "UNKNOWN", "restrictionType": "UNKNOWN",
         "lowerAltitude": None, "upperAltitude": None, "altitudeReference": "UNKNOWN",
         "authorizationRequired": None, "operationalConditions": None,
@@ -158,25 +159,30 @@ def main() -> None:
     zones = {
         "type": "FeatureCollection",
         "metadata": {
-            "provider": "skyroute-demo",
-            "sourceType": "DEMO",
-            "label": "SkyRoute DEMO airspace (synthetic, non-authoritative)",
+            "provider": "skyroute-sample",
+            "sourceType": "SYNTHETIC",
+            "label": "Synthetic sample airspace (not official)",
             "sourceTimestamp": TIMESTAMP,
             "disclaimer": DISCLAIMER,
             # The synthetic zones were only drawn for central Warsaw: elsewhere zones are unknown.
-            "extent": DEMO_BBOX,
-            "extentLabel": "DEMO zones exist only for central Warsaw (Śródmieście / Powiśle)",
+            "extent": _BBOX,
+            "extentLabel": "Sample zones exist only for central Warsaw (Śródmieście / Powiśle)",
         },
         "features": [_zone_feature(z) for z in ZONES],
     }
     stations = {
         "type": "FeatureCollection",
-        "metadata": {"layer": "landing_stations", "source": "DEMO", "disclaimer": DISCLAIMER, "timestamp": TIMESTAMP},
+        "metadata": {
+            "layer": "landing_stations",
+            "source": "SYNTHETIC",
+            "disclaimer": "Synthetic sample landing locations; not real facilities.",
+            "timestamp": TIMESTAMP,
+        },
         "features": [
             {
                 "type": "Feature",
                 "properties": {"id": sid, "name": name, "station_type": stype, "status": status,
-                               "capacity": capacity, "source": "DEMO"},
+                               "capacity": capacity, "source": "SYNTHETIC"},
                 "geometry": mapping(Point(lon, lat)),
             }
             for sid, name, stype, status, capacity, lon, lat in STATIONS
@@ -190,9 +196,9 @@ def main() -> None:
             if z["draCategory"] != "DRA-I" and _zone_area(z).intersects(pt):
                 raise SystemExit(f"Station {s['properties']['id']} lies inside zone {z['id']}")
 
-    AIRSPACE_DEMO_FILE.parent.mkdir(parents=True, exist_ok=True)
-    AIRSPACE_DEMO_FILE.write_text(json.dumps(zones, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"wrote {AIRSPACE_DEMO_FILE.relative_to(REPO_ROOT)}: {len(zones['features'])} zones")
+    AIRSPACE__FILE.parent.mkdir(parents=True, exist_ok=True)
+    AIRSPACE__FILE.write_text(json.dumps(zones, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"wrote {AIRSPACE__FILE.relative_to(REPO_ROOT)}: {len(zones['features'])} zones")
     path = DATA_DIR / DATA_FILES["stations"]
     path.write_text(json.dumps(stations, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"wrote {path.relative_to(REPO_ROOT)}: {len(stations['features'])} stations")

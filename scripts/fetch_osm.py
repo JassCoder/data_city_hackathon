@@ -6,7 +6,7 @@ the repo root with the backend venv:
     backend/.venv/Scripts/python scripts/fetch_osm.py
 
 Writes (all committed; the backend never calls Overpass):
-  data/osm/grid_warsaw_25m.npz   routing raster: max building height, river, park masks
+  data/osm/grid_warsaw_25m.npz   routing raster: max KNOWN building height, unknown-height mask, river, park
   data/osm/tiles/14/x/y.json.gz  building footprints per z14 tile (display at street zoom)
   data/osm/buildings_index.json  tile list + building statistics
   data/corridors.geojson         river + parks/green >= 5000 m² for display
@@ -57,7 +57,6 @@ OVERPASS_ENDPOINTS = [
 ]
 TIMEOUT_S = 300
 QUERY_TILES = 4  # 4 x 4 Overpass requests per layer
-DEFAULT_HEIGHT_M = 15.0
 LEVEL_HEIGHT_M = 3.0
 MIN_PARK_AREA_M2 = 1000.0  # raster: drop traffic-island grass etc.
 MIN_DISPLAY_PARK_AREA_M2 = 5000.0  # display layer only
@@ -190,14 +189,17 @@ def _parse_number(raw):
     return val if val > 0 else None
 
 
-def building_height(tags: dict) -> tuple[float, str]:
+def building_height(tags: dict) -> tuple[float | None, str]:
+    """Height from OSM `height`, else estimated from `building:levels` x 3 m.
+    Without either the height is UNKNOWN (None): it is never invented here. How
+    routing treats unknown heights is a configured policy (app/config.py)."""
     h = _parse_number(tags.get("height"))
     if h is not None:
         return round(h, 1), "osm_height"
     levels = _parse_number(tags.get("building:levels"))
     if levels is not None:
         return round(levels * LEVEL_HEIGHT_M, 1), "levels_x3"
-    return DEFAULT_HEIGHT_M, "default_15m"
+    return None, "unknown"
 
 
 def tile_of(lon: float, lat: float, z: int) -> tuple[int, int]:
@@ -216,7 +218,8 @@ class Raster:
         self.min_x, self.min_y = math.floor(minx / c) * c, math.floor(miny / c) * c
         self.cols = math.ceil((maxx - self.min_x) / c)
         self.rows = math.ceil((maxy - self.min_y) / c)
-        self.height = np.zeros((self.rows, self.cols), np.float32)
+        self.height = np.zeros((self.rows, self.cols), np.float32)  # known heights only
+        self.unknown = np.zeros((self.rows, self.cols), bool)  # covered by a building of unknown height
         self.river = np.zeros((self.rows, self.cols), bool)
         self.park = np.zeros((self.rows, self.cols), bool)
 
@@ -233,15 +236,21 @@ class Raster:
         gx, gy = np.meshgrid(xs, ys)
         return (rs, cs), shapely.contains_xy(geom_m, gx, gy)
 
-    def add_building(self, geom_m, h):
+    def add_building(self, geom_m, h: float | None):
         win, inside = self.centres_inside(geom_m)
         if inside.any():
-            self.height[win] = np.where(inside, np.maximum(self.height[win], h), self.height[win])
+            if h is None:
+                self.unknown[win] |= inside
+            else:
+                self.height[win] = np.where(inside, np.maximum(self.height[win], h), self.height[win])
         else:  # small footprint: mark the cell of its representative point
             p = geom_m.representative_point()
             c, r = int((p.x - self.min_x) // CELL_SIZE_M), int((p.y - self.min_y) // CELL_SIZE_M)
             if 0 <= r < self.rows and 0 <= c < self.cols:
-                self.height[r, c] = max(self.height[r, c], h)
+                if h is None:
+                    self.unknown[r, c] = True
+                else:
+                    self.height[r, c] = max(self.height[r, c], h)
 
     def add_area(self, geom_m, layer):
         win, inside = self.centres_inside(geom_m)
@@ -287,7 +296,7 @@ def main() -> int:
         if f is None:
             continue
         tiles.setdefault(tile_of(rp.x, rp.y, BUILDING_TILE_ZOOM), []).append(f)
-        if h >= TALL_BUILDING_M:
+        if h is not None and h >= TALL_BUILDING_M:
             tall.append(f)
 
     river_polys, display = [], []
@@ -324,7 +333,7 @@ def main() -> int:
 
     # --- write (temp dir, then swap) ---
     fetched = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    stats = {"buildings": n_buildings, "tallBuildings": len(tall), "estimatedHeights": sources.get("default_15m", 0),
+    stats = {"buildings": n_buildings, "tallBuildings": len(tall), "unknownHeights": sources.get("unknown", 0),
              "heightSources": sources, "parks": len(display) - 1, "tiles": len(tiles)}
     meta = {"source": "OpenStreetMap contributors (ODbL), via Overpass API", "fetched_at": fetched,
             "coverage": "City of Warsaw (GUGiK PRG boundary, TERYT 1465)"}
@@ -341,7 +350,8 @@ def main() -> int:
     CITY_GRID_FILE.parent.mkdir(parents=True, exist_ok=True)
     grid_meta = {"crs": "EPSG:2180", "min_x": raster.min_x, "min_y": raster.min_y, "cell": CELL_SIZE_M,
                  "rows": raster.rows, "cols": raster.cols, **meta, "stats": stats}
-    np.savez_compressed(CITY_GRID_FILE, building_height=raster.height, river=raster.river, park=raster.park,
+    np.savez_compressed(CITY_GRID_FILE, building_height=raster.height, building_unknown=raster.unknown,
+                        river=raster.river, park=raster.park,
                         meta=np.array(json.dumps(grid_meta)))
     BUILDINGS_INDEX_FILE.write_text(json.dumps({**meta, "zoom": BUILDING_TILE_ZOOM, "stats": stats,
                                                 "tiles": sorted(f"{x}/{y}" for x, y in tiles)}), encoding="utf-8")

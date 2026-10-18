@@ -1,5 +1,5 @@
 """Citywide coverage, corridor search and district-to-district routing on the
-real data (official boundary, citywide OSM raster, DEMO airspace)."""
+real data (official boundary, citywide OSM raster,  airspace)."""
 
 import gzip
 import json
@@ -41,7 +41,7 @@ def pt(name):
 
 def body(start, dest, **over):
     return {"start": start, "destination": dest, "mode": "NORMAL", "flightAltitudeMeters": 80,
-            "droneProfileId": "DEMO_DRONE_01", "weatherMode": "DEMO", **over}
+            "droneProfileId": "DEMO_DRONE_01", "weatherMode": "SAMPLE", **over}
 
 
 @pytest.fixture(scope="module")
@@ -101,7 +101,7 @@ def test_long_distance_route_performance(client):
     assert again["search"]["cached"] is True and again["geometry"] == r["geometry"]
 
 
-def test_route_outside_demo_airspace_extent_is_flagged(client):
+def test_route_outside__airspace_extent_is_flagged(client):
     r = client.post(URL, json=body(pt("Bemowo"), pt("Wawer"))).json()
     assert r["status"] == "OK"
     assert r["coverage"]["airspaceOutsideExtentM"] > 1000
@@ -119,13 +119,13 @@ def test_endpoint_outside_warsaw(client, which):
 
 
 def test_restricted_zone_near_destination(client):
-    # Just west of the DEMO-P-SEJM polygon (west edge ~21.0245): allowed, ends at the exact point.
+    # Just west of the -P-SEJM polygon (west edge ~21.0245): allowed, ends at the exact point.
     dest = {"latitude": 52.2250, "longitude": 21.0243}  # ~25 m west of the zone edge
     r = client.post(URL, json=body(pt("Wola"), dest)).json()
     assert r["status"] == "OK"
     end = r["geometry"]["coordinates"][-1]
     assert end == pytest.approx([dest["longitude"], dest["latitude"]], abs=1e-6)
-    assert any(c["zoneId"] == "DEMO-P-SEJM" for c in r["zoneConflicts"])
+    assert any(c["zoneId"] == "-P-SEJM" for c in r["zoneConflicts"])
 
 
 # --- map API -------------------------------------------------------------------
@@ -143,7 +143,7 @@ def test_coverage_endpoint(client):
     assert res["status"] == "AVAILABLE" and res["geometry"]["type"] in ("Polygon", "MultiPolygon")
     assert len(res["districts"]) == 18
     assert res["routing"]["cellSizeM"] == 25 and res["routing"]["maxExpansions"] == ROUTE_MAX_EXPANSIONS
-    assert res["airspace"]["sourceType"] == "DEMO" and res["airspace"]["extent"]["type"] == "Polygon"
+    assert res["airspace"]["sourceType"] == "SYNTHETIC" and res["airspace"]["extent"]["type"] == "Polygon"
 
 
 def test_building_tiles(client):
